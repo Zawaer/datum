@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Blueprints That Talk · Junction 2026 · Stoa challenge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<!-- Render: .venv/bin/python docs/deck/render.py  (-> docs/deck/deck.pdf). Single slide: deck.html?slide=3 -->
+<style>
+  :root {
+    --ink: #0f172a; --ink2: #475569; --muted: #94a3b8; --line: #e2e8f0; --bg: #ffffff; --soft: #f8fafc;
+    --ours: #2563eb; --frontier: #e8590c; --navy: #0b1220;
+  }
+  @page { size: 1920px 1080px; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #cbd5e1; }
+  body { font-family: Inter, "Helvetica Neue", Arial, "DejaVu Sans", sans-serif; color: var(--ink);
+         -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .slide { width: 1920px; height: 1080px; position: relative; overflow: hidden; background: var(--bg);
+           padding: 96px 120px 80px; page-break-after: always; break-after: page; margin: 0 auto 24px; }
+  @media print { .slide { margin: 0; } html, body { background: none; } }
+  body.single .slide { display: none; margin: 0; } body.single .slide.on { display: block; }
+  body.single { background: var(--bg); }
+
+  .kicker { font-size: 26px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--ours); margin-bottom: 22px; }
+  h1 { font-size: 104px; line-height: 1.02; font-weight: 800; letter-spacing: -0.03em; margin: 0 0 28px; }
+  h2 { font-size: 68px; line-height: 1.08; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 40px; max-width: 1600px; }
+  p, li { font-size: 34px; line-height: 1.4; color: var(--ink2); }
+  .big { font-size: 42px; line-height: 1.35; color: var(--ink); }
+  b, strong { color: var(--ink); font-weight: 700; }
+  .foot { position: absolute; left: 120px; right: 120px; bottom: 34px; font-size: 18px; line-height: 1.45; color: var(--muted); }
+  .pg { position: absolute; right: 56px; top: 44px; font-size: 20px; color: var(--muted); font-weight: 600; }
+  .brand { position: absolute; left: 120px; top: 44px; font-size: 20px; font-weight: 700; color: var(--muted); letter-spacing: .02em; }
+  .brand span { color: var(--ours); }
+  .row { display: flex; gap: 56px; }
+  .col { flex: 1; }
+
+  /* title */
+  .title { background: var(--navy); color: #fff; padding-top: 200px; }
+  .title h1 { color: #fff; font-size: 140px; }
+  .title h1 span { color: #60a5fa; }
+  .title .sub { font-size: 46px; line-height: 1.3; color: #cbd5e1; max-width: 1500px; margin-bottom: 90px; }
+  .stats { display: flex; gap: 80px; }
+  .stat .n { font-size: 96px; font-weight: 800; letter-spacing: -0.02em; color: #fff; }
+  .stat .l { font-size: 28px; color: #94a3b8; margin-top: 4px; }
+  .title .foot { color: #64748b; }
+
+  /* example cards */
+  .cards { display: flex; gap: 40px; margin-top: 30px; }
+  .card { flex: 1; border: 2px solid var(--line); border-radius: 22px; padding: 36px 40px; background: var(--soft); }
+  .card .q { font-size: 30px; line-height: 1.35; color: var(--ink); font-weight: 600; margin-bottom: 26px; }
+  .card .a { display: flex; justify-content: space-between; font-size: 32px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .card .a span:last-child { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .bad { color: var(--frontier); } .good { color: var(--ours); }
+
+  /* bar charts */
+  .chart { margin-top: 10px; }
+  .bar-row { display: grid; grid-template-columns: 520px 1fr; align-items: center; gap: 28px; margin: 0 0 18px; }
+  .bar-row .lab { font-size: 30px; color: var(--ink); text-align: right; line-height: 1.15; }
+  .bar-row .lab small { display: block; font-size: 20px; color: var(--muted); }
+  .bars { display: flex; flex-direction: column; gap: 6px; }
+  .bar { height: 30px; display: flex; align-items: center; gap: 14px; }
+  .bar i { display: block; height: 100%; border-radius: 0 4px 4px 0; }
+  .bar.o i { background: var(--ours); } .bar.f i { background: var(--frontier); }
+  .bar em { font-style: normal; font-size: 24px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .single-bars .bar { height: 46px; } .single-bars .bar em { font-size: 30px; }
+  .legend { display: flex; gap: 40px; font-size: 26px; color: var(--ink2); margin: 0 0 26px 548px; }
+  .legend span::before { content: ""; display: inline-block; width: 22px; height: 22px; border-radius: 4px; margin-right: 12px; vertical-align: -3px; background: var(--c); }
+
+  /* pipeline */
+  .flow { display: grid; grid-template-columns: 330px 90px 1fr 90px 380px; align-items: center; margin-top: 10px; }
+  .node { border: 2px solid var(--line); border-radius: 20px; padding: 26px 30px; font-size: 28px; line-height: 1.3; background: var(--soft); }
+  .node b { display: block; font-size: 32px; margin-bottom: 6px; }
+  .arrow { text-align: center; font-size: 56px; color: var(--muted); }
+  .solvers { display: flex; flex-direction: column; gap: 14px; }
+  .solver { border-left: 8px solid var(--ours); background: var(--soft); border-radius: 12px; padding: 16px 24px; font-size: 26px; line-height: 1.3; color: var(--ink2); }
+  .solver b { color: var(--ink); font-size: 28px; }
+  .solver.llm { border-left-color: #94a3b8; }
+  .node.proof { background: #eff6ff; border-color: #bfdbfe; }
+
+  /* screenshots */
+  .shots { display: flex; gap: 36px; }
+  .shot { flex: 1; }
+  .shot img { width: 100%; border-radius: 14px; border: 1px solid var(--line); box-shadow: 0 12px 40px rgba(15,23,42,.14); display: block; }
+  .shot .cap { font-size: 26px; color: var(--ink); margin-top: 18px; line-height: 1.35; }
+  .shot .cap small { display: block; color: var(--muted); font-size: 17px; margin-top: 8px; line-height: 1.35; }
+
+  /* results */
+  table.res { border-collapse: collapse; width: 100%; font-size: 30px; }
+  table.res th { text-align: right; font-size: 22px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 700; padding: 0 0 14px 20px; }
+  table.res th:first-child { text-align: left; padding-left: 0; }
+  table.res td { padding: 13px 0 13px 20px; border-top: 1px solid var(--line); text-align: right; font-variant-numeric: tabular-nums; color: var(--ink2); }
+  table.res td:first-child { text-align: left; padding-left: 0; color: var(--ink); }
+  table.res td.o { color: var(--ours); font-weight: 800; }
+  table.res tr.tot td { border-top: 3px solid var(--ink); font-weight: 800; color: var(--ink); }
+  table.res tr.tot td.o { color: var(--ours); }
+  .tiles { display: flex; flex-direction: column; gap: 26px; }
+  .tile { border-radius: 20px; padding: 28px 34px; background: var(--soft); border: 2px solid var(--line); }
+  .tile .n { font-size: 72px; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .tile .l { font-size: 24px; color: var(--ink2); }
+  .tile.ours { background: #eff6ff; border-color: #bfdbfe; } .tile.ours .n { color: var(--ours); }
+
+  ul.points { list-style: none; padding: 0; margin: 0; }
+  ul.points li { position: relative; padding-left: 52px; margin: 0 0 30px; }
+  ul.points li::before { content: ""; position: absolute; left: 0; top: 16px; width: 24px; height: 24px; border-radius: 6px; background: var(--ours); }
+
+  .team { display: flex; gap: 60px; margin-top: 40px; }
+  .person { font-size: 56px; font-weight: 800; }
+  .links { margin-top: 70px; font-size: 32px; line-height: 1.7; color: var(--ink2); }
+  .links code { font-family: "DejaVu Sans Mono", monospace; font-size: 28px; color: var(--ink); }
+</style>
+</head>
+<body>
+
+<!-- 1 · title -->
+<section class="slide title">
+  <div class="kicker" style="color:#60a5fa">Junction 2026 · Stoa: Make Blueprints Talk</div>
+  <h1>Blueprints <span>That Talk</span></h1>
+  <div class="sub">Ask a construction drawing or a BIM model anything, in any language. Every answer comes with its proof, drawn on the drawing.</div>
+  <div class="stats">
+    <div class="stat"><div class="n">87.2&nbsp;%</div><div class="l">correct on 25,420 held-out<br>test questions</div></div>
+    <div class="stat"><div class="n">$0</div><div class="l">per 1,000 questions<br>(runs locally, no API calls)</div></div>
+    <div class="stat"><div class="n">0.03 s</div><div class="l">per question</div></div>
+  </div>
+  <div class="foot">Toivo and Rene · numbers from <code>runs/router_full_test.summary.md</code>, held-out test split of the Junction dataset</div>
+</section>
+
+<!-- 2 · problem -->
+<section class="slide">
+  <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">2</div>
+  <div class="kicker">The problem</div>
+  <h2>Quantity takeoff is slow by hand, and AI gets it wrong with total confidence.</h2>
+  <p class="big" style="max-width:1560px">Counting doors, measuring rooms, summing walls: estimates and bills of quantities are built on these numbers. Two real answers from a frontier model on our test split:</p>
+  <div class="cards">
+    <div class="card">
+      <div class="q">Swiss apartment plan (PDF):<br>“What is the net floor area of apartment B in m²?”</div>
+      <div class="a"><span>Claude Sonnet 5.5</span><span class="bad">94.73 m²</span></div>
+      <div class="a"><span>Correct answer</span><span>108.3 m²</span></div>
+      <div class="a"><span>Ours, from the CAD geometry</span><span class="good">108.29 m²</span></div>
+    </div>
+    <div class="card">
+      <div class="q">BIM model, Dutch site (IFC plan):<br>“How many windows are there in the model?”</div>
+      <div class="a"><span>Claude Sonnet 5.5</span><span class="bad">0</span></div>
+      <div class="a"><span>Correct answer</span><span>110</span></div>
+      <div class="a"><span>Ours, from the IFC model</span><span class="good">110</span></div>
+    </div>
+  </div>
+  <div class="foot">Examples: question ids 122272 and 88860 in <code>runs/baseline_sonnet_full400.jsonl</code> and <code>runs/router_full_test.jsonl</code>. Drawings: Swiss Dwellings v3.0.0 (Archilyse AG, CC BY 4.0); BIM-Speed Warmond demo site (Garcia &amp; Hartmann 2022, TU Berlin, doi:10.14279/depositonce-16441.2, CC BY 4.0).</div>
+</section>
+
+<!-- 3 · frontier fails -->
+<section class="slide">
+  <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">3</div>
+  <div class="kicker">Measured, not assumed</div>
+  <h2>A frontier model reading the drawing gets 63&nbsp;% right, and most measurements wrong.</h2>
+  <div class="chart single-bars">
+    <div class="bar-row"><div class="lab">Swiss plans · counts</div><div class="bar f"><i style="width:calc(79.6% * 0.85)"></i><em>79.6&nbsp;%</em></div></div>
+    <div class="bar-row"><div class="lab">Finnish raster plans · counts</div><div class="bar f"><i style="width:calc(63.6% * 0.85)"></i><em>63.6&nbsp;%</em></div></div>
+    <div class="bar-row"><div class="lab">IFC models · counts</div><div class="bar f"><i style="width:calc(42.6% * 0.85)"></i><em>42.6&nbsp;%</em></div></div>
+    <div class="bar-row"><div class="lab">Swiss plans · room areas</div><div class="bar f"><i style="width:calc(38.9% * 0.85)"></i><em>38.9&nbsp;%</em></div></div>
+    <div class="bar-row"><div class="lab">IFC models · lengths</div><div class="bar f"><i style="width:calc(13.6% * 0.85)"></i><em>13.6&nbsp;%</em></div></div>
+    <div class="bar-row"><div class="lab">IFC models · room areas</div><div class="bar f"><i style="width:calc(9.3% * 0.85)"></i><em>9.3&nbsp;%</em></div></div>
+    <div class="bar-row"><div class="lab">IFC models · volumes</div><div class="bar f"><i style="width:calc(3.8% * 0.85)"></i><em>3.8&nbsp;%</em></div></div>
+  </div>
+  <p style="margin:26px 0 0 548px; font-size:30px">Claude Sonnet 5.5 given the drawing + question: <b>63.2&nbsp;% overall, $13.06 per 1,000 questions, ~13&nbsp;s each.</b> Wrong answers look exactly as sure as right ones.</p>
+  <div class="foot">Claude Sonnet 5.5, accuracy per source × type on a 400-question sample of the held-out test split, stratified by source × type (~54 per cell, ±~13 pp); the overall figure re-weights the cells to the true test-split mix. Counts exact, measures within 2&nbsp;%. Source: <code>runs/baseline_sonnet_full400.summary.md</code>.</div>
+</section>
+
+<!-- 4 · approach -->
+<section class="slide">
+  <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">4</div>
+  <div class="kicker">Our approach</div>
+  <h2>Route each question to the cheapest method that can answer it exactly, and return the proof.</h2>
+  <div class="flow">
+    <div class="node"><b>Question + drawing</b>any language, PDF · DXF · PNG · IFC</div>
+    <div class="arrow">→</div>
+    <div class="solvers">
+      <div class="solver"><b>CAD plans:</b> geometry read straight from the DXF layers (ezdxf, Shapely)</div>
+      <div class="solver"><b>BIM models:</b> IfcOpenShell counts, areas, lengths, volumes per storey</div>
+      <div class="solver"><b>Raster scans:</b> YOLO11 symbol detector; fine-tuned small VLM (Qwen3-VL, in training)</div>
+      <div class="solver llm"><b>Free text, anything else:</b> a cheap LLM that must cite fact ids or text segments</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="node proof"><b>Answer + proof</b>numbered boxes, room polygons with m², elements lit in 3D. The evidence adds up to the answer.</div>
+  </div>
+  <p style="margin-top:56px; max-width:1640px">The model only ever chooses <i>what</i> to measure. Geometry does the measuring. When a solver is unsure it says “not sure” instead of guessing.</p>
+</section>
+
+<!-- 5 · demo: plans -->
+<section class="slide">
+  <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">5</div>
+  <div class="kicker">Demo · verify in seconds</div>
+  <h2 style="margin-bottom:34px">The answer is counted out on the drawing.</h2>
+  <div class="shots">
+    <div class="shot"><img src="img/step-1.jpg" alt="20 doors numbered on a Swiss plan">
+      <div class="cap"><b>“How many doors?”</b> 20, each numbered on the plan, read from the CAD layers. No model call, $0.
+        <small>Swiss Dwellings v3.0.0, M. Standfest et al. (Archilyse AG), doi:10.5281/zenodo.7788422, CC BY 4.0</small></div></div>
+    <div class="shot"><img src="img/step-2.jpg" alt="Apartment area as the sum of 9 room polygons">
+      <div class="cap"><b>Asked in German:</b> net area of apartment A. 9 rooms outlined with their m², summing to 107.40 m². Untick a room and the total updates.
+        <small>Swiss Dwellings v3.0.0, M. Standfest et al. (Archilyse AG), doi:10.5281/zenodo.7788422, CC BY 4.0</small></div></div>
+  </div>
+</section>
+
+<!-- 6 · demo: raster + 3D -->
+<section class="slide">
+  <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">6</div>
+  <div class="kicker">Demo · scans and BIM</div>
+  <h2 style="margin-bottom:34px">Raster scans get boxes. BIM models light up in 3D.</h2>
+  <div class="shots">
+    <div class="shot"><img src="img/step-4.jpg" alt="Finnish plan with 5 detected doors boxed">
+      <div class="cap"><b>Finnish plan, asked in Finnish:</b> the detector boxes each of the 5 doors it counted.
+        <small>CubiCasa5K, © 2019 CubiCasa; Kalervo, Ylioinas, Häikiö, Karhu, Kannala, SCIA 2019; CC BY-NC-SA 4.0</small></div></div>
+    <div class="shot"><img src="img/step-5b.jpg" alt="12 doors highlighted in a 3D IFC model">
+      <div class="cap"><b>Plan rendered from a BIM model:</b> the 12 doors are IFC elements, lit up in 3D and listed by GlobalId.
+        <small>Molio Demo-hus, buildingSMART Community Sample-Test-Files contributors, CC BY 4.0</small></div></div>
+  </div>
+</section>
+
+<!-- 7 · results -->
+<section class="slide">
+  <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">7</div>
+  <div class="kicker">Results · held-out test split</div>
+  <h2 style="margin-bottom:30px">More accurate than a frontier model, at no inference cost.</h2>
+  <div class="row" style="gap:70px">
+    <div style="flex:1.75">
+      <table class="res">
+        <tr><th>source · type</th><th>n</th><th>ours</th><th>Sonnet 5.5*</th></tr>
+        <tr><td>Swiss plans · counts</td><td>5,580</td><td class="o">100.0&nbsp;%</td><td>79.6&nbsp;%</td></tr>
+        <tr><td>Swiss plans · room areas</td><td>2,634</td><td class="o">99.9&nbsp;%</td><td>38.9&nbsp;%</td></tr>
+        <tr><td>IFC models · counts</td><td>136</td><td class="o">100.0&nbsp;%</td><td>42.6&nbsp;%</td></tr>
+        <tr><td>IFC models · areas · volumes · lengths</td><td>464</td><td class="o">100.0&nbsp;%</td><td>3.8–13.6&nbsp;%</td></tr>
+        <tr><td>Finnish raster plans · counts</td><td>16,496</td><td class="o">80.8&nbsp;%</td><td>63.6&nbsp;%</td></tr>
+        <tr><td>IFC-Bench · free text**</td><td>110</td><td class="o">34.5&nbsp;%</td><td>1.8&nbsp;%</td></tr>
+        <tr class="tot"><td>All test questions</td><td>25,420</td><td class="o">87.2&nbsp;%</td><td>63.2&nbsp;%</td></tr>
+      </table>
+    </div>
+    <div class="tiles" style="flex:1">
+      <div class="tile ours"><div class="n">$0.00</div><div class="l">ours, per 1,000 questions · 0.03 s each</div></div>
+      <div class="tile"><div class="n" style="color:var(--frontier)">$13.06</div><div class="l">Claude Sonnet 5.5 per 1,000 · ~13&nbsp;s each</div></div>
+      <div class="tile"><div class="n" style="color:var(--ink2)">$1.21</div><div class="l">Claude Haiku 5.5 per 1,000 · 60.6&nbsp;% correct</div></div>
+    </div>
+  </div>
+  <div class="foot">Ours: all 25,420 test questions, <code>runs/router_full_test.summary.md</code>. Split by drawing (all formats and language twins together); counts exact, measures within 2&nbsp;%, abstentions wrong.
+    * Frontier: 400-question sample of the test split stratified by source × type, re-weighted to the test-split mix (<code>runs/baseline_{sonnet,haiku}_full400.summary.md</code>); cost at API list price.
+    ** token-F1 ≥ 0.5 proxy; with an LLM judge our text pipeline scores 27.3&nbsp;% (<code>ifctext_combo_test</code>). Pending: fine-tuned VLM and final detector run for raster plans.</div>
+</section>
+
+<!-- 8 · not obsolete -->
+<section class="slide">
+  <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">8</div>
+  <div class="kicker">Why this won’t be obsolete next year</div>
+  <h2>A better model still guesses from pixels. We read the number from the geometry.</h2>
+  <ul class="points">
+    <li><b>Exact where exactness exists.</b> CAD layers and BIM quantities give the true answer; no model generation will beat 100&nbsp;% on those, or $0.</li>
+    <li><b>Proof is the product.</b> A professional signs off a takeoff only if they can check it. Every answer ships with the elements behind it, and its arithmetic.</li>
+    <li><b>Models are plug-ins.</b> When a stronger or cheaper vision model ships, it slots into the raster and fallback paths behind the same evidence contract.</li>
+    <li><b>Corrections are training data.</b> Every unticked or added item is a labelled example for the small local models.</li>
+  </ul>
+</section>
+
+<!-- 9 · product -->
+<section class="slide">
+  <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">9</div>
+  <div class="kicker">Path to product for Stoa</div>
+  <h2>A takeoff engine inside the AI-native construction OS.</h2>
+  <div class="row">
+    <div class="col">
+      <ul class="points">
+        <li><b>Now:</b> drop in a drawing or model, ask in the site’s language, get numbers with a review trail.</li>
+        <li><b>Next:</b> whole drawing sets and revisions: re-run every question on every revision and flag what changed.</li>
+        <li><b>Then:</b> feed checked quantities into estimates, procurement and progress tracking.</li>
+      </ul>
+    </div>
+    <div class="col">
+      <ul class="points">
+        <li><b>Unit economics:</b> $0 marginal cost on CAD and BIM, a small local model on scans; frontier spend only on the rare hard question.</li>
+        <li><b>Trust:</b> answers a human can verify in seconds, and an honest “not sure” instead of a guess.</li>
+        <li><b>Open code:</b> MIT-licensed, every number reproducible with one command.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 10 · team -->
+<section class="slide title" style="padding-top:220px">
+  <div class="kicker" style="color:#60a5fa">Team</div>
+  <div class="team"><div class="person">Toivo</div><div class="person">Rene</div></div>
+  <div class="links" style="color:#cbd5e1">
+    Built at Junction 2026, Espoo, 13–15 Nov, with Claude Code.<br>
+    Source: <code style="color:#fff">github.com/Zawaer/datum</code> (MIT)<br>
+    Reproduce: <code style="color:#fff">python eval.py --solver router --split test</code>
+  </div>
+  <div class="foot">Drawings: Junction 2026 dataset (non-commercial, per-file licences). Swiss Dwellings v3.0.0 (Archilyse AG, CC BY 4.0) · CubiCasa5K (© 2019 CubiCasa, CC BY-NC-SA 4.0) · Molio Demo-hus (buildingSMART Community Sample-Test-Files, CC BY 4.0).</div>
+</section>
+
+<script>
+  const m = new URLSearchParams(location.search).get('slide');
+  if (m) { document.body.classList.add('single'); const s = document.querySelectorAll('.slide')[+m - 1]; if (s) s.classList.add('on'); }
+</script>
+</body>
+</html>
