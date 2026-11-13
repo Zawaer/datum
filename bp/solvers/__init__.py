@@ -8,6 +8,7 @@ SOLVERS = {
     "swiss": "bp.solvers.swiss:SwissSolver",
     "ifc": "bp.solvers.ifc:IfcSolver",
     "cubicasa": "bp.solvers.cubicasa:CubicasaSolver",
+    "generic": "bp.solvers.generic:GenericSolver",
 }
 
 
