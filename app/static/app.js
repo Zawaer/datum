@@ -11,7 +11,7 @@ let tab = 'swiss_dwellings', cur = null, res = null, items = [], marks = [], add
 let session = {n: 0, ours: 0, base: 0};
 let listOffset = 0, listQuery = '';
 let uploads = JSON.parse(localStorage.getItem('bp_uploads') || '[]');
-let askSeq = 0;
+let askSeq = 0, animating = false;
 
 // ------------------------------------------------------------ pan / zoom (mouse, wheel, touch pinch)
 let view = {s: 1, x: 0, y: 0};
@@ -94,7 +94,13 @@ function addAt(cx, cy) {
   draw(false); renderEvidence(); recompute();
 }
 function hint(msg) { $('#hint').hidden = !msg; $('#hint').textContent = msg || ''; }
-function loading(msg) { $('#loading').hidden = !msg; $('#loadmsg').textContent = msg || ''; }
+let loadT = null;
+function loading(msg) {  // overlay with a running clock, so a slow first load never looks frozen
+  clearInterval(loadT); $('#loading').hidden = !msg; $('#loadmsg').textContent = msg || '';
+  if (!msg) return;
+  const t0 = performance.now();
+  loadT = setInterval(() => { const s = (performance.now() - t0) / 1000; if (s > 2.5) $('#loadmsg').textContent = `${msg} ${s.toFixed(0)} s`; }, 500);
+}
 
 // ------------------------------------------------------------ 2D / 3D
 let mode = '2d', loaded3d = null, has3d = false, storeyFocus = 'auto';
@@ -109,7 +115,7 @@ async function ensure3d() {
   if (!window.V3) await new Promise(r => window.addEventListener('v3ready', r, {once: true}));
   if (loaded3d === cur.path) return true;
   const path = cur.path; loaded3d = path;
-  const info = await V3.load(path, (state, msg) => loading(state === 'loading' ? msg : ''));
+  const info = await V3.load(path, (state, msg) => { if (cur.path === path) loading(state === 'loading' ? msg : ''); });
   if (cur.path !== path) return false;
   if (!info) { loaded3d = null; hint('No 3D model could be built for this drawing'); return false; }
   const sel = $('#storey'); sel.innerHTML = '';
@@ -142,7 +148,8 @@ function highlight3d(animate) {
   const it = ifcItems();
   applyStorey(false);
   if (!it.length) { V3.clear(); V3.focusStorey(null, false); return; }
-  V3.highlight(it, animate, animate ? (k => renderAnswer(k)) : null, true, () => { renderAnswer(null); recompute(); });
+  if (animate) animating = true;
+  V3.highlight(it, animate, animate ? (k => renderAnswer(k)) : null, true, animate ? () => { animating = false; renderAnswer(null); recompute(); } : null);
 }
 const guidItem = () => { const m = new Map(); items.forEach((e, i) => (e.guids || []).forEach(g => m.set(g, i))); return m; };
 window.onPick3d = g => {
@@ -178,7 +185,7 @@ async function loadList(append = false) {
   listOffset += r.items.length;
   $('#more').hidden = listOffset >= r.total;
   $('#more').textContent = `show more (${r.total - listOffset} left)`;
-  if (!cur && r.items[0]) select(r.items[0]);
+  if (!cur && r.items[0]) select(r.items[0], 'replace');
 }
 function renderTabs(counts) {
   const tabs = $('#tabs'); tabs.innerHTML = '';
@@ -202,15 +209,23 @@ let searchT; $('#search').oninput = e => { clearTimeout(searchT); searchT = setT
 $('#drawerbtn').onclick = () => document.body.classList.toggle('drawer');
 
 let pendingDraw = null;
-async function select(d) {
-  cur = {...d}; res = null; items = []; marks = []; ov.innerHTML = ''; setAdding(false);
-  $('#answer').hidden = true; $('#evwrap').hidden = true; hint(''); $('#empty').hidden = true;
+async function select(d, how = 'push') {
+  cur = {...d}; res = null; items = []; marks = []; ov.innerHTML = ''; setAdding(false); askSeq++;
+  $('#answer').hidden = true; $('#evwrap').hidden = true; hint(''); $('#empty').hidden = true; $('#intro').hidden = false;
+  syncURL(how);
   document.querySelectorAll('.item').forEach(e => e.classList.toggle('on', e.dataset.path === d.path));
   const r = await fetch('/api/questions?path=' + encodeURIComponent(d.path));
-  if (!r.ok) { $('#empty').hidden = false; $('#empty').textContent = 'This drawing is no longer available.'; return; }
+  if (!r.ok) {
+    if (cur.path !== d.path) return;
+    img.removeAttribute('src'); cur.shown = null; $('#chips').innerHTML = ''; $('#modes').classList.remove('show'); $('#credit').textContent = '';
+    $('#empty').hidden = false;
+    $('#empty').textContent = d.path.startsWith('uploads/') ? 'This upload is no longer on the server (uploads are cleared when it is rebuilt). Upload it again to ask about it.'
+      : 'This drawing is not available. Pick another one from the list.';
+    return;
+  }
   const info = await r.json();
   if (cur.path !== d.path) return;
-  Object.assign(cur, info); has3d = info.has3d; loaded3d = null; if (window.V3) V3.clear();
+  Object.assign(cur, info); has3d = info.has3d; loaded3d = null; loading(''); if (window.V3) V3.clear();
   $('#modes').classList.toggle('show', has3d && !!info.view);
   $('#credit').textContent = info.credit ? '© ' + info.credit : '';
   showImage(info.view);
@@ -263,14 +278,15 @@ async function ask() {
   const question = $('#q').value.trim(); if (!question || !cur) return;
   const seq = ++askSeq;
   setAdding(false);
-  const a = $('#answer'); a.hidden = false; a.classList.remove('pop');
+  const a = $('#answer'); a.hidden = false; a.classList.remove('pop'); $('#intro').hidden = true;
+  if (PHONE.matches) $('#q').blur();  // drop the phone keyboard so the answer is visible
   const steps = THINK[cur.source || cur.split] || THINK[cur.path.startsWith('uploads/') ? 'upload' : ''] || ['reading the drawing'];
   const t0 = performance.now();
   const tick = () => {
     if (seq !== askSeq || res?._seq === seq) return;
     const s = (performance.now() - t0) / 1000;
     a.innerHTML = `<div class="qecho">${esc(question)}</div><div class="thinking"><div><span class="spin"></span> ${esc(steps[Math.min(steps.length - 1, Math.floor(s / 1.5))])}…</div>
-      <small>${s.toFixed(1)} s${s > 6 ? ' · big drawings take longer the first time; nothing is sent to a paid model' : ''}</small></div>`;
+      <small>${s.toFixed(1)} s${s > 6 ? ' · big models load slowly the first time, then answers come from cache' : ''}</small></div>`;
     setTimeout(tick, 100);
   };
   res = null; tick();
@@ -285,6 +301,7 @@ async function ask() {
   }
   if (seq !== askSeq) return;
   res = r; res._seq = seq; res.question = question;
+  syncURL('replace');
   session.n++; session.ours += res.cost_usd || 0; session.base += res.baseline_cost_usd || 0;
   updateMeter();
   a.classList.add('pop');
@@ -299,7 +316,7 @@ async function ask() {
   }
   renderEvidence();
 }
-$('#go').onclick = ask; $('#q').addEventListener('keydown', e => { if (e.key === 'Enter') ask(); });
+$('#go').onclick = ask; $('#q').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) ask(); });
 
 function setupEvidence() {
   const ev = res.evidence || [];
@@ -346,7 +363,24 @@ function zoomToEvidence() {
 
 const fmt = (v, t) => v == null ? '—' : (t === 'count' ? Math.round(v) : (+v).toFixed(2));
 const unitOf = t => ({area: 'm²', length: 'm', volume: 'm³', count: ''}[t] || '');
+const latency = s => s == null ? '' : s < 0.001 ? '&lt; 1 ms' : s < 1 ? (s * 1000).toFixed(0) + ' ms' : s.toFixed(1) + ' s';
 const money = v => v === 0 ? '$0' : v < 0.001 ? '$' + v.toFixed(5) : v < 1 ? '$' + v.toFixed(3) : '$' + v.toFixed(2);
+
+// how was this answer made? one badge + one line, so a judge knows what to trust and how to check it
+function howOf(r) {
+  const m = String(r.method || ''), paid = (r.cost_usd || 0) > 0;
+  if (r.answer == null) return r.budget_exhausted ? {cls: 'none', t: 'Paused: daily budget used', how: 'the $0 solvers for Swiss, CubiCasa and IFC drawings still answer'}
+    : {cls: 'none', t: 'Abstained', how: 'when the evidence is not good enough we say so instead of guessing'};
+  if (/-na$|-none$/.test(m)) return {cls: 'none', t: 'Not in the model', how: 'nothing in the file states this, so we say so rather than guess'};
+  if (/^swiss/.test(m)) return {cls: 'geo', t: 'Verified by geometry', how: 'counted and measured on the CAD layers of the drawing; no AI model involved'};
+  if (/^ifc-text/.test(m)) return {cls: 'geo', t: 'Looked up in the BIM model', how: 'read from the IFC model by a fixed rule; no AI model involved'};
+  if (/^ifc/.test(m) && !/^ifctext/.test(m)) return {cls: 'geo', t: 'Verified by geometry', how: 'queried from the IFC model: every element and quantity that adds up to it is listed'};
+  if (/^cubicasa/.test(m)) return {cls: 'vis', t: 'Detected by vision', how: 'a small detector we trained found each symbol; every box it counted is on the plan'};
+  if (/ground|^vlm/.test(m)) return {cls: 'vis', t: 'Detected by vision', how: 'a vision model boxed every instance it counted; check the boxes on the drawing'};
+  if (/generic-text/.test(m)) return {cls: 'llm', t: 'Answered by an LLM', how: 'a language model read the drawing\'s text; the text it used is boxed on the drawing'};
+  if (/^ifctext/.test(m)) return {cls: 'llm', t: 'Answered by an LLM', how: 'a language model answered from facts extracted from the IFC model' + (paid ? '' : ' (no paid call)')};
+  return {cls: 'llm', t: 'Answered by an AI model', how: 'a model read the drawing; treat it as a lead and check the evidence'};
+}
 
 function renderAnswer(shownSoFar) {
   if (!res) return;
@@ -364,19 +398,20 @@ function renderAnswer(shownSoFar) {
   }
   const abst = res.answer == null;
   const num = typeof res.answer === 'number';
-  const route = res.route && res.route !== '-' ? `<span class="pill">${esc(ROUTE[res.route] || res.route)}</span>` : '';
+  const route = res.route && res.route !== '-' ? `<span class="pill">${esc(res.route.split(' -> ').filter(x => x !== '-').map(x => ROUTE[x] || x).join(' → '))}</span>` : '';
   const baseS = res.baseline_latency_s || 8;
   a.innerHTML = `
     <div class="qecho">${esc(res.question)}</div>
     <div class="big ${abst ? 'abstain' : ''} ${counting ? 'counting' : ''}">${abst ? 'Not sure, so no guess' : num ? fmt(val, t) : ''} <small>${abst ? '' : unitOf(t)}</small></div>
     ${typeof res.answer === 'string' ? `<div class="textans">${esc(res.answer)}</div>` : ''}
+    ${(() => { const h = howOf(res); return `<div class="how ${h.cls}"><b>${h.cls === 'geo' ? '✓' : h.cls === 'vis' ? '◎' : h.cls === 'llm' ? '✦' : '–'} ${esc(h.t)}</b><span>${esc(h.how)}</span></div>`; })()}
     <div class="expl">${esc(res.explanation || '')}</div>
     <div class="row" style="margin-top:10px">${abst ? '' : `<span class="pill ${confCls}">confidence ${(conf * 100).toFixed(0)}%</span>`}
       ${route}${gold}</div>
     <div class="corr" id="corr"></div>
     <div class="costcmp">
       <span class="lab">this answer</span><span><span class="mbar" style="display:block"><i style="width:${Math.max(0.5, 100 * (res.cost_usd || 0) / Math.max(res.baseline_cost_usd || 1e-9, res.cost_usd || 0))}%"></i></span></span>
-      <span class="v"><b>${money(res.cost_usd || 0)}</b> · ${res.latency_s < 1 ? (res.latency_s * 1000).toFixed(0) + ' ms' : res.latency_s.toFixed(1) + ' s'}</span>
+      <span class="v"><b>${money(res.cost_usd || 0)}</b> · ${latency(res.latency_s)}</span>
       <span class="lab">frontier VLM</span><span><span class="mbar" style="display:block"><i class="base" style="width:100%"></i></span></span>
       <span class="v">~${money(res.baseline_cost_usd || 0)} · ~${baseS.toFixed(0)} s</span>
     </div>`;
@@ -388,12 +423,15 @@ function updateMeter() {
   $('#m-ours').textContent = money(session.ours); $('#m-base').textContent = money(session.base);
   $('#bar-ours').style.width = (100 * session.ours / mx) + '%'; $('#bar-base').style.width = (100 * session.base / mx) + '%';
   const saved = session.base > 0 ? 100 * (1 - session.ours / session.base) : 0;
-  $('#m-sum').innerHTML = `${session.n} question${session.n === 1 ? '' : 's'} · <b>${saved >= 99.95 ? '100' : saved.toFixed(1)}% cheaper</b>` +
-    (session.ours > 0 ? ` (${(session.base / session.ours).toFixed(0)}×)` : ' · no model calls');
+  $('#m-sum').innerHTML = `<span class="only-desk">${session.n} question${session.n === 1 ? '' : 's'} · </span>` + (saved >= 0
+    ? `<b>${saved >= 99.95 ? '100' : saved.toFixed(1)}% cheaper</b>` + (session.ours > 0 ? ` (${(session.base / session.ours).toFixed(0)}×)` : '<span class="only-desk"> · no model calls</span>')
+    : `${(-saved).toFixed(0)}% dearer`);
+  $('#meter').dataset.short = `ours ${money(session.ours)} vs frontier ${money(session.base)}`;
 }
 
 // ------------------------------------------------------------ evidence overlay
-function labelSize() { return 14 / view.s; }
+const PHONE = matchMedia('(max-width: 860px)');
+function labelSize() { return (PHONE.matches ? 11 : 14) / view.s; }
 function rescaleLabels() {
   const fs = labelSize();
   ov.querySelectorAll('circle.badgebg').forEach(c => c.setAttribute('r', fs * 0.78));
@@ -412,8 +450,8 @@ function draw(animate) {
     const show = () => { ov.appendChild(shapeFor(e, i, W, H)); if (animate) renderAnswer(k + 1); };
     if (animate) setTimeout(() => { if (res && items[i] === e) show(); }, k * step); else show();
   });
-  const done = () => { renderAnswer(null); recompute(); };
-  if (animate) setTimeout(done, list2d.length * step + 60); else done();
+  const done = () => { animating = false; renderAnswer(null); recompute(); };
+  if (animate) { animating = true; setTimeout(done, list2d.length * step + 60); } else done();
 }
 function shapeFor(e, i, W, H) {
   const g = document.createElementNS(NS, 'g'); g.dataset.i = i;
@@ -438,14 +476,14 @@ function shapeFor(e, i, W, H) {
   shape.appendChild(tip);
   g.appendChild(shape);
   if (i >= 0) {
-    shape.addEventListener('click', ev => { ev.stopPropagation(); if (adding || moved) return; e.on = !e.on; redraw(); flashRow(i); });
+    shape.addEventListener('click', ev => { if (adding) return; ev.stopPropagation(); if (moved) return; e.on = !e.on; redraw(); flashRow(i); });
     shape.addEventListener('mouseenter', () => rowHot(i, true, true));
     shape.addEventListener('mouseleave', () => rowHot(i, false));
   } else if (e.guids) {
     shape.addEventListener('mouseenter', () => { const j = guidItem().get(e.guids[0]); if (j != null) rowHot(j, true, true); });
   }
-  if (i >= 0 && e.kind === 'box' && e.on) {
-    const n = items.slice(0, i + 1).filter(x => x.on && x.kind === 'box').length;
+  if (i >= 0 && numbered(e) && e.on) {
+    const n = items.slice(0, i + 1).filter(x => x.on && numbered(x)).length;
     const c = document.createElementNS(NS, 'circle');
     c.setAttribute('cx', lx); c.setAttribute('cy', ly); c.setAttribute('r', fs * 0.78);
     c.setAttribute('class', 'badgebg' + (e.added ? ' added' : '')); g.appendChild(c);
@@ -461,6 +499,9 @@ function shapeFor(e, i, W, H) {
   }
   return g;
 }
+
+// boxes, and room polygons in a count question, carry a running number on the drawing and in the list
+function numbered(e) { return e.kind === 'box' || (e.kind === 'polygon' && res && res.type === 'count'); }
 
 // ------------------------------------------------------------ evidence list
 function renderEvidence() {
@@ -478,11 +519,11 @@ function renderEvidence() {
   let k = 0;
   items.forEach((e, i) => {
     const d = document.createElement('div'); d.className = (e.on ? '' : 'off') + (e.added ? ' added' : ''); d.dataset.i = i;
-    if (e.kind === 'box' && e.on) k++;
+    if (numbered(e) && e.on) k++;
     const name = e.kind === 'box' ? (e.label || 'item').replace(/ \d+$/, '') : (e.label || (e.kind === 'polygon' ? 'region' : 'item'));
-    const lead = e.kind === 'box' ? `<span class="n">${e.on ? '#' + k : '–'}</span>` : `<span class="n">${i + 1}</span>`;
+    const lead = numbered(e) ? `<span class="n">${e.on ? '#' + k : '–'}</span>` : `<span class="n">${i + 1}</span>`;
     const val = e.value != null && t !== 'count' ? fmt(e.value, t) + ' ' + unitOf(t) : '';
-    d.innerHTML = `<span title="${esc(name)}">${lead}${esc(name)}</span><span>${val}</span>`;
+    d.innerHTML = `${lead}<span class="nm" title="${esc(name)}">${esc(name)}</span><span class="vl">${val}</span>`;
     d.onmouseenter = () => hotItem(i, true); d.onmouseleave = () => hotItem(i, false);
     d.onclick = () => { e.on = !e.on; redraw(); };
     ev.appendChild(d);
@@ -509,7 +550,10 @@ function hotItem(i, on) {
 function rowHot(i, on, scroll) {
   const r = $(`#ev div[data-i="${i}"]`); if (!r) return;
   r.classList.toggle('hot', on);
-  if (on && scroll) r.scrollIntoView({block: 'nearest'});
+  if (on && scroll) {  // scroll the list only, never the page (on a phone the page scroll would hide the drawing)
+    const box = $('#ev'), top = r.offsetTop, bot = top + r.offsetHeight;
+    if (top < box.scrollTop) box.scrollTop = top; else if (bot > box.scrollTop + box.clientHeight) box.scrollTop = bot - box.clientHeight + 30;
+  }
   const s = ov.querySelector(`g[data-i="${i}"] rect, g[data-i="${i}"] polygon`); if (s) s.classList.toggle('hot', on);
 }
 function flashRow(i) { rowHot(i, true, true); setTimeout(() => rowHot(i, false), 700); }
@@ -537,7 +581,7 @@ async function typeQuestion(text) {
 }
 async function runStep() {
   const s = tour[tourI];
-  $('#caption').hidden = false;
+  $('#caption').hidden = false; document.body.classList.add('touring');
   $('#capstep').textContent = `Demo tour · ${tourI + 1} / ${tour.length}`;
   $('#captitle').textContent = s.title; $('#captext').textContent = s.caption || '';
   $('#tnext').textContent = tourI === tour.length - 1 ? 'finish ✓' : 'next ›';
@@ -545,14 +589,15 @@ async function runStep() {
   const myI = tourI;
   if (s.path && (!cur || cur.path !== s.path)) {
     tab = s.source || tab;
-    await select({path: s.path, source: s.source, split: s.split || ''});
+    await select({path: s.path, source: s.source, split: s.split || ''}, 'replace');
     loadList();
   }
   if (s.question) {
     await sleep(400); await typeQuestion(s.question); await sleep(250);
     if (myI !== tourI) return;
     await ask();
-    await sleep(2400);
+    for (let t = 0; t < 12000 && animating; t += 100) await sleep(100);  // let the count finish, however slow the GPU
+    await sleep(1200);
   }
   for (const act of s.actions || []) {
     if (myI !== tourI) return;
@@ -573,7 +618,7 @@ async function doAction(act) {
   else if (k === 'storey') { storeyFocus = arg; $('#storey').value = arg; applyStorey(true); await sleep(600); }
   else if (k === 'hover') { const i = +arg; hotItem(i, true); rowHot(i, true, true); await sleep(1400); hotItem(i, false); rowHot(i, false); }
 }
-function endTour() { tour = null; $('#caption').hidden = true; }
+function endTour() { tour = null; $('#caption').hidden = true; document.body.classList.remove('touring'); }
 $('#tourbtn').onclick = () => startTour(false);
 $('#tnext').onclick = () => { if (!tour) return; if (tourI < tour.length - 1) { tourI++; runStep(); } else endTour(); };
 $('#tprev').onclick = () => { if (tour && tourI > 0) { tourI--; runStep(); } };
@@ -581,11 +626,51 @@ $('#texit').onclick = endTour;
 window.bpTour = {start: startTour, next: () => $('#tnext').click(), get step() { return tourI; }, get steps() { return tour; }};
 
 // ------------------------------------------------------------ start
-(async () => {
+// ------------------------------------------------------------ URL state (reload / share / back / forward)
+function syncURL(how) {
+  if (!cur || how === 'none') return;
+  const p = new URLSearchParams();
+  p.set('tab', tab); p.set('path', cur.path); if (res && res.question) p.set('q', res.question);
+  const u = location.pathname + '?' + p.toString();
+  if (u === location.pathname + location.search) return;
+  history[how === 'push' ? 'pushState' : 'replaceState'](null, '', u);
+}
+async function restore(first) {
   const p = new URLSearchParams(location.search);
-  if (p.get('tab')) tab = p.get('tab');
-  if (p.get('path')) await select({path: p.get('path'), source: tab, split: ''});
-  await loadList();
-  if (p.get('q')) { $('#q').value = p.get('q'); ask(); }
+  const t = p.get('tab'), path = p.get('path'), q = p.get('q');
+  const tabChanged = t && t !== tab && (SRC[t]);
+  if (tabChanged) tab = t;
+  if (path && (!cur || cur.path !== path)) await select({path, source: tab, split: tab === 'upload' ? 'upload' : ''}, 'none');
+  if (first || tabChanged) await loadList();
+  if (q && (!res || res.question !== q)) { $('#q').value = q; await ask(); }
+  else if (!q && res) { askSeq++; res = null; items = []; marks = []; ov.innerHTML = ''; $('#answer').hidden = true; $('#evwrap').hidden = true; $('#intro').hidden = false; $('#q').value = ''; fit(); }
+}
+window.addEventListener('popstate', () => { if (tour) endTour(); restore(false); });
+
+// ------------------------------------------------------------ keyboard
+document.addEventListener('keydown', e => {
+  const typing = e.target.matches('input, textarea, select');
+  if (e.key === 'Escape') {
+    if (tour) endTour();
+    else if (adding) setAdding(false);
+    else if (document.body.classList.contains('drawer')) document.body.classList.remove('drawer');
+    else if (typing) e.target.blur();
+    return;
+  }
+  if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === '/') { e.preventDefault(); $('#q').focus(); $('#q').select(); }
+  else if (tour && e.key === 'ArrowRight') $('#tnext').click();
+  else if (tour && e.key === 'ArrowLeft') $('#tprev').click();
+  else if (e.key === 'f' && mode === '2d') fit();
+  else if ((e.key === '+' || e.key === '=') && mode === '2d') $('#zin').click();
+  else if (e.key === '-' && mode === '2d') $('#zout').click();
+});
+$('#credit').onclick = () => $('#credit').classList.toggle('open');
+$('#scrim').onclick = () => document.body.classList.remove('drawer');
+
+// ------------------------------------------------------------ start
+(async () => {
+  await restore(true);
+  const p = new URLSearchParams(location.search);
   if (p.has('tour')) startTour(p.get('tour') === 'auto');
 })();

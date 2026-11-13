@@ -6,10 +6,13 @@ from __future__ import annotations
 
 import collections
 import concurrent.futures as cf
+import datetime
 import functools
 import hashlib
 import json
+import os
 import re
+import threading
 import time
 import traceback
 from pathlib import Path
@@ -37,7 +40,64 @@ VIEWABLE = (".png", ".jpg", ".jpeg", ".pdf")
 SOURCES = ["swiss_dwellings", "cubicasa5k", "ifc_models", "ifc_bench", "opening_design"]
 DRAWINGS: list[dict] = []
 SOLVER_TIMEOUT_S = 120
+FALLBACK_TIMEOUT_S = 75
 _pool = cf.ThreadPoolExecutor(8)
+
+# ---------------------------------------------------------------- public-demo settings (all off unless set)
+# BP_ROOT_PATH       serve under a sub-path behind a proxy that strips it (e.g. Caddy handle_path): page and
+#                    script URLs get the prefix, so the app works at https://host/<prefix>/
+# BP_RATE_LIMIT      "<n>/<seconds>" asks + uploads per client IP (X-Forwarded-For from the proxy), e.g. 30/600
+# BP_DAILY_USD_CAP   daily budget for paid model calls; BP_SPEND_LEDGER is the JSONL file the capped model CLI
+#                    (deploy/claude-capped) appends {"day", "cost_usd"} to and refuses calls from once it's hit
+ROOT_PATH = os.environ.get("BP_ROOT_PATH", "").rstrip("/")
+_RL = os.environ.get("BP_RATE_LIMIT", "")
+RATE_N, RATE_S = (int(x) for x in _RL.split("/")) if _RL else (0, 0)
+DAILY_CAP = float(os.environ.get("BP_DAILY_USD_CAP", 0) or 0)
+LEDGER = Path(os.environ["BP_SPEND_LEDGER"]) if os.environ.get("BP_SPEND_LEDGER") else None
+_hits: dict[str, collections.deque] = collections.defaultdict(collections.deque)
+_hits_lock = threading.Lock()
+
+
+def _rate_limit(request: Request):
+    if not RATE_N:
+        return
+    ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() or \
+        (request.client.host if request.client else "?")
+    now = time.time()
+    with _hits_lock:
+        dq = _hits[ip]
+        while dq and dq[0] < now - RATE_S:
+            dq.popleft()
+        if len(dq) >= RATE_N:
+            raise HTTPException(429, f"this public demo allows {RATE_N} questions per {RATE_S // 60} minutes "
+                                     "per visitor; please try again in a few minutes")
+        dq.append(now)
+
+
+def spent_today() -> float:
+    if LEDGER is None or not LEDGER.exists():
+        return 0.0
+    day, tot = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"), 0.0
+    for line in LEDGER.read_text().splitlines():
+        try:
+            r = json.loads(line)
+            tot += float(r.get("cost_usd") or 0) if r.get("day") == day else 0.0
+        except (ValueError, AttributeError):
+            continue
+    return tot
+
+
+def _with_root(text: str) -> str:
+    """Prefix root-relative app URLs in a page or script with BP_ROOT_PATH."""
+    if not ROOT_PATH:
+        return text
+    text = re.sub(r"""(["'`])/(api/|static/|results\b)""", lambda m: f"{m.group(1)}{ROOT_PATH}/{m.group(2)}", text)
+    text = text.replace('href="/"', f'href="{ROOT_PATH}/"')
+    text = re.sub(r'<meta (?:property|name)="(?:og|twitter):[^>]*>\n?', "", text)  # no link previews of a private URL
+    shim = (f'<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">'
+            f'<script>window.BP_ROOT={json.dumps(ROOT_PATH)};(f=>{{window.fetch=(u,o)=>f(typeof u==="string"'
+            f'&&u.startsWith("/api/")?window.BP_ROOT+u:u,o)}})(window.fetch.bind(window));</script>')
+    return text.replace("<head>", "<head>" + shim, 1)
 
 
 # ---------------------------------------------------------------- helpers
@@ -74,6 +134,11 @@ def credit_for(path: str) -> str:
     lines = lic.read_text().splitlines()
     for ln in lines:
         if name in ln or (stem and stem in ln):
+            if ln.lstrip().startswith("|"):  # table row: | file | title | licence | credit | url |
+                cells = [c.strip() for c in ln.strip().strip("|").split("|")]
+                if len(cells) >= 4:
+                    return f"{cells[1]} · {cells[2]} · {cells[3]}"
+                return " · ".join(c for c in cells[1:] if c)
             return ln.strip("-* ")
     for ln in lines:
         if ln.startswith("All files:"):
@@ -151,6 +216,8 @@ def drawings(source: str | None = None, q: str = "", offset: int = 0, limit: int
 @app.get("/api/questions")
 def questions(path: str):
     if path.startswith("uploads/"):
+        if not resolve(path).exists():
+            raise HTTPException(404, "upload not found (uploads are cleared when the server is rebuilt)")
         meta = _upload_meta(path)
         return {"path": path, "view": view_path(path), "credit": credit_for(path), "has3d": ifc_for(path) is not None,
                 "kind": meta.get("kind"), "questions": [{"question": s, "type": guess_type(s), "answer": None}
@@ -298,6 +365,7 @@ def _render_dxf(src: Path, out: Path):
 @app.post("/api/upload")
 async def upload(request: Request, name: str):
     """Raw-body upload (no multipart dependency): POST /api/upload?name=plan.pdf with the file as body."""
+    _rate_limit(request)
     safe = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(name).name)[-80:] or "drawing"
     ext = Path(safe).suffix.lower()
     if ext not in UPLOAD_EXT:
@@ -316,7 +384,8 @@ async def upload(request: Request, name: str):
     try:
         kind = _classify(p)
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(422, f"could not read this file: {e}") from e
+        raise HTTPException(422, f"could not read this file as {ext.lstrip('.').upper()}: it may be damaged or "
+                                 f"not really a {ext.lstrip('.').upper()} ({type(e).__name__})") from e
     meta = d / "meta.json"
     m = json.loads(meta.read_text()) if meta.exists() else {}
     m.update({"name": safe, "kind": kind, "bytes": len(body), "uploaded": time.time()})
@@ -347,23 +416,29 @@ def _upload_question(req: Ask) -> dict:
     view = view_path(req.path)
     return {"path": str(p), "question": req.question, "type": guess_type(req.question), "unit": None,
             "source": "upload", "ext": p.suffix.lower().lstrip("."), "kind": meta.get("kind"), "id": None,
-            "split": "upload", "answer": None, "view": str(resolve(view)) if view else None,
+            "split": "upload", "answer": None, "view": str(resolve(view)) if view else "",
             "dxf_extents": meta.get("dxf_extents")}
 
 
-def _run_router(q: dict) -> dict:
+def _run_router(q: dict, timeout: float = SOLVER_TIMEOUT_S) -> dict:
     try:
         fut = _pool.submit(router, q)
-        res = fut.result(timeout=SOLVER_TIMEOUT_S)
+        res = fut.result(timeout=timeout)
     except cf.TimeoutError:
-        return _abstain(f"the solver took longer than {SOLVER_TIMEOUT_S} s, so we stopped waiting",
+        return _abstain(f"the solver took longer than {timeout:.0f} s (the GPU may be busy), so we stopped "
+                        "waiting rather than guess; try again in a minute",
                         method="timeout", error="timeout")
     except Exception as e:  # noqa: BLE001  never 500 on a solver bug: abstain and say why
         traceback.print_exc()
-        return _abstain(f"the solver failed on this question ({type(e).__name__}: {str(e)[:160]}), so we "
-                        "abstain rather than guess", method="error", error=repr(e)[:300])
+        return _abstain("the solver hit an internal error on this question, so it abstains rather than guess",
+                        method="error", error=repr(e)[:300])
     if not isinstance(res, dict):
         return _abstain("the solver returned nothing usable", method="error")
+    if res.get("answer") is None and str(res.get("method", "")).endswith("error"):
+        # solver-internal failures (e.g. model weights being swapped) read as stack traces: keep them out of the UI
+        res["error"] = res.get("explanation")
+        res["explanation"] = ("the solver hit an internal error on this question (a model may be updating), "
+                              "so it abstains rather than guess; try again in a minute")
     return res
 
 
@@ -382,7 +457,8 @@ def _fix_upload_evidence(res: dict, q: dict, client_path: str):
 
 
 @app.post("/api/ask")
-def ask(req: Ask):
+def ask(req: Ask, request: Request):
+    _rate_limit(request)
     if req.path.startswith("uploads/"):
         q, known = _upload_question(req), None
     else:
@@ -394,7 +470,37 @@ def ask(req: Ask):
                                         "answer": None, "id": None}
     t0 = time.time()
     res = _run_router(q)
-    if q["source"] == "upload" and res.get("route") == "-" and res.get("answer") is None:
+    if q.get("kind") == "dxf" and res.get("method") == "generic-none" and q.get("view", "").endswith(".png"):
+        # the vision pass cannot render a DXF itself: give it the PNG we rendered from the same extents
+        res2 = _run_router({**q, "path": q["view"], "ext": "png", "kind": "raster"})
+        if res2.get("answer") is not None:
+            res = res2
+    if known is None and q["source"] != "upload" and res.get("answer") is None and q["ext"] in ("pdf", "png", "jpg") \
+            and res.get("method") not in ("timeout", "error"):
+        # a free-typed question the specialist does not recognise: let the general drawing reader try it,
+        # exactly as for an upload (text layer first, then grounded vision), instead of a bare abstention
+        why = res.get("explanation") or "not recognised"
+        fb = _run_router({**q, "source": "upload", "kind": "pdf-vector" if q["ext"] == "pdf" else "raster"},
+                         timeout=FALLBACK_TIMEOUT_S)
+        fb["route"] = f"{res.get('route', '-')} -> {fb.get('route', 'generic')}"
+        fb["cost_usd"] = (fb.get("cost_usd") or 0.0) + (res.get("cost_usd") or 0.0)
+        if fb.get("answer") is not None:
+            fb["explanation"] = f"the specialist solver passed ({why}), so the general drawing reader answered: " + \
+                (fb.get("explanation") or "")
+        elif fb.get("method") == "timeout":
+            fb["explanation"] = (f"the specialist solver passed ({why}) and the general drawing reader timed out after "
+                                 f"{FALLBACK_TIMEOUT_S} s (its GPU is probably busy); nothing was guessed")
+        else:
+            fb["explanation"] = f"the specialist solver passed ({why}) and the general reader found no answer either: " + \
+                (fb.get("explanation") or "")
+        res = fb
+    if DAILY_CAP and res.get("answer") is None and spent_today() >= DAILY_CAP:
+        res["explanation"] = (f"this public demo's daily budget for paid model calls (${DAILY_CAP:.0f}) is used up, "
+                              "so questions that need a frontier model abstain until tomorrow (UTC); the $0 "
+                              "solvers for Swiss, CubiCasa and IFC drawings still answer. "
+                              + (res.get("explanation") or ""))
+        res["budget_exhausted"] = True
+    if q["source"] == "upload" and res.get("route") == "-" and res.get("answer") is None and res.get("method") == "none":
         res["explanation"] = (f"uploads of this kind ({q.get('kind')}) are not routed to a solver yet; "
                               "nothing was guessed")
     res["latency_s"] = round(time.time() - t0, 3)
@@ -469,6 +575,21 @@ def results():
     return {"runs": runs}
 
 
+@app.get("/api/analysis")
+def analysis():
+    """Headline tables from analysis/out (full test split for ours and the prior; full-set 400-question frontier
+    baselines re-weighted to the test mix), so the scoreboard shows the same numbers as the README."""
+    import csv
+
+    out = {}
+    for name in ("overall", "by_source_type", "by_language"):
+        f = Path("analysis/out") / f"{name}.csv"
+        if f.exists():
+            with open(f, newline="") as fh:
+                out[name] = list(csv.DictReader(fh))
+    return out
+
+
 @app.get("/api/stats")
 def stats():
     """Headline numbers (ALL row) of every test-split run."""
@@ -484,12 +605,12 @@ def stats():
 
 @app.get("/")
 def index():
-    return HTMLResponse((STATIC / "index.html").read_text())
+    return HTMLResponse(_with_root((STATIC / "index.html").read_text()))
 
 
 @app.get("/results")
 def results_page():
-    return HTMLResponse((STATIC / "results.html").read_text())
+    return HTMLResponse(_with_root((STATIC / "results.html").read_text()))
 
 
 @app.get("/static/{name}")
@@ -497,4 +618,7 @@ def static(name: str):
     p = (STATIC / name).resolve()
     if not p.is_relative_to(STATIC.resolve()) or not p.exists():
         raise HTTPException(404)
+    if ROOT_PATH and p.suffix in (".js", ".html"):
+        mt = "text/javascript" if p.suffix == ".js" else "text/html"
+        return Response(_with_root(p.read_text()), media_type=mt, headers={"Cache-Control": "no-cache"})
     return FileResponse(p, headers={"Cache-Control": "no-cache"})

@@ -3,7 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Blueprints that talk</title>
+<title>Blueprints that talk · ask a construction drawing, see the evidence</title>
+<meta name="description" content="Ask a floor plan or BIM model a question in any language. Every answer is counted out on the drawing (or lit up in 3D) so you can check it in seconds, mostly at $0 per question.">
+<meta name="theme-color" content="#111a28">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Blueprints that talk">
+<meta property="og:description" content="Ask a construction drawing in any language; the answer is counted out on the drawing, mostly at $0 per question.">
+<meta property="og:image" content="/static/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233e9bff'/%3E%3Cpath d='M7 7h18v18H7z M7 15h9 M16 7v18' fill='none' stroke='%23001' stroke-width='2.6'/%3E%3Ccircle cx='21' cy='20' r='3' fill='%23ff3b6b'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
@@ -11,15 +19,16 @@
   <button class="iconbtn only-phone" id="drawerbtn" aria-label="Drawings">☰</button>
   <a class="brand" href="/"><span class="logo">▦</span> Blueprints <em>that talk</em></a>
   <nav class="links">
-    <button class="linkbtn" id="tourbtn">▶ Demo tour</button>
-    <a class="linkbtn" href="/results">Scoreboard</a>
+    <button class="linkbtn" id="tourbtn" title="A guided 7-step tour (Esc to leave, ← → to step)">▶ <span class="only-desk">Demo </span>tour</button>
+    <a class="linkbtn" href="/results">Score<span class="only-desk">board</span></a>
   </nav>
-  <div class="meter" id="meter" title="What this session's questions cost us vs what a frontier vision model would have cost (measured on our baseline run)">
+  <div class="meter" id="meter" data-short="ours $0 vs frontier $0" title="What this session's questions cost us vs what a frontier vision model would have cost (measured on our baseline run)">
     <div class="mrow"><span class="mlab">ours</span><span class="mbar"><i id="bar-ours"></i></span><b id="m-ours">$0</b></div>
     <div class="mrow"><span class="mlab">frontier</span><span class="mbar"><i id="bar-base" class="base"></i></span><b id="m-base">$0</b></div>
     <div class="msum" id="m-sum">ask something</div>
   </div>
 </header>
+<div class="scrim" id="scrim"></div>
 <main>
   <nav id="list">
     <label class="upload" id="uploadbox">
@@ -47,11 +56,16 @@
       <div class="capstep" id="capstep"></div><div class="captitle" id="captitle"></div><div class="captext" id="captext"></div>
       <div class="capnav"><button id="tprev">‹ back</button><button id="tnext" class="primary">next ›</button><button id="texit">exit tour</button></div>
     </div>
-    <div class="credit" id="credit"></div>
+    <div class="credit" id="credit" title="Dataset credit (click to show it in full)"></div>
     <div class="dropzone" id="dropzone" hidden>Drop the drawing to upload it</div>
   </section>
   <aside id="side">
-    <div class="ask"><input id="q" placeholder="Ask in any language, e.g. How many windows?" autocomplete="off"><button id="go">Ask</button></div>
+    <div class="ask"><input id="q" placeholder="Ask in any language, e.g. How many windows?" autocomplete="off" enterkeyhint="send" aria-label="Your question"><button id="go">Ask</button></div>
+    <div class="intro" id="intro">
+      <b>Ask this drawing anything you would count or measure.</b>
+      <span>Pick a suggested question or type your own, in English, Finnish, German, French, Danish or any other language. The answer is drawn on the plan so you can check it, and you can correct it with a click.</span>
+      <span class="keys"><kbd>Enter</kbd> ask · <kbd>/</kbd> focus · <kbd>Esc</kbd> cancel · <kbd>f</kbd> fit drawing</span>
+    </div>
     <div class="qs"><h3 id="qstitle">Questions for this drawing</h3><div class="chips" id="chips"></div></div>
     <div class="card" id="answer" hidden></div>
     <div id="evwrap" hidden>

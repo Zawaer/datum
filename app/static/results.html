@@ -4,10 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Scoreboard · Blueprints that talk</title>
+<meta name="description" content="Accuracy and cost of Blueprints that talk on a held-out test split, against a frontier vision model and a no-look prior.">
+<meta property="og:title" content="Blueprints that talk · scoreboard">
+<meta property="og:image" content="/static/og.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233e9bff'/%3E%3Cpath d='M7 7h18v18H7z M7 15h9 M16 7v18' fill='none' stroke='%23001' stroke-width='2.6'/%3E%3Ccircle cx='21' cy='20' r='3' fill='%23ff3b6b'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/app.css">
 <style>
   body { display: block; overflow: auto; }
-  .viz-root { --ours: #3987e5; --frontier: #d95926; --prior: #199e70; --grid: #24334b; }
+  .viz-root { --ours: #3987e5; --frontier: #d95926; --prior: #199e70; --haiku: #d9a23a; --grid: #24334b; }
   .wrap { max-width: 1100px; margin: 0 auto; padding: 22px 18px 60px; }
   h1 { font-size: 28px; letter-spacing: -.5px; margin: 6px 0 4px; }
   .lede { color: var(--mut); margin: 0 0 18px; max-width: 760px; }
@@ -34,6 +38,17 @@
   .note { color: var(--mut); font-size: 12.5px; margin: 6px 0 0; }
   .money { text-align: right; white-space: nowrap; }
   details summary { cursor: pointer; color: #c5d0de; margin: 6px 0; }
+  @media (max-width: 640px) {
+    .wrap { padding: 14px 12px 40px; } h1 { font-size: 24px; }
+    .tile .hero { font-size: 34px; }
+    .card2 { padding: 4px 6px 8px; }
+    table { font-size: 12px; }
+    th, td { padding: 6px 4px; } th { font-size: 10px; letter-spacing: .3px; }
+    td.g { white-space: normal; min-width: 84px; }
+    .cell { grid-template-columns: 1fr; gap: 2px; min-width: 64px; }
+    .cell b { text-align: left; order: -1; }
+    .nsub { font-size: 10px; }
+  }
 </style>
 </head>
 <body class="viz-root">
@@ -43,81 +58,76 @@
 </header>
 <div class="wrap">
   <h1>Scoreboard</h1>
-  <p class="lede">Accuracy on our held-out test split (split by drawing, so no drawing seen during development is scored),
-    read live from the evaluation runs in <code>runs/*.summary.md</code>. Counts must be exact; areas, lengths and volumes within 2 %.
-    An abstention counts as wrong. Free-text answers (IFC bench) are scored with a token-F1 ≥ 0.5 proxy.
-    Sample sizes differ between columns: each cell shows its n.</p>
+  <p class="lede">Accuracy on the held-out test split (split by drawing, so no drawing seen during development is scored).
+    Ours and the prior answer all <b id="ntest">25,420</b> test questions; the frontier models were asked 400 questions sampled
+    across every source and type, re-weighted to the test mix (so each source counts as much as it does in the test split).
+    Counts must be exact; areas, lengths and volumes within 2 %; an abstention counts as wrong; IFC-bench free text is judged.
+    The brackets are 95 % intervals. Same numbers as the README, read from <code>analysis/out/</code>.</p>
   <div class="legend" id="legend"></div>
+  <div class="tiles" id="hero"></div>
+  <h2>By source</h2>
   <div class="tiles" id="tiles"></div>
   <h2>By source and question type</h2>
   <div class="card2"><table id="tbl"></table></div>
-  <p class="note" id="tblnote"></p>
-  <h2>Cost per 1,000 questions</h2>
+  <p class="note">Each cell: accuracy and the number of questions it is measured on (n). Frontier cells rest on few questions; hover for the interval.</p>
+  <h2>By question language</h2>
+  <div class="card2"><table id="lang"></table></div>
+  <h2>Cost and speed per 1,000 questions</h2>
   <div class="card2"><table id="cost"></table></div>
+  <p class="note">API = paid model calls; compute = our GPU / CPU time at cloud prices. Ours makes no paid calls on the dataset sources.</p>
   <h2>Every run</h2>
-  <details><summary>show all evaluation runs (including dev and partial ones)</summary>
+  <details><summary>show all raw evaluation runs (including dev, preview and partial ones, not re-weighted)</summary>
     <div class="card2"><table id="allruns"></table></div></details>
 </div>
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
-const FAM = [['ours', 'Ours: routed solvers', 'var(--ours)'], ['frontier', 'Frontier VLM, asked directly', 'var(--frontier)'],
-             ['prior', 'Prior: most common answer, never looks', 'var(--prior)']];
-const NICE = {swiss_dwellings: 'Swiss apartments', cubicasa5k: 'Finnish plans (CubiCasa)', ifc_models: 'IFC models', ifc_bench: 'IFC bench (text)',
+const SYS = [['router_full_test', 'Ours', 'routed solvers, full test split', 'var(--ours)'],
+             ['baseline_sonnet_full400', 'Claude Sonnet', 'frontier VLM asked directly', 'var(--frontier)'],
+             ['baseline_haiku_full400', 'Claude Haiku', 'smaller frontier VLM asked directly', 'var(--haiku)'],
+             ['prior_full_test', 'Prior', 'most common answer, never looks', 'var(--prior)']];
+const NICE = {swiss_dwellings: 'Swiss apartments', cubicasa5k: 'Finnish plans (CubiCasa)', ifc_models: 'IFC models', ifc_bench: 'IFC bench (free text)',
               opening_design: 'US drawing sets'};
-const nice = g => g.split(' / ').map((p, i) => i === 0 ? (NICE[p] || p) : p).join(' · ');
+const LANG = {en: 'English', fi: 'Finnish', de: 'German', fr: 'French', it: 'Italian', da: 'Danish', nl: 'Dutch', et: 'Estonian', sv: 'Swedish', es: 'Spanish', no: 'Norwegian'};
+const pct = v => (100 * v).toFixed(1) + '%';
+const num = v => Number(v).toLocaleString('en-US');
+const usd = v => '$' + (+v).toFixed(2);
 
 (async () => {
-  const {runs} = await (await fetch('/api/results')).json();
-  const test = runs.filter(r => r.split === 'test');
-  $('#legend').innerHTML = FAM.map(([, l, c]) => `<span><i style="background:${c}"></i>${l}</span>`).join('');
+  const A = await (await fetch('/api/analysis')).json();
+  $('#legend').innerHTML = SYS.map(([, l, d, c]) => `<span><i style="background:${c}"></i>${l}: ${d}</span>`).join('');
+  const ov = Object.fromEntries((A.overall || []).map(r => [r.run, r]));
+  if (ov.router_full_test) $('#ntest').textContent = num(ov.router_full_test.n);
+  $('#hero').innerHTML = SYS.map(([k, l, , c]) => { const r = ov[k]; if (!r) return '';
+    return `<div class="tile" style="border-top:3px solid ${c}"><h4>${l}</h4><div class="hero">${pct(r.accuracy)}</div>
+      <div class="vs">[${pct(r.ci_lo)} – ${pct(r.ci_hi)}] · n=${num(r.n)}<br>${usd(+r.api_usd_per_1k + +r.compute_usd_per_1k)} per 1k questions ·
+      ${(+r.mean_latency_s) < 1 ? (r.mean_latency_s * 1000).toFixed(0) + ' ms' : (+r.mean_latency_s).toFixed(1) + ' s'} each</div></div>`; }).join('');
 
-  // for a family and a group, the test run that covers the group with the most questions (router runs first)
-  function best(fam, section, group) {
-    let pick = null;
-    for (const r of test.filter(r => r.family === fam)) {
-      const row = (r.sections[section] || []).find(x => x.group === group);
-      if (!row) continue;
-      const rank = [r.solver.startsWith('router') ? 1 : 0, row.n, r.mtime];
-      if (!pick || rank > pick.rank) pick = {rank, run: r, row};
-    }
-    return pick;
-  }
-  const cell = (p, fam) => {
-    if (!p) return `<td><div class="cell na"><span class="bar"></span><b>—</b></div></td>`;
-    const c = FAM.find(f => f[0] === fam)[2];
-    return `<td title="run ${esc(p.run.name)} (${esc(p.run.solver)}, n=${p.row.n})"><div class="cell"><span class="bar"><i style="width:${p.row.accuracy}%;background:${c}"></i></span>
-      <b>${p.row.accuracy.toFixed(1)}%</b></div><span class="nsub">n=${p.row.n}${p.row.answered < 100 ? ` · answered ${p.row.answered}%` : ''}</span></td>`;
-  };
-
-  // tiles: one per source
-  const sources = [...new Set(test.flatMap(r => (r.sections['By source'] || []).map(x => x.group)))].filter(g => g !== 'ALL');
-  $('#tiles').innerHTML = sources.map(s => {
-    const o = best('ours', 'By source', s), f = best('frontier', 'By source', s), p = best('prior', 'By source', s);
-    if (!o && !f) return '';
-    return `<div class="tile"><h4>${esc(nice(s))}</h4>
-      <div class="hero" style="${o ? '' : 'color:var(--mut);font-size:24px;padding:8px 0 6px'}">${o ? o.row.accuracy.toFixed(1) + '%' : 'no test run yet'} <small>ours</small></div>
-      <div class="vs">frontier ${f ? f.row.accuracy.toFixed(1) + '%' : '—'} · prior ${p ? p.row.accuracy.toFixed(1) + '%' : '—'}<br>
-      ours ${o ? '$' + o.row.usd_per_1k.toFixed(2) : '—'} vs frontier ${f ? '$' + f.row.usd_per_1k.toFixed(2) : '—'} per 1k questions</div></div>`;
+  const rows = A.by_source_type || [];
+  const cellv = (r, k) => r[k + ':acc'] === '' || r[k + ':acc'] == null ? null : {acc: +r[k + ':acc'], n: +r[k + ':n'], lo: +r[k + ':lo'], hi: +r[k + ':hi']};
+  // per source: cells weighted by their test-split size (the same re-weighting as the headline)
+  const sources = [...new Set(rows.map(r => r.source))];
+  $('#tiles').innerHTML = sources.map(src => {
+    const rs = rows.filter(r => r.source === src), N = rs.reduce((a, r) => a + +r.n_test, 0);
+    const acc = k => { let w = 0, v = 0; for (const r of rs) { const c = cellv(r, k); if (c) { w += +r.n_test; v += c.acc * +r.n_test; } } return w ? v / w : null; };
+    const [o, so, ha, pr] = SYS.map(([k]) => acc(k));
+    return `<div class="tile"><h4>${esc(NICE[src] || src)}</h4><div class="hero">${o == null ? '—' : pct(o)} <small>ours</small></div>
+      <div class="vs">Sonnet ${so == null ? '—' : pct(so)} · Haiku ${ha == null ? '—' : pct(ha)} · prior ${pr == null ? '—' : pct(pr)}<br>${num(N)} test questions</div></div>`;
   }).join('');
 
-  // accuracy table by source/type
-  const groups = [...new Set(test.flatMap(r => (r.sections['By source and type'] || []).map(x => x.group)))].filter(g => g !== 'ALL').sort();
-  $('#tbl').innerHTML = `<tr><th>group</th>${FAM.map(([, l]) => `<th>${l.split(':')[0]}</th>`).join('')}</tr>` +
-    groups.map(g => `<tr><td class="g">${esc(nice(g))}</td>${FAM.map(([f]) => cell(best(f, 'By source and type', g), f)).join('')}</tr>`).join('');
-  const used = new Set();
-  for (const g of groups) for (const [f] of FAM) { const p = best(f, 'By source and type', g); if (p) used.add(`${p.run.name} (${p.run.solver}${p.run.note ? ', ' + p.run.note : ''})`); }
-  $('#tblnote').textContent = 'Runs used: ' + [...used].join('; ') + '. Hover a cell to see its run.';
+  const cell = (c, color) => !c ? `<td><div class="cell na"><span class="bar"></span><b>—</b></div></td>`
+    : `<td title="95 % interval ${pct(c.lo)} – ${pct(c.hi)}, n=${c.n}"><div class="cell"><span class="bar"><i style="width:${100 * c.acc}%;background:${color}"></i></span>
+      <b>${pct(c.acc)}</b></div><span class="nsub">n=${num(c.n)}</span></td>`;
+  $('#tbl').innerHTML = `<tr><th>group</th>${SYS.map(([, l]) => `<th>${l}</th>`).join('')}</tr>` +
+    rows.map(r => `<tr><td class="g">${esc(NICE[r.source] || r.source)} · ${esc(r.type)}</td>${SYS.map(([k, , , c]) => cell(cellv(r, k), c)).join('')}</tr>`).join('');
+  const lr = A.by_language || [];
+  $('#lang').innerHTML = `<tr><th>language</th>${SYS.map(([, l]) => `<th>${l}</th>`).join('')}</tr>` +
+    lr.map(r => `<tr><td class="g">${esc(LANG[r.lang] || r.lang)}</td>${SYS.map(([k, , , c]) => cell(cellv(r, k), c)).join('')}</tr>`).join('');
+  $('#cost').innerHTML = `<tr><th>system</th><th class="money">accuracy</th><th class="money">API $ / 1k</th><th class="money">compute $ / 1k</th><th class="money">seconds / question</th></tr>` +
+    SYS.map(([k, l]) => { const r = ov[k]; if (!r) return ''; return `<tr><td class="g">${l}</td><td class="money">${pct(r.accuracy)}</td>
+      <td class="money">${usd(r.api_usd_per_1k)}</td><td class="money">${usd(r.compute_usd_per_1k)}</td><td class="money">${(+r.mean_latency_s).toFixed(2)} s</td></tr>`; }).join('');
 
-  // cost table
-  $('#cost').innerHTML = `<tr><th>source</th>${FAM.map(([, l]) => `<th class="money">${l.split(':')[0]}</th>`).join('')}<th class="money">ours, seconds / question</th></tr>` +
-    sources.map(s => {
-      const ps = FAM.map(([f]) => best(f, 'By source', s));
-      return `<tr><td class="g">${esc(nice(s))}</td>${ps.map(p => `<td class="money">${p ? '$' + p.row.usd_per_1k.toFixed(2) : '—'}</td>`).join('')}
-        <td class="money">${ps[0] ? ps[0].row.s_per_q.toFixed(2) + ' s' : '—'}</td></tr>`;
-    }).join('');
-
-  // all runs
+  const {runs} = await (await fetch('/api/results')).json();
   $('#allruns').innerHTML = '<tr><th>run</th><th>solver</th><th>split</th><th>n</th><th>accuracy</th><th class="money">$ / 1k q</th></tr>' +
     runs.sort((a, b) => b.mtime - a.mtime).map(r => {
       const a = (r.sections['By type'] || []).find(x => x.group === 'ALL');

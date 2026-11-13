@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-let renderer, scene, camera, controls, host, model = null, hl = null, offMesh = null, hotMesh = null, anim = null;
+let renderer, scene, camera, controls, host, model = null, hl = null, offMesh = null, hotMesh = null, anim = null, animDone = null;
 let positions = null, elements = [], byGuid = new Map(), storeys = [], allIdx = null;
 let clip = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1e9);
 let cbs = {};
@@ -123,7 +123,7 @@ function frame(geom, steep = false) {
 }
 
 export function clear() {
-  if (anim) { clearInterval(anim); anim = null; }
+  if (anim) { clearInterval(anim); anim = null; const d = animDone; animDone = null; if (d) d(); }  // never leave a count half-way
   for (const m of [hl, offMesh, hotMesh]) if (m) { scene.remove(m); m.geometry.dispose(); }
   hl = offMesh = hotMesh = null;
 }
@@ -167,7 +167,7 @@ export function highlight(items, animate = true, onStep = null, reframe = true, 
       side: THREE.DoubleSide, clippingPlanes: [clip] }));
     scene.add(offMesh);
   }
-  if (!on.length) return;
+  if (!on.length) { onDone && onDone(); return; }
   // rooms are volumes: draw them see-through so what's inside (and the rooms behind) stays visible
   const volumes = on.filter(e => e.type === 'IfcSpace').length > on.length / 2;
   hl = subMesh(on, new THREE.MeshLambertMaterial({ color: 0xff3b6b, emissive: 0x5a0010,
@@ -176,13 +176,16 @@ export function highlight(items, animate = true, onStep = null, reframe = true, 
   hl.renderOrder = 2;
   scene.add(hl);
   if (reframe) frame(hl.geometry, clip.constant < 1e8);
-  if (!animate) return;
-  let i = 0;
+  if (!animate) { onDone && onDone(); return; }
   hl.geometry.setDrawRange(0, 0);
-  const step = Math.max(20, Math.min(120, 1800 / Math.max(1, items.length)));
+  // time-based, so a slow GPU (or a software renderer) skips steps instead of stretching the count out
+  const step = Math.max(20, Math.min(120, 1800 / Math.max(1, items.length))), dur = step * items.length, t0 = performance.now();
+  let i = 0;
+  animDone = onDone;
   anim = setInterval(() => {
-    hl.geometry.setDrawRange(0, ends[i]); onStep && onStep(i + 1); i++;
-    if (i >= ends.length) { clearInterval(anim); anim = null; hl.geometry.setDrawRange(0, Infinity); onDone && onDone(); }
+    i = Math.min(ends.length, Math.max(i + 1, Math.floor((performance.now() - t0) / dur * ends.length)));
+    hl.geometry.setDrawRange(0, ends[i - 1]); onStep && onStep(i);
+    if (i >= ends.length) { clearInterval(anim); anim = null; animDone = null; hl.geometry.setDrawRange(0, Infinity); onDone && onDone(); }
   }, step);
 }
 
