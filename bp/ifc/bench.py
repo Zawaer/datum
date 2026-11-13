@@ -31,6 +31,8 @@ def tname(e) -> str:
         return re.sub(r":\d+$", "", n)
     t = (e.get("type_name") or "").strip()
     n2 = re.sub(r":\d+$", "", n)
+    if t and e.get("_use_type"):
+        return re.sub(r":\d+$", "", t)
     if n2 and not re.search(r"[-_ ]?\d{3,}$", n2) and not re.fullmatch(r"\d+", n2):
         return n2
     if t:
@@ -1121,12 +1123,101 @@ def g_na(m, q, rel):
     return out(NA, 0.3, "na")
 
 
+# keyword -> (label, IFC4 classes; IFC2x3 files use the matching *Type on generic Flow* elements)
+_MEP_KINDS = [
+    (r"air terminals?|diffusers?|grilles?", "Air Terminals", ["IfcAirTerminal"]),
+    (r"controllers?|dampers?", "Flow Controllers", ["IfcFlowController", "IfcDamper", "IfcValve"]),
+    (r"valves?", "Valves", ["IfcValve"]),
+    (r"duct fittings?", "Duct Fittings", ["IfcDuctFitting"]),
+    (r"ducts?|ductwork", "Duct Segments", ["IfcDuctSegment"]),
+    (r"pipe fittings?", "Pipe Fittings", ["IfcPipeFitting"]),
+    (r"pumps?", "Pumps", ["IfcPump"]), (r"\bfans?\b", "Fans", ["IfcFan"]),
+    (r"light fixtures?|luminaires?|lamps?|lighting", "Light Fixtures", ["IfcLightFixture", "IfcLamp"]),
+    (r"outlets?|sockets?", "Outlets", ["IfcOutlet"]), (r"switch", "Switches", ["IfcSwitchingDevice"]),
+    (r"cables?|cable carriers?|cable trays?", "Cable Segments", ["IfcCableSegment", "IfcCableCarrierSegment"]),
+    (r"electrical appliances?", "Electrical Appliances", ["IfcElectricAppliance"]),
+    (r"distribution boards?|panels?", "Distribution Boards", ["IfcElectricDistributionPoint",
+                                                               "IfcElectricDistributionBoard"]),
+    (r"tanks?", "Tanks", ["IfcTank"]), (r"boilers?", "Boilers", ["IfcBoiler"]),
+    (r"radiators?|space heaters?|heaters?", "Space Heaters", ["IfcSpaceHeater"]),
+    (r"chillers?", "Chillers", ["IfcChiller"]), (r"coils?", "Coils", ["IfcCoil"]),
+    (r"filters?", "Filters", ["IfcFilter"]), (r"sensors?", "Sensors", ["IfcSensor"]),
+    (r"heat (?:recovery|exchangers?)", "Heat Exchangers", ["IfcHeatExchanger", "IfcAirToAirHeatRecovery"]),
+    (r"pipes?|piping", "Pipe Segments", ["IfcPipeSegment"]),
+]
+
+
+def _of_kind(m, classes):
+    sc = _sc(m)
+    return [e for e in m["elements"]
+            if any(M.isa(e["cls"], c, sc) or (e.get("type_cls") or "") == c + "Type" for c in classes)]
+
+
+def g_mep_kind(m, q, rel):
+    t = q["question"].lower()
+    for rx, label, classes in _MEP_KINDS:
+        if re.search(rf"\b(?:{rx})", t):
+            els = _of_kind(m, classes)
+            if not els:
+                return out(f"No {label.lower()} found in this model.", 0.5, "mep-kind")
+            c = collections.Counter(tname(e) for e in els)
+            lines = [f"{label}:", f"   Total {label}: {len(els):,}", "", f"   Specific {label[:-1] if label.endswith('s') else label} Types:"]
+            for k, n in c.most_common(25):
+                lines.append(f"   - {k}: {n} ({pct(n, len(els))})")
+            lens = [e["qto"].get("Length") for e in els if e["qto"].get("Length")]
+            if lens:
+                lines += ["", f"   Total length: {sum(lens):,.1f} m"]
+            if re.search(r"floor|level", t):
+                lines += ["", "   Distribution by Floor:"]
+                for s_ in m["storeys"]:
+                    n = sum(1 for e in els if e["storey"] == s_["guid"])
+                    if n:
+                        lines.append(f"   - {s_['name']}: {n}")
+            return out("\n".join(lines), 0.4, "mep-kind", ev(rel, els, lambda e: 1))
+    return None
+
+
+def g_room_fact(m, q, rel):
+    """'ceiling height in treatment room 2A12', 'size of room 1B07'."""
+    t = q["question"].lower()
+    sp = find_space(m, q["question"])
+    if sp is None:
+        return None
+    nm = sp.get("name")
+    if re.search(r"height", t) and _height(sp):
+        return out(f"The ceiling height in room {nm} ({sp.get('long_name') or ''}) is {_height(sp):.2f} m.", 0.5,
+                   "room-fact", ev(rel, [sp], lambda e: round(_height(e), 2)))
+    if re.search(r"area|size|big|large", t):
+        return out(f"Room {nm} ({sp.get('long_name') or ''}) has a net floor area of {area(sp):.2f} sq m "
+                   f"on {storey_name(m, sp['storey'])}.", 0.5, "room-fact", ev(rel, [sp], lambda e: round(area(e), 2)))
+    return None
+
+
+def g_count_rooms_kw(m, q, rel):
+    mm = re.search(r"how many ([\w\- /]+?) (?:rooms?|spaces?)\b", q["question"], re.I)
+    if not mm:
+        return None
+    kw = mm.group(1).strip().lower()
+    if kw in ("", "the", "all"):
+        return None
+    ss = [e for e in spaces(m) if kw in f"{e.get('long_name') or ''} {e.get('name') or ''}".lower()]
+    if not ss:
+        return None
+    names = ", ".join(f"{e.get('long_name') or ''} {e.get('name')}".strip() for e in ss[:20])
+    return out(f"There are {len(ss)} {kw} rooms ({names}).", 0.4, "rooms-kw", ev(rel, ss, lambda e: 1))
+
+
 # ---------------------------------------------------------------- router
 def _rules():
     T = type_breakdown
     return [
         (r"\b[0-9A-Za-z_$]{22}\b", g_door_by_guid),
         (_NA_TOPICS, g_na),
+        (r"how many [\w\- /]+? (?:rooms?|spaces?)\b", g_count_rooms_kw),
+        (r"(?:height|area|size).* room [\w.\-]*\d|room [\w.\-]*\d.*(?:height|area|size)", g_room_fact),
+        (r"air terminal|controller|damper|valve|duct|pipe fitting|pump|\bfans?\b|light fixture|luminaire|outlet|"
+         r"cable|electrical appliance|distribution board|tank|boiler|radiator|heater|chiller|coil|filter|sensor|"
+         r"heat recovery|heat exchanger", g_mep_kind),
         (r"(?:furniture|sanitary).* in (?:the )?(?:room )?\S", g_things_in_room),
         (r"restroom|toilet .* on|office (?:spaces|rooms)|bedrooms? on|meeting rooms", g_room_kind),
         (r"software|application|modell?ing standard|ifc standard|ifc schema", g_software),
@@ -1186,13 +1277,31 @@ def _rules():
         (r"space (?:distribution|breakdown)|by level|number of levels|total spaces", g_space_by_level),
         (r"net (?:usable )?floor area", g_net_area_by_level),
         (r"gross (?:floor )?area", g_gross_area),
-        (r"elevation|heights? of each level|floor.to.floor|level heights|heights of the levels", g_levels),
+        (r"elevation|heights? of (?:each|the individual|the) (?:level|floor|storey)s?|floor.to.floor|level heights|"
+         r"heights of the levels", g_levels),
         (r"footprint", g_footprint),
         (r"fa[cç]ade", g_facade),
     ]
 
 
+def _prep(m):
+    """Per class: when instance names are mostly unique (EG-A-05-3, Wand-002) and types exist, label by type."""
+    if m.get("_prepped"):
+        return
+    by = collections.defaultdict(list)
+    for e in m["elements"]:
+        by[e["cls"]].append(e)
+    for es in by.values():
+        typed = [e for e in es if e.get("type_name")]
+        names = [e.get("name") or "" for e in es]
+        use = len(es) >= 5 and len(typed) >= 0.8 * len(es) and len(set(names)) > 0.5 * len(es)
+        for e in es:
+            e["_use_type"] = use
+    m["_prepped"] = True
+
+
 def answer_text(m, q, rel):
+    _prep(m)
     t = q["question"]
     for rx, fn in _rules():
         if re.search(rx, t, re.I):
