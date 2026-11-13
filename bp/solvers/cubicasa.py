@@ -22,6 +22,11 @@ DEFAULT_WEIGHTS = "cache/cubicasa/weights/best.pt"
 DEFAULT_THRESH = "cache/cubicasa/weights/thresholds.json"
 
 
+def _inside(b, r, pad=0.01):
+    cx, cy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+    return r[0] - pad <= cx <= r[2] + pad and r[1] - pad <= cy <= r[3] + pad
+
+
 class CubicasaSolver:
     def __init__(self, variant=None, weights=None):
         self.weights = weights or variant or os.environ.get("CUBICASA_WEIGHTS") or DEFAULT_WEIGHTS
@@ -70,6 +75,9 @@ class CubicasaSolver:
         classes = COUNTS[t]
         dets = [d for d in self.detect(q["path"]) if d[0] in classes]
         kept = [d for d in dets if d[1] >= self.th(d[0])]
+        if t == "sauna":  # a sauna = a sauna room, or a stove not inside a detected sauna room
+            rooms = [d[2] for d in kept if d[0] == "sauna_room"]
+            kept = [d for d in kept if d[0] == "sauna_room" or not any(_inside(d[2], r) for r in rooms)]
         # confidence: probability that every kept detection is real and every rejected one is not,
         # treating the detector score as a rough probability around the class threshold.
         logp = 0.0

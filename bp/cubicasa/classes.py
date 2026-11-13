@@ -2,7 +2,7 @@
 
 The mapping follows what the gold answers were derived from (checked on dev drawings with
 train/cubicasa/check_gold.py): windows = Window*, doors = Door* with a leaf, toilets = Toilet,
-sinks = any *Sink*, showers+bathtubs = Shower + Bathtub, saunas = SaunaStove, rooms by Space class
+sinks = any *Sink*, showers+bathtubs = Shower + Bathtub, saunas = Space Sauna rooms plus sauna stoves outside any such room, rooms by Space class
 (WC rooms are Space Bath labelled 'WC'), balconies = Space Outdoor Balcony, floors = Floor groups.
 """
 import re
@@ -14,7 +14,7 @@ IDX = {n: i for i, n in enumerate(NAMES)}
 # question target -> detector classes whose detections are counted
 COUNTS = {
     "window": ["window"], "door": ["door"], "toilet": ["toilet"], "sink": ["sink"],
-    "shower_bath": ["shower", "bathtub"], "sauna": ["sauna_stove"], "kitchen": ["kitchen"],
+    "shower_bath": ["shower", "bathtub"], "sauna": ["sauna_room", "sauna_stove"], "kitchen": ["kitchen"],
     "bedroom": ["bedroom"], "bathroom": ["bathroom"], "wc_room": ["wc_room"], "balcony": ["balcony"],
     "floor": ["floor"],
 }

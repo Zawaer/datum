@@ -50,6 +50,16 @@ def cands(objs):
                     "name": sum(any(w.startswith("PARVEKE") or w.startswith("LASITETTU") for w in words(o["name"]))
                                 for o in sp),
                     "outdoor": sum(o["cls"].startswith("Space Outdoor") for o in sp)}
+    # the rule the detector pipeline uses (bp/cubicasa/classes.py + solver post-processing)
+    from bp.cubicasa.classes import COUNTS, svg_class
+    lab = [(svg_class(o), o["bbox"]) for o in objs if o.get("bbox") is not None]
+    for t, cl in COUNTS.items():
+        kept = [x for x in lab if x[0] in cl]
+        if t == "sauna":
+            rooms = [b for n, b in kept if n == "sauna_room"]
+            kept = [(n, b) for n, b in kept if n == "sauna_room" or not any(
+                r[0] <= (b[0] + b[2]) / 2 <= r[2] and r[1] <= (b[1] + b[3]) / 2 <= r[3] for r in rooms)]
+        c[t]["DETECTOR_RULE"] = len(kept)
     return c
 
 
