@@ -122,7 +122,8 @@ def elements_of(m, classes, storey=None, top_level=True):
     sc = _schema(m)
     out = []
     for e in m["elements"]:
-        if not any(isa(e["cls"], c, sc) for c in classes):
+        # IFC2x3 MEP: IfcFlowTerminal typed by IfcLightFixtureType / IfcSanitaryTerminalType
+        if not any(isa(e["cls"], c, sc) or (e.get("type_cls") or "") == c + "Type" for c in classes):
             continue
         # parts of an element of the same kind (stair treads in an IfcStair) are not counted; doors/windows
         # hosted by an IfcCurtainWall, columns in an IfcElementAssembly are
@@ -147,10 +148,15 @@ def sanitary(m, storey=None):
 
 
 def _q(e, *names):
+    q = e["qto"]
     for n in names:
-        v = e["qto"].get(n)
+        v = q.get(n)
         if v is not None and v > 0:
             return v
+        # the flat key holds the first set's value (may be 0); look in every quantity set
+        for k, v in q.items():
+            if k.endswith("." + n) and v is not None and v > 0:
+                return v
     return None
 
 

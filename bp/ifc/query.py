@@ -67,7 +67,8 @@ CLASSES = {
 # measure keywords
 _SIDE = r"side\s*area|sideareal\w*|seitenfl(?:ä|a)che\w*|k(?:ü|u)lje\w*\s*pind\w*|k(?:ü|u)ljepind\w*|sivupinta\w*|" \
         r"surface\s+lat(?:é|e)rale|zijoppervlak\w*|wall\s*area|v(?:æ|a)gareal\w*|wandfl(?:ä|a)che\w*|seina\w*pind\w*"
-_GROSS = r"gross|brutto\w*|bruto\w*|brut\b|kogupind\w*"
+# note: casefold turns German "groß" into "gross", so English "gross" must be followed by a measure word
+_GROSS = r"\bgross (?:floor|side|area|volume|internal)|\bbrutto\w*|\bbruto\w*|\bbrut\b|kogupind\w*"
 _TOTAL = r"total\w*|all\b|samlede?|alle\b|alles?\b|k(?:õ|o)ik\w*|k(?:õ|o)igi|kokku|gesamt\w*|insgesamt|summ\w*|yhteens(?:ä|a)|" \
          r"kaikk\w*|tous|toutes|totale?|totaal|todos?|todas?|tutti|tutte|zusammen"
 

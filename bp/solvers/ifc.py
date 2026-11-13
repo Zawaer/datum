@@ -147,6 +147,14 @@ class IfcSolver:
         else:
             els, rs = M.match_space(m, room, storey)
             if not els:
+                # names containing an apostrophe break the quote parsing: 'IMMUNIZ'N ROOM (1D40)' on 'First Floor'
+                mm = re.search(r"'(.+)'[^']+'([^']+)'", q["question"])
+                if mm:
+                    st2, sc2 = M.match_storey(m, mm.group(2))
+                    els, rs = M.match_space(m, mm.group(1), st2)
+                    if els:
+                        storey = st2
+            if not els:
                 return _abstain(f"room '{room}' not found")
             conf = 0.95 if rs >= 1.0 else 0.5
             if len(els) > 1:
