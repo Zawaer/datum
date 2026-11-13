@@ -28,9 +28,61 @@ def _img_block(img) -> dict:
                                         "data": base64.b64encode(b.getvalue()).decode()}}
 
 
+NEMOTRON = "nvidia/nemotron-3.5-super-vl-120b-a12b"
+NV_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+NV_PRICE_IN, NV_PRICE_OUT = 0.15, 0.47  # USD / 1M tokens, cheapest listed serverless partner
+
+
+def _ask_nemotron(prompt, images, system, timeout):
+    """NVIDIA's OpenAI-compatible endpoint; 429 / 5xx retried with backoff. Reasoning is stripped."""
+    import urllib.error
+    import urllib.request
+
+    from bp.solvers.nemotron_vlm import _key
+
+    content = []
+    for im in images:
+        b = io.BytesIO()
+        im.convert("RGB").save(b, "PNG", optimize=True)
+        content.append({"type": "image_url",
+                        "image_url": {"url": "data:image/png;base64," + base64.b64encode(b.getvalue()).decode()}})
+    content.append({"type": "text", "text": prompt})
+    body = {"model": NEMOTRON, "max_tokens": 12288, "temperature": 0.6, "top_p": 0.95,
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}]}
+    req = urllib.request.Request(NV_URL, json.dumps(body).encode(),
+                                 {"Content-Type": "application/json", "Authorization": f"Bearer {_key()}"})
+    err = None
+    for attempt in range(8):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                res = json.load(r)
+            u = res.get("usage", {})
+            text = (res.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+            text = re.sub(r"(?s)<think>.*?</think>", "", text).strip()
+            cost = (u.get("prompt_tokens", 0) * NV_PRICE_IN + u.get("completion_tokens", 0) * NV_PRICE_OUT) / 1e6
+            return {"text": text, "cost_usd": cost}
+        except urllib.error.HTTPError as e:
+            err = f"HTTP {e.code}"
+            if e.code in (429, 500, 502, 503, 504):
+                time.sleep(min(60, 8 * (attempt + 1)))
+                continue
+            break
+        except Exception as e:  # noqa: BLE001
+            err = repr(e)[:200]
+            time.sleep(5)
+    return {"text": "", "cost_usd": 0.0, "error": err}
+
+
 def ask(prompt: str, images=(), model: str = "haiku", system: str = "Reply with JSON only.",
-        timeout: int = 300, tag: str = "") -> dict:
-    """One-turn call. Returns {"text", "cost_usd", "latency_s"} (text '' on failure, plus "error")."""
+        timeout: int = 600, tag: str = "") -> dict:
+    """One-turn call. Returns {"text", "cost_usd", "latency_s"} (text '' on failure, plus "error").
+    model: a Claude alias (via the Claude Code CLI) or "nemotron" (NVIDIA endpoint)."""
+    if model.startswith("nemotron"):
+        t0 = time.time()
+        res = _ask_nemotron(prompt, images, system, timeout)
+        res["latency_s"] = round(time.time() - t0, 2)
+        _log(model, tag, res, len(images))
+        return res
     content = [_img_block(im) for im in images] + [{"type": "text", "text": prompt}]
     msg = {"type": "user", "message": {"role": "user", "content": content}}
     cmd = [CLI, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
@@ -54,12 +106,16 @@ def ask(prompt: str, images=(), model: str = "haiku", system: str = "Reply with 
     except Exception as e:  # noqa: BLE001
         res["error"] = repr(e)[:300]
     res["latency_s"] = round(time.time() - t0, 2)
+    _log(model, tag, res, len(images))
+    return res
+
+
+def _log(model, tag, res, n_img):
     with _lock:
         SPEND_LOG.parent.mkdir(parents=True, exist_ok=True)
         with open(SPEND_LOG, "a") as f:
             f.write(json.dumps({"t": time.time(), "model": model, "tag": tag, "cost_usd": res["cost_usd"],
-                                "latency_s": res["latency_s"], "n_img": len(images)}) + "\n")
-    return res
+                                "latency_s": res["latency_s"], "n_img": n_img, "error": res.get("error")}) + "\n")
 
 
 def parse_json(text: str):
