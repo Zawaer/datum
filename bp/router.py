@@ -12,7 +12,7 @@ from bp.solvers import get_solver
 ROUTES = {
     "swiss_dwellings": "swiss",
     "ifc_models": "ifc",
-    "ifc_bench": "ifc",
+    "ifc_bench": "ifctext",  # free-text IFC questions: rules where validated, else Haiku on a cited fact sheet
     "cubicasa5k": "cubicasa",
 }
 
