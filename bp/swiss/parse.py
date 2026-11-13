@@ -8,7 +8,10 @@ can draw evidence over the drawing the user actually asked about.
 from __future__ import annotations
 
 import functools
+import hashlib
 import math
+import os
+import pickle
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -308,8 +311,36 @@ def _fit_page_transform(dxf_texts, page):
     return (float(ax), float(bx), float(ay), float(by)), float(np.sqrt(np.mean(res ** 2)))
 
 
+CACHE_DIR = Path(__file__).resolve().parents[2] / "cache" / "swiss"
+_CODE_KEY = hashlib.sha1(Path(__file__).read_bytes()).hexdigest()[:10]
+
+
 @functools.lru_cache(maxsize=256)
 def parse_floor(dxf_path: str, pdf_path: str | None = None) -> Floor:
+    """Parsed floor, memoised in-process and on disk (cache/swiss/, keyed by file stats and this module's
+    source so an edit here invalidates it). A broken cache file is just re-parsed."""
+    key = f"{dxf_path}|{os.stat(dxf_path).st_mtime_ns}|{pdf_path}|"
+    if pdf_path and Path(pdf_path).exists():
+        key += str(os.stat(pdf_path).st_mtime_ns)
+    f = CACHE_DIR / f"{Path(dxf_path).stem}-{hashlib.sha1((key + _CODE_KEY).encode()).hexdigest()[:16]}.pkl"
+    try:
+        with open(f, "rb") as fh:
+            return pickle.load(fh)
+    except Exception:  # noqa: BLE001  missing / stale / unreadable
+        pass
+    fl = _parse_floor(dxf_path, pdf_path)
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = f.with_suffix(f".{os.getpid()}.tmp")
+        with open(tmp, "wb") as fh:
+            pickle.dump(fl, fh, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp, f)
+    except OSError:
+        pass
+    return fl
+
+
+def _parse_floor(dxf_path: str, pdf_path: str | None = None) -> Floor:
     doc = ezdxf.readfile(dxf_path)
     msp = doc.modelspace()
     fl = Floor()
