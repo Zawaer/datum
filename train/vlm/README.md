@@ -115,3 +115,21 @@ Measured on 1x H100 80GB (Qwen3-VL-8B, LoRA r32, batch 4 x accum 4, flash-attn2,
 ~7.5 s per optimizer step of 16 examples (~2 examples/s, ~4 k tokens/s). One deduplicated epoch is 38.5 k
 examples = 2,409 steps = **~5 GPU-hours (~$26 at $5.19/h)**; all language variants (80 k examples) would be
 ~10.5 GPU-hours. Qwen3-VL-4B should be roughly 2x faster.
+
+## Results (Nov 13-14, 1x H100 80GB)
+
+Dev-val = 100 held-out dev questions (stratified by source x target; `eval_vlm.py --n 100`). Test = stratified
+sample of 1,000 count questions from the held-out test split (cubicasa 500, swiss 500) through the real
+solver (`eval.py --solver vlm`, vLLM server, `runs/vlm_q3vl8b_r2_test1000.summary.md`).
+
+| model | data | dev-val exact count | JSON ok | box recall (IoU≥0.5) | test exact count |
+|---|---|---|---|---|---|
+| Qwen3-VL-8B zero-shot | — | 42.6 % (first 54 q) | 76 % | 11 % | — |
+| + LoRA r2 (520 steps, 8.3 k ex, ~1 h) | dedup | 62 % (70.4 % on the same 54) | 99 % | 42 % | **64.4 %** (cubicasa 70.0 %, swiss 58.8 %) |
+
+Throughput with vLLM on one H100 (shared with a training job): 1,000 test questions in ~17 min with 8
+parallel requests, i.e. ~$1.5 per 1,000 questions at $5.19/h. Weakest classes: windows and Swiss doors (many
+small instances per plan). For context, the YOLO detector (`cubicasa` solver) scores 82.2 % on the cubicasa
+test split; on the 500 overlapping questions the VLM is right on 23 that YOLO misses, so it is best used as
+a fallback when YOLO is unsure (to be tuned on dev), and as a general counter for plan styles with no
+detector or CAD twin.
