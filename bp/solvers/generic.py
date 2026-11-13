@@ -11,8 +11,10 @@
    agreement score used as confidence.
 3. Other questions on rasters: the VLM answers and boxes where it read the answer.
 
-variant "<text>+<vision>", e.g. "haiku+qwen" (default), "qwen+qwen" (all local, $0), "sonnet+sonnet",
-"haiku+haiku". Text backend qwen = the local VLM used text-only.
+variant "<text>+<vision>": "haiku+haiku" (default: no GPU needed, ~$0.003-0.01 per question),
+"haiku+sonnet" (better grounding, ~$0.03/q), "haiku+qwen" / "qwen+qwen" (local Qwen3-VL, $0 API; needs
+~4 GB free VRAM, else it falls back to haiku). Paid vision is capped per question: page rendered at <= 2900 px
+so the tiled pass is <= 6 calls, plus one whole-page call (~$0.01 on haiku).
 """
 from __future__ import annotations
 
@@ -88,7 +90,7 @@ def _fmt(v):
 
 class GenericSolver:
     def __init__(self, variant=None, text_budget_chars: int = 60000):
-        tb, _, vb = (variant or "haiku+qwen").partition("+")
+        tb, _, vb = (variant or "haiku+haiku").partition("+")
         self.text_backend = tb or "haiku"
         self.vision_backend = vb or tb or "qwen"
         self.budget = text_budget_chars
@@ -228,6 +230,17 @@ class GenericSolver:
 
 
     def _vision_count(self, q, path, page, target, label, region=None, size="small"):
+        try:
+            return self._vision_count_on(q, path, page, target, label, region, size)
+        except Exception as e:  # noqa: BLE001  local VLM unavailable (no GPU / weights): use the paid path
+            if self.vision_backend != "qwen":
+                raise
+            self.vision_backend = "haiku"
+            out = self._vision_count_on(q, path, page, target, label, region, size)
+            out["explanation"] += f" [local VLM unavailable: {type(e).__name__}]"
+            return out
+
+    def _vision_count_on(self, q, path, page, target, label, region=None, size="small"):
         if size == "large":  # whole views / rooms / storeys: never cut them into tiles
             img = T.render(path, page, max_side=1600)
             if img is None:
@@ -235,6 +248,21 @@ class GenericSolver:
             a = V.count(img, target, self.vision_backend, tile=1600, label=label, region=region, max_area=0.97)
             b = V.count(img.resize((img.width * 2 // 3, img.height * 2 // 3)), target, self.vision_backend,
                         tile=1600, min_side=0, label=label, region=region, max_area=0.97)
+            return self._count_result(q, page, target, label, a, b)
+        paid = self.vision_backend != "qwen"
+        if paid:  # cost cap: <= 6 tiles for pass A, one whole-page call for pass B
+            img = T.render(path, page, max_side=2900 if region is None else 4800)
+            if img is None:
+                return None
+            a = V.count(img, target, self.vision_backend, tile=1280, label=label, region=region)
+            whole = img if region is None else img.crop(tuple(round(v * s) for v, s in zip(region, img.size * 2)))
+            whole = whole.copy()
+            whole.thumbnail((1568, 1568))
+            b = V.count(whole, target, self.vision_backend, tile=1600, min_side=0, label=label)
+            if region is not None:
+                rw, rh = region[2] - region[0], region[3] - region[1]
+                b["boxes"] = [[region[0] + x0 * rw, region[1] + y0 * rh, region[0] + x1 * rw, region[1] + y1 * rh]
+                              for x0, y0, x1, y1 in b["boxes"]]
             return self._count_result(q, page, target, label, a, b)
         img = T.render(path, page, max_side=4096 if region is None else 6144)
         if img is None:
@@ -259,6 +287,15 @@ class GenericSolver:
                                f"(second pass found {len(b['boxes'])}, box agreement {agree:.2f})"}
 
     def _vision_read(self, q, path, page):
+        try:
+            return self._vision_read_on(q, path, page)
+        except Exception:  # noqa: BLE001
+            if self.vision_backend != "qwen":
+                raise
+            self.vision_backend = "haiku"
+            return self._vision_read_on(q, path, page)
+
+    def _vision_read_on(self, q, path, page):
         img = T.render(path, page, max_side=2048)
         if img is None:
             return None

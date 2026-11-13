@@ -18,7 +18,7 @@ os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 MODEL_ID = os.environ.get("GENERIC_VLM", "Qwen/Qwen3-VL-4B-Instruct")
 QUANT = os.environ.get("GENERIC_VLM_QUANT", "nf4")
-DEVICE = os.environ.get("GENERIC_VLM_DEVICE", "auto")  # auto: GPU if enough VRAM is free, else CPU (bf16)
+DEVICE = os.environ.get("GENERIC_VLM_DEVICE", "auto")  # auto: GPU if enough VRAM is free, else error; cpu: force CPU bf16
 MIN_FREE_GB = float(os.environ.get("GENERIC_VLM_MIN_FREE_GB", "4.5"))
 
 _lock = threading.Lock()
@@ -34,7 +34,9 @@ def load():
     dev = DEVICE
     if dev == "auto":
         free = torch.cuda.mem_get_info()[0] / 1e9 if torch.cuda.is_available() else 0.0
-        dev = "cuda" if free >= MIN_FREE_GB else "cpu"
+        dev = "cuda" if free >= MIN_FREE_GB else None
+        if dev is None:  # a 4B VLM on CPU is minutes per page: refuse, the solver falls back to the paid path
+            raise RuntimeError(f"local VLM needs {MIN_FREE_GB} GB free VRAM, {free:.1f} GB free")
     kw = {"dtype": torch.bfloat16, "device_map": "cuda:0" if dev == "cuda" else "cpu"}
     if dev == "cpu":
         torch.set_num_threads(int(os.environ.get("GENERIC_VLM_THREADS", "12")))
