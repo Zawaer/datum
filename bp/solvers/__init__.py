@@ -9,6 +9,7 @@ SOLVERS = {
     "ifc": "bp.solvers.ifc:IfcSolver",
     "cubicasa": "bp.solvers.cubicasa:CubicasaSolver",
     "generic": "bp.solvers.generic:GenericSolver",
+    "vlm": "bp.solvers.vlm:VlmSolver",
 }
 
 
