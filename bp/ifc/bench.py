@@ -27,6 +27,8 @@ def of(m, *classes, top=True):
 def tname(e) -> str:
     """Human type label of an element: its name unless that is an instance id, else its type."""
     n = (e.get("name") or "").strip()
+    if e["cls"].startswith("IfcSlab") and n:
+        return re.sub(r":\d+$", "", n)
     t = (e.get("type_name") or "").strip()
     n2 = re.sub(r":\d+$", "", n)
     if n2 and not re.search(r"[-_ ]?\d{3,}$", n2) and not re.fullmatch(r"\d+", n2):
@@ -157,20 +159,36 @@ def out(text, conf, method, evidence=None):
 
 
 # ---------------------------------------------------------------- generators
+_USE = [("Office Building", r"b(?:ü|ue)ro|office|kontor|toimisto|workspace|meeting|besprechung"),
+        ("Residential Building", r"wohn|bedroom|living|elutuba|magamis|apartment|bolig|sove|kitchen|k(?:ö|o)(?:ö|o)k"),
+        ("Educational Building", r"classroom|klasse|seminar|lecture|auditor|undervisning"),
+        ("Library", r"library|bibliot|boksamling"), ("Healthcare Building", r"patient|clinic|treatment|exam")]
+
+
+def _guess_use(m):
+    names = " ".join((e.get("long_name") or e.get("name") or "") for e in spaces(m)).lower()
+    best = max(_USE, key=lambda u: len(re.findall(u[1], names)))
+    return best[0] if re.search(best[1], names) else None
+
+
 def g_building_info(m, q, rel):
     p = (m["meta"].get("IfcProject") or [{}])[0]
     b = (m["meta"].get("IfcBuilding") or [{}])[0]
     s = (m["meta"].get("IfcSite") or [{}])[0]
+    use = b.get("obj_type") or _guess_use(m)
+    t = q["question"].lower()
+    n = len(m["storeys"])
+    if re.search(r"type", t) and not re.search(r"project information|where|location|site", t):
+        lines = [f"Building Type: {use or 'Not defined'}", f"   Building Name: {b.get('name') or 'Not defined'}",
+                 f"   Total Levels: {n} floors"]
+        return out("\n".join(lines), 0.5, "info")
     lines = ["Building Information:", f"   - Project Name: {p.get('name') or 'Not defined'}",
              f"   - Building Name: {b.get('name') or 'Not defined'}"]
     if b.get("long_name"):
         lines.append(f"   - Building Long Name: {b['long_name']}")
-    use = b.get("obj_type") or b.get("description")
     lines.append(f"   - Building Usage/Occupancy: {use or 'Not defined in the IFC model'}")
-    lines.append(f"   - Site Name: {s.get('name') or 'Not defined'}")
-    n = len([x for x in m['storeys']])
+    lines.append(f"   - Site/Location: {s.get('name') or 'Not defined'}")
     lines.append(f"   - Number of Levels: {n} storeys")
-    lines.append(f"   - Total Spaces: {len(spaces(m))}")
     return out("\n".join(lines), 0.5, "info")
 
 
@@ -198,6 +216,14 @@ def g_software(m, q, rel):
 def g_space_by_level(m, q, rel):
     sp = spaces(m)
     tot = sum(area(e) for e in sp)
+    if re.search(r"number of levels", q["question"], re.I) and not re.search(r"program|breakdown", q["question"], re.I):
+        fp = g_footprint(m, q, rel)
+        gross = sum((M.measure(e, "area_floor", gross=True)[0] or 0) for e in sp)
+        lines = ["Building Scale:", f"   - Number of Levels: {len(m['storeys'])}"]
+        if fp:
+            lines.append(f"   - Building Footprint Area: {fp['answer'].split(': ')[1].split(' (')[0]}")
+        lines += [f"   - Total Floor Area: {r1(gross or tot)} sq m", f"   - Total Rooms/Spaces: {len(sp)}"]
+        return out("\n".join(lines), 0.5, "scale", ev(rel, sp, lambda e: round(area(e), 2)))
     lines = ["Building Spatial Layout Overview:", f"   Total Building Levels: {len(m['storeys'])} storeys",
              f"   Total Spaces: {len(sp)} spaces across all levels", f"   Total Floor Area: {r1(tot)} sq m", "",
              "   Space Distribution by Level:"]
@@ -244,15 +270,17 @@ def g_spaces_on_level(m, q, rel):
     ss = sorted(spaces(m, st), key=lambda e: -area(e))
     tot = sum(area(e) for e in ss)
     grouped = re.search(r"function|group", q["question"], re.I)
-    lines = [f"{st['name']}: {len(ss)} spaces", f"   Total Area: {r1(tot)} sq m", ""]
+    lvl = _level_word(m, st)
+    lines = [f"{lvl} ({st['name']}): {len(ss)} spaces", f"   Total Area: {r1(tot)} sq m", ""]
     if grouped:
         g = collections.defaultdict(list)
         for e in ss:
             g[e.get("long_name") or e.get("name") or "Unnamed"].append(e)
+        lines.append(f"   {lvl} Spaces by Function:")
+        lines.append("")
         for k in sorted(g):
-            a = sum(area(e) for e in g[k])
-            lines.append(f"   {k} ({len(g[k])} spaces, {r1(a)} sq m):")
-            for e in g[k]:
+            lines.append(f"   {k}:")
+            for e in sorted(g[k], key=lambda e: e.get("name") or ""):
                 lines.append(f"     - {e.get('name')}: {r1(area(e))} sq m")
             lines.append("")
     else:
@@ -262,6 +290,21 @@ def g_spaces_on_level(m, q, rel):
             else:
                 lines.append(f"   - {e.get('name')}: {r1(area(e))} sq m")
     return out("\n".join(lines).rstrip(), 0.6, "spaces-on-level", ev(rel, ss, lambda e: round(area(e), 2)))
+
+
+def _level_word(m, st):
+    sts = [s for s in m["storeys"] if spaces(m, s)]
+    if st not in sts:
+        return "Level"
+    g = sts.index(find_storey(m, "ground floor")) if find_storey(m, "ground floor") in sts else 0
+    i = sts.index(st) - g
+    if i < 0:
+        return "Basement Level"
+    if i == 0:
+        return "Ground Level"
+    if i == len(sts) - g - 1 and re.search(r"dach|attic|roof|loft|ullakko|katus", st["name"], re.I):
+        return "Attic Level"
+    return {1: "First Level", 2: "Second Level", 3: "Third Level", 4: "Fourth Level"}.get(i, f"Level {i}")
 
 
 def g_all_spaces(m, q, rel):
@@ -289,13 +332,17 @@ def g_room_names(m, q, rel):
 
 def g_levels(m, q, rel):
     sts = [s for s in m["storeys"] if s["elevation"] is not None]
+    t = q["question"].lower()
+    if re.search(r"elevation", t) and not re.search(r"height", t):
+        lines = ["Building Level Elevations:"] + [f"   - {s['name']}: {s['elevation']:.2f} m above ground" for s in sts]
+        return out("\n".join(lines), 0.6, "levels")
     lines = ["Building Level Information:"]
     for i, s in enumerate(sts):
         lines.append(f"   - {s['name']}:")
         lines.append(f"     Elevation: {r1(s['elevation'])} m")
         if i + 1 < len(sts):
             lines.append(f"     Height: {r1(sts[i + 1]['elevation'] - s['elevation'])} m")
-        if i > 0:
+        if i > 0 and re.search(r"floor.to.floor", t):
             lines.append(f"     Floor-to-floor height from {sts[i - 1]['name']}: "
                          f"{r1(s['elevation'] - sts[i - 1]['elevation'])} m")
     return out("\n".join(lines), 0.6, "levels")
@@ -431,7 +478,15 @@ def g_door_window_width(m, q, rel, cls):
     lines = []
     if n == 1:
         e = els[0]
-        lines.append(f"Largest {word} Width:\n   {_width(e):.1f} m - {tname(e)} ({e.get('name')})")
+        if not re.search(r"average|range|statistic", t):
+            return out(f"Largest {word} Width:\n   {_width(e):.1f} m - {tname(e)}", 0.6, "width",
+                       ev(rel, [e], lambda e: _width(e)))
+        lines.append(f"Largest {word} Width:\n   {_width(e):.1f} m - {tname(e)}")
+    elif n > 1 and re.search(r"which (?:two|three|\d+) ", t):
+        lines = [f"The {mm.group(1) if mm else n} {word.lower()}s with the greatest widths in the building are:", ""]
+        for i, e in enumerate(els[:n], 1):
+            lines.append(f'{i}. "{e.get("name")}" - Width: {_width(e):.1f} m')
+        return out("\n".join(lines), 0.6, "width", ev(rel, els[:n], lambda e: round(_width(e), 3)))
     elif n > 1:
         lines.append(f"Top {n} Largest {word} Widths:")
         for i, e in enumerate(els[:n], 1):
@@ -564,7 +619,7 @@ def g_wall_length(m, q, rel):
                 continue
             tot = sum(vals)
             res += sel
-            parts.append(f"Total {scope} wall length is {r1(tot)} m ({len(sel)} walls).")
+            parts.append(f"Total {scope} wall length is {r1(tot)} m.")
     return out("\n".join(parts), 0.5, "wall-length", ev(rel, res, lambda e: round(M.measure(e, "length")[0] or 0,
                                                                                     3)))
 
@@ -656,14 +711,16 @@ def g_slab_volume(m, q, rel):
              f"   - Total floor slab volume: {sum(vs):.2f} cu m", f"   - Volume range: {min(vs):.2f} cu m to "
              f"{max(vs):.2f} cu m"]
     if re.search(r"type|breakdown", q["question"], re.I):
-        by = collections.defaultdict(list)
-        for e in els:
-            by[tname(e)].append(e)
         lines.append("")
         lines.append("   Floor Slab Breakdown:")
-        for k, g in by.items():
-            v = sum(vals[e["guid"]] or 0 for e in g)
-            lines.append(f"   - {k}: {len(g)} slab(s), Volume: {v:.2f} cu m")
+        for e in els[:60]:
+            v = vals[e["guid"]] or 0
+            a, _ = M.measure(e, "area")
+            lines.append(f"   - {e.get('name') or tname(e)}:")
+            lines.append(f"     Volume: {v:.2f} cu m")
+            if a:
+                lines.append(f"     Area: {r1(a)} sq m")
+                lines.append(f"     Calculated Thickness: {v / a * 1000:.0f} mm")
     return out("\n".join(lines), 0.5, "slab-volume", ev(rel, els, lambda e: round(vals[e["guid"]] or 0, 3)))
 
 
@@ -791,7 +848,7 @@ def _mep_system(e):
 def g_mep(m, q, rel):
     els = _mep(m)
     t = q["question"].lower()
-    if not els and not m.get("systems"):
+    if not els and not m.get("systems") and re.search(r"\bmep\b", t):
         return out("No explicit MEP systems found in this model.", 0.6, "mep")
     for kw, rx in (("heating", r"heat|radiator|boiler"), ("cooling", r"cool|chiller"),
                    ("electrical", r"light|lamp|electric|outlet|switch|luminaire|cable"),
@@ -801,7 +858,7 @@ def g_mep(m, q, rel):
                                                    f"{e.get('type_name') or ''} {' '.join(e.get('systems') or [])}",
                                                re.I)]
             if not sel:
-                return out(f"No {kw.capitalize()} system components found in this model.", 0.5, "mep")
+                return out(f"No explicit {kw} system components found.", 0.5, "mep")
             c = collections.Counter(tname(e) for e in sel)
             lines = [f"{kw.capitalize()} components: {len(sel)}", ""] + [f"   - {k}: {n}" for k, n in c.most_common()]
             return out("\n".join(lines), 0.4, "mep", ev(rel, sel, lambda e: 1))
@@ -1008,9 +1065,9 @@ def _rules():
         (r"bedrooms?", lambda m, q, r: g_bedrooms(m, q, r, r"bed|schlaf|sove|makuu", "bedrooms")),
         (r"bathrooms?", lambda m, q, r: g_bedrooms(m, q, r, r"bath|bad|wc|toilet", "bathrooms")),
         (r"names of all the rooms|list of (?:each|all) room", g_room_names),
-        (r"utili[sz]|by function", g_space_function),
         (r"spaces? (?:are )?on|spaces in the|spaces on|space breakdown of the|breakdown of the .*(?:floor|level)",
          g_spaces_on_level),
+        (r"utili[sz]|by function", g_space_function),
         (r"space breakdown for all|complete space breakdown|breakdown by level, with individual", g_all_spaces),
         (r"space (?:distribution|breakdown)|by level|number of levels|total spaces", g_space_by_level),
         (r"net (?:usable )?floor area", g_net_area_by_level),
