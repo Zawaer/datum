@@ -7,7 +7,7 @@ PNGs with one YOLO11 detector. Weights are not in git; produce them like this (~
 # 1. public CubiCasa5k release (CC BY-NC 4.0, Zenodo record 2613548, 5.5 GB)
 mkdir -p cache/cc5k_dl cache/cc5k
 curl -L -o cache/cc5k_dl/cubicasa5k.zip https://zenodo.org/api/records/2613548/files/cubicasa5k.zip/content
-unzip -q cache/cc5k_dl/cubicasa5k.zip -d cache/cc5k
+.venv/bin/python -I train/cubicasa/extract_cc5k.py cache/cc5k_dl/cubicasa5k.zip cache/cc5k  # skips test drawings
 
 # 2. SVG annotations -> YOLO labels (skips every drawing in our held-out test split)
 .venv/bin/python train/cubicasa/make_yolo.py --src cache/cc5k/cubicasa5k --out cache/yolo_cc
@@ -53,8 +53,10 @@ named "WC", sinks include double and round sinks).
 
 ## No leakage
 
-- Any CubiCasa5k drawing whose key lands in our test split (`bp.data.split_of(...) == "test"`) is dropped
-  by `make_yolo.py` before anything is read, whether or not it appears in our question set.
+- Any CubiCasa5k drawing whose key lands in our test split (`bp.data.split_of(...) == "test"`; 958 of the
+  5,000) is never extracted from the zip (`extract_cc5k.py`) and is dropped again by `make_yolo.py`,
+  whether or not it appears in our question set. Checked against the full dataset: 0 of its 922 test
+  cubicasa drawings are among the 4,042 training/validation drawings.
 - ~10 % of the remaining drawings (md5 of the name) are YOLO validation, used for thresholds and for
   iterating on dev questions; the rest are training.
 - At inference the solver only opens the PNG.
