@@ -29,6 +29,13 @@
   .item small { color: var(--mut); }
   #viewer { position: relative; overflow: hidden; background: #f4f4f2; cursor: grab; }
   #viewer.adding { cursor: crosshair; }
+  #three { position: absolute; inset: 0; display: none; }
+  #viewer.mode3d #three { display: block; } #viewer.mode3d #stage { display: none; }
+  .modes { position: absolute; top: 8px; right: 8px; display: none; gap: 0; z-index: 5; }
+  .modes.show { display: flex; }
+  .modes button { border: 1px solid var(--line); background: var(--panel); color: var(--mut); padding: 5px 11px; cursor: pointer; font-size: 12.5px; }
+  .modes button:first-child { border-radius: 8px 0 0 8px; } .modes button:last-child { border-radius: 0 8px 8px 0; }
+  .modes button.on { background: var(--acc); color: #001; border-color: var(--acc); }
   #stage { position: absolute; transform-origin: 0 0; }
   #stage img { display: block; user-select: none; -webkit-user-drag: none; }
   #stage svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
@@ -90,6 +97,8 @@
   <nav id="list"><div class="tabs" id="tabs"></div><div id="items"></div></nav>
   <section id="viewer">
     <div id="stage"><img id="img" alt=""><svg id="ov" viewBox="0 0 1 1"></svg></div>
+    <div id="three"></div>
+    <div class="modes" id="modes"><button id="m2d" class="on">Plan</button><button id="m3d">3D model</button></div>
     <div class="hint" id="hint" hidden></div>
     <div class="credit" id="credit"></div>
   </section>
@@ -106,6 +115,13 @@
     </div>
   </aside>
 </main>
+<script type="importmap">{"imports": {"three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"}}</script>
+<script type="module">
+import * as V3 from '/static/view3d.js';
+window.V3 = V3; V3.init(document.getElementById('three'));
+window.dispatchEvent(new Event('v3ready'));
+</script>
 <script>
 const $ = s => document.querySelector(s);
 const SRC = {swiss_dwellings: 'Swiss apartments', cubicasa5k: 'Finnish plans', ifc_models: 'IFC models', ifc_bench: 'IFC bench'};
@@ -148,6 +164,27 @@ viewer.addEventListener('click', e => {
   draw(false); renderEvidence(); recompute();
 });
 
+// ---------- 2D / 3D modes
+let mode = '2d', loaded3d = null, has3d = false;
+async function setMode(m) {
+  mode = m; viewer.classList.toggle('mode3d', m === '3d');
+  $('#m2d').classList.toggle('on', m === '2d'); $('#m3d').classList.toggle('on', m === '3d');
+  if (m === '3d' && window.V3 && loaded3d !== cur.path) {
+    loaded3d = cur.path;
+    await V3.load(cur.path, msg => { $('#hint').hidden = !msg; $('#hint').textContent = msg; });
+    highlight3d(false);
+  }
+}
+$('#m2d').onclick = () => setMode('2d'); $('#m3d').onclick = () => setMode('3d');
+function ifcItems() { return items.filter(e => e.kind === 'ifc'); }
+function highlight3d(animate) {
+  if (!window.V3 || !V3.hasModel() || loaded3d !== cur.path) return;
+  const it = ifcItems();
+  if (!it.length) { V3.clear(); return; }
+  V3.highlight(it, animate, animate ? (k => renderAnswer(k)) : null);
+  if (animate) setTimeout(() => { renderAnswer(null); recompute(); }, it.length * Math.max(20, Math.min(120, 1800 / it.length)) + 80);
+}
+
 // ---------- data
 async function loadList() {
   drawings = await (await fetch('/api/drawings')).json();
@@ -169,7 +206,9 @@ async function select(d) {
   cur = d; res = null; items = []; ov.innerHTML = ''; $('#answer').hidden = true; $('#evwrap').hidden = true;
   document.querySelectorAll('.item').forEach(e => e.classList.toggle('on', e.textContent.startsWith(d.path.split('/').pop())));
   const info = await (await fetch('/api/questions?path=' + encodeURIComponent(d.path))).json();
-  cur.view = info.view;
+  cur.view = info.view; has3d = info.has3d; loaded3d = null; if (window.V3) V3.clear();
+  $('#modes').classList.toggle('show', has3d && !!info.view);
+  setMode(info.view ? '2d' : (has3d ? '3d' : '2d'));
   img.src = info.view ? '/api/render?path=' + encodeURIComponent(info.view) : '';
   $('#credit').textContent = info.credit ? '© ' + info.credit : '';
   const chips = $('#chips'); chips.innerHTML = '';
@@ -191,8 +230,15 @@ async function ask() {
   session.n++; session.ours += res.cost_usd || 0; session.base += res.baseline_cost_usd || 0;
   $('#m-n').textContent = session.n; $('#m-ours').textContent = '$' + session.ours.toFixed(4);
   $('#m-base').textContent = '$' + session.base.toFixed(3);
-  items = (res.evidence || []).filter(e => e.kind === 'box' || e.kind === 'polygon').map(e => ({...e, on: true}));
-  renderAnswer(0); zoomToEvidence(); draw(true); renderEvidence();
+  const ev = res.evidence || [];
+  const two = ev.filter(e => (e.kind === 'box' || e.kind === 'polygon') && (!e.file || e.file === cur.view));
+  const three = ev.filter(e => e.kind === 'ifc');
+  items = (two.length ? two : three).map(e => ({...e, on: true}));
+  if (two.length && three.length) items = items.map((e, i) => three[i] ? {...e, guids: three[i].guids} : e);
+  renderAnswer(0);
+  if (!two.length && three.length && has3d) { await setMode('3d'); highlight3d(true); }
+  else { if (mode === '3d') setMode('2d'); zoomToEvidence(); draw(true); }
+  renderEvidence();
 }
 function zoomToEvidence() {
   if (!items.length) { fit(); return; }
@@ -240,11 +286,13 @@ function renderAnswer(shownSoFar) {
 function draw(animate) {
   ov.innerHTML = '';
   const NS = 'http://www.w3.org/2000/svg';
+  if (mode === '3d') return;
   const W = img.naturalWidth || 1, H = img.naturalHeight || 1;
   ov.setAttribute('viewBox', `0 0 ${W} ${H}`);
   const fs = 14 / view.s;  // ~14 screen px whatever the zoom
   const step = animate ? Math.max(25, Math.min(110, 1800 / Math.max(1, items.length))) : 0;
   items.forEach((e, i) => {
+    if (e.kind === 'ifc') return;
     const show = () => {
       const g = document.createElementNS(NS, 'g'); g.dataset.i = i;
       let shape, lx, ly;
@@ -262,7 +310,7 @@ function draw(animate) {
         const xs = e.points.map(p => p[0] * W), ys = e.points.map(p => p[1] * H);
         lx = (Math.min(...xs) + Math.max(...xs)) / 2; ly = (Math.min(...ys) + Math.max(...ys)) / 2;
       }
-      shape.onclick = ev => { ev.stopPropagation(); if (adding) return; e.on = !e.on; draw(false); renderEvidence(); recompute(); };
+      shape.onclick = ev => { ev.stopPropagation(); if (adding) return; e.on = !e.on; redraw(); };
       g.appendChild(shape);
       if (e.kind === 'box' && e.on) {
         const n = items.slice(0, i + 1).filter(x => x.on && x.kind === 'box').length;
@@ -301,10 +349,11 @@ function renderEvidence() {
     const name = e.kind === 'box' ? (e.added ? 'added by you' : (e.label || 'item').replace(/ \d+$/, '')) : (e.label || 'region');
     d.innerHTML = `<span>${e.kind === 'box' ? (e.on ? '#' + k : '–') : ''} ${name}</span><span>${e.value != null && t !== 'count' ? (+e.value).toFixed(2) + ' ' + unitOf(t) : ''}</span>`;
     d.onmouseenter = () => hot(i, true); d.onmouseleave = () => hot(i, false);
-    d.onclick = () => { e.on = !e.on; draw(false); renderEvidence(); recompute(); };
+    d.onclick = () => { e.on = !e.on; redraw(); };
     ev.appendChild(d);
   });
 }
+function redraw() { if (mode === '3d') { highlight3d(false); renderAnswer(null); } else draw(false); renderEvidence(); recompute(); }
 function hot(i, on) { const g = ov.querySelector(`g[data-i="${i}"] rect, g[data-i="${i}"] polygon`); if (g) g.classList.toggle('hot', on); }
 
 function recompute() {

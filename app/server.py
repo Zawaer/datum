@@ -95,7 +95,7 @@ def questions(path: str):
     qs = BY_PATH.get(path)
     if not qs:
         raise HTTPException(404)
-    return {"path": path, "view": view_path(path), "credit": credit_for(path),
+    return {"path": path, "view": view_path(path), "credit": credit_for(path), "has3d": ifc_for(path) is not None,
             "questions": [{"question": q["question"], "type": q["type"], "answer": q["answer"]} for q in qs]}
 
 
@@ -117,6 +117,25 @@ def render(path: str, page: int = 0, dpi: int = 130):
     data = _render(path, page, min(dpi, 220))
     mt = "image/jpeg" if path.lower().endswith((".jpg", ".jpeg")) else "image/png"
     return Response(data, media_type=mt, headers={"Cache-Control": "max-age=3600"})
+
+
+def ifc_for(path: str) -> Path | None:
+    p = ROOT / path
+    if p.suffix.lower() == ".ifc":
+        return p
+    model = p.parent / (p.stem.split("_plan-")[0] + ".ifc")
+    return model if model.exists() else None
+
+
+@app.get("/api/mesh")
+def mesh(path: str):
+    from app.mesh import mesh_bytes
+
+    ifc = ifc_for(path)
+    if ifc is None:
+        raise HTTPException(404, "no IFC model for this drawing")
+    return Response(mesh_bytes(ifc), media_type="application/json",
+                    headers={"Content-Encoding": "gzip", "Cache-Control": "max-age=3600"})
 
 
 @app.get("/api/file")
