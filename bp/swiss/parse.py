@@ -24,6 +24,9 @@ UNIT_RE = re.compile(r"^(?:Whg\.|App\.|Wohnung|Appartement|Appartamento)\s*([A-Z
 
 OUTDOOR = ("balkon", "balcon", "loggia", "terrass", "sitzplatz", "veranda", "aussen", "extérieur", "esterno",
            "dachterrasse", "patio", "garten", "jardin", "giardino")
+# room fill greys on the PDF (stroke 0.54): 1.0 apartment room, 0.953 circulation / common / non-residential,
+# 0.894 outdoor (balcony, loggia, terrace, garden; also unnamed ones), 0.812 rare (stairs / voids)
+FILL_OUTDOOR = 0.894
 SHAFT_VOID = ("schacht", "luftraum", "gaine", "vide", "cavedio", "vuoto", "void", "shaft")
 
 
@@ -34,10 +37,17 @@ class Room:
     number: str | None = None
     area_text: float | None = None
     unit: str | None = None
+    fill: float | None = None  # grey of the room's fill on the PDF (1.0 white = room; see ROOM_FILLS)
+
+    holes: list = field(default_factory=list)  # unlabelled outlines (shafts, columns) lying inside this room
 
     @property
     def area(self) -> float:
-        return self.area_text if self.area_text is not None else round(self.poly.area, 2)
+        """Printed area if the label has one (already net), else the outline minus the unlabelled
+        outlines inside it (lift shaft in a stair hall, columns), which the answers exclude."""
+        if self.area_text is not None:
+            return self.area_text
+        return round(self.poly.area - sum(h.area for h in self.holes), 2)
 
     has_sanitary: bool = False
 
@@ -48,7 +58,7 @@ class Room:
     @property
     def outdoor(self) -> bool:
         n = (self.name or "").lower()
-        return any(k in n for k in OUTDOOR)
+        return any(k in n for k in OUTDOOR) or self.fill == FILL_OUTDOOR
 
     @property
     def shaft_void(self) -> bool:
@@ -60,6 +70,7 @@ class Room:
 class Symbol:
     kind: str
     geom: object  # shapely geometry (DXF coords)
+    sure: bool = True  # False: signature seen rarely / ambiguous grouping -> lower the answer's confidence
 
 
 @dataclass
@@ -68,6 +79,9 @@ class Floor:
     units: dict[str, Polygon] = field(default_factory=dict)
     symbols: list[Symbol] = field(default_factory=list)
     texts: list[tuple[str, float, float]] = field(default_factory=list)
+    unit_labels: list[str] = field(default_factory=list)
+    unit_by_distance: set = field(default_factory=set)
+    n_unit_outlines: int = 0
     to_page: tuple | None = None  # (ax, bx, ay, by): u = ax*x+bx, v = ay*y+by (normalised page coords)
 
     def norm_bbox(self, g, pad=0.0):
@@ -116,49 +130,88 @@ def _geom(e):
     return None
 
 
-def _classify_fixture(members) -> str:
-    """members: list of (dxftype, n_points, radius, geom). Signatures found on dev drawings."""
-    n_burner = sum(1 for t, n, r, g in members if t == "CIRCLE" and abs(r - 0.08) < 0.02)
-    small_circ = sum(1 for t, n, r, g in members if t == "CIRCLE" and r < 0.05)
+def _classify_fixture(members) -> tuple[str, bool]:
+    """members: list of (dxftype, n_points, radius, geom) inside one fixture outline.
+
+    Returns (kind, sure). Signatures surveyed over every dev drawing:
+      4 (2..8) circles r 0.08 -> stove;  5-vertex tray + drain r~0.045 -> shower;
+      curve >= 60 pts -> bathtub;  48-pt curve + small circle -> washbasin;  48-pt curve (+ line) -> WC;
+      only straight lines -> stairs / kitchen / furniture."""
+    circles = [r for t, n, r, g in members if t == "CIRCLE"]
+    n_burner = sum(1 for r in circles if abs(r - 0.08) < 0.02)
     big_curves = [n for t, n, r, g in members if t == "LWPOLYLINE" and n >= 20]
     lines = sum(1 for t, n, r, g in members if t == "LWPOLYLINE" and n == 2)
-    drain = sum(1 for t, n, r, g in members if t == "CIRCLE" and 0.038 <= r <= 0.055)
+    drain = sum(1 for r in circles if 0.038 <= r <= 0.055)
     tray = sum(1 for t, n, r, g in members if t == "LWPOLYLINE" and n == 5)
     if n_burner >= 2:
-        return "stove"
+        return "stove", True
     if drain and tray:
-        return "shower"  # square tray (5-vertex outline) + drain circle r~0.045
+        return "shower", True
     if big_curves:
         nmax = max(big_curves)
         if nmax >= 60:
-            return "bathtub"
-        if small_circ:
-            return "washbasin"
-        if lines:
-            return "toilet"
-        return "curve?"
+            return "bathtub", len(big_curves) == 1
+        basin = [r for r in circles if r < 0.07 or 0.09 < r < 0.15]
+        if basin:
+            # usual drain r 0.013..0.041; larger (0.05, 0.1: double basin) seen rarely
+            return "washbasin", len(big_curves) == 1 and max(basin) < 0.045
+        return "toilet", lines >= 1 and len(big_curves) == 1
+    if not lines and not tray and len(circles) == 1 and 0.02 <= circles[0] <= 0.03:
+        # a lone tub drain in its own outline next to a bathtub (seen on dev: gold counts it as a tub)
+        return "bathtub", False
     if lines >= 6:
-        return "stairs"
-    return "other"
+        return "stairs", True
+    return "other", True
 
 
 def _fixture_groups(entities):
+    """Group FIXTURE primitives into one group per fixture.
+
+    Every fixture symbol is drawn inside its own closed 4-vertex outline rectangle (verified on all dev
+    drawings: no primitive falls outside one), so each primitive goes to the smallest rectangle containing
+    it. Touching fixtures (WC next to washbasin next to bathtub) therefore stay separate. Primitives outside
+    every rectangle fall back to connected components."""
     items = []
     for e in entities:
         g = _geom(e)
         if g is None:
             continue
-        n = len(e.get_points()) if e.dxftype() == "LWPOLYLINE" else 0
-        r = e.dxf.radius if e.dxftype() == "CIRCLE" else 0.0
-        items.append((e.dxftype(), n, r, g))
+        t = e.dxftype()
+        n = len(e.get_points()) if t == "LWPOLYLINE" else 0
+        r = e.dxf.radius if t == "CIRCLE" else 0.0
+        closed = bool(e.closed) if t == "LWPOLYLINE" else False
+        items.append((t, n, r, g, closed))
     if not items:
         return []
-    u = unary_union([it[3].buffer(0.01) for it in items])
-    parts = list(u.geoms) if hasattr(u, "geoms") else [u]
-    groups = []
-    for p in parts:
-        mem = [it for it in items if p.intersects(it[3].representative_point())]
-        groups.append((p, mem))
+    rects = [i for i, it in enumerate(items) if it[0] == "LWPOLYLINE" and it[1] == 4 and it[4] and it[3].area > 1e-4]
+    rset = set(rects)
+    rbuf = {i: items[i][3].buffer(0.01) for i in rects}
+    members = {i: [] for i in rects}
+    loose = []
+
+    def sig(it):
+        return (it[0], min(it[1], 20), round(it[2], 2) if it[2] >= 0.07 else 0)
+
+    # big curves first so they claim their own rectangle; when outlines overlap (WC tucked into a
+    # bathtub's rectangle, duplicated outlines) a primitive prefers a rectangle that holds all of it,
+    # then one without a primitive of the same kind yet, then the smallest.
+    order = sorted((j for j in range(len(items)) if j not in rset), key=lambda j: -items[j][1])
+    for j in order:
+        it = items[j]
+        g = it[3]
+        pt = g.interpolate(0.5, normalized=True) if g.geom_type == "LineString" else g.representative_point()
+        c = [i for i in rects if rbuf[i].contains(g)] or [i for i in rects if rbuf[i].contains(pt)]
+        if c:
+            s0 = sig(it)
+            best = min(c, key=lambda i: (sum(1 for k in members[i] if sig(items[k]) == s0), items[i][3].area))
+            members[best].append(j)
+        else:
+            loose.append(j)
+    groups = [(items[i][3], [items[i][:4]] + [items[j][:4] for j in members[i]]) for i in rects]
+    if loose:
+        u = unary_union([items[j][3].buffer(0.01) for j in loose])
+        for p in (list(u.geoms) if hasattr(u, "geoms") else [u]):
+            groups.append((p, [items[j][:4] for j in loose if p.intersects(items[j][3].representative_point())]))
     return groups
 
 
@@ -169,14 +222,42 @@ def _components(geoms, tol):
     return list(u.geoms) if hasattr(u, "geoms") else [u]
 
 
-def _fit_page_transform(dxf_texts, pdf_path):
-    """Fit u = ax*x + bx, v = ay*y + by from texts present in both the DXF and the PDF."""
-    import pymupdf
+def _pdf_room_fills(page):
+    """Room fills on the PDF page: closed paths stroked mid-grey (0.54) whose fill grey encodes the area
+    type (white = room; grey tones = shafts, voids, outdoor, ...). Returns [(Polygon in normalised page
+    coords, fill grey)]."""
+    W, H = page.rect.width, page.rect.height
+    out = []
+    for d in page.get_drawings():
+        col, fill = d.get("color"), d.get("fill")
+        if d.get("type") != "fs" or not col or not fill or abs(col[0] - 0.541) > 0.01:
+            continue
+        pts = []
+        for it in d["items"]:
+            if it[0] == "l":
+                pts += [it[1], it[2]]
+            elif it[0] == "re":
+                r = it[1]
+                pts += [r.tl, r.tr, r.br, r.bl]
+            elif it[0] == "qu":
+                q = it[1]
+                pts += [q.ul, q.ur, q.lr, q.ll]
+            elif it[0] == "c":
+                pts += [it[1], it[4]]
+        if len(pts) < 3:
+            continue
+        poly = Polygon([(p.x / W, p.y / H) for p in pts])
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+        if poly.area > 0:
+            out.append((poly, round(float(sum(fill)) / 3, 3)))
+    return out
 
-    with pymupdf.open(pdf_path) as doc:
-        page = doc[0]
-        W, H = page.rect.width, page.rect.height
-        words = page.get_text("words")
+
+def _fit_page_transform(dxf_texts, page):
+    """Fit u = ax*x + bx, v = ay*y + by from texts present in both the DXF and the PDF."""
+    W, H = page.rect.width, page.rect.height
+    words = page.get_text("words")
     pdf_pos: dict[str, list] = {}
     for x0, y0, x1, y1, w, *_ in words:
         pdf_pos.setdefault(w, []).append((x0, y0, x1, y1))
@@ -232,17 +313,41 @@ def parse_floor(dxf_path: str, pdf_path: str | None = None) -> Floor:
             fl.rooms.append(Room(polys[i], name, num, area))
         else:
             fl.rooms.append(Room(Point(pt).buffer(0.3), name, num, area))
-    for i, p in enumerate(polys):
-        if i not in used:
-            fl.rooms.append(Room(p))  # unlabelled region (shaft, void, ...)
+    free = [p for i, p in enumerate(polys) if i not in used]
+    for p in free:
+        fl.rooms.append(Room(p))  # unlabelled region (shaft, void, ...)
+    # unlabelled outlines inside a labelled room (lift shaft in a stair hall, a column, a duct) are holes:
+    # outermost ones only (a lift drawn inside the shaft outline is not subtracted twice)
+    for r in fl.rooms:
+        if not r.number:
+            continue
+        inner = [p for p in free if p.area < 0.98 * r.poly.area and r.poly.buffer(0.02).contains(p)]
+        r.holes = [p for p in inner if not any(q is not p and q.area > p.area and q.buffer(0.02).contains(p)
+                                               for q in inner)]
 
     # ---- units (apartments)
     unit_polys = [p for p in (_poly(e) for e in msp.query('LWPOLYLINE[layer=="UNIT_OUTLINE"]')) if p is not None]
     unit_labels = [(UNIT_RE.match(t).group(1), Point(x, y)) for t, x, y, h in texts if UNIT_RE.match(t)]
+    # labels inside an outline take the smallest one holding them; a label printed outside every
+    # outline (seen on dev, e.g. in the stair hall) takes the nearest outline nobody claimed.
+    fl.unit_labels = sorted({letter for letter, pt in unit_labels})
+    fl.unit_by_distance = set()
+    claimed = set()
+    pending = []
     for letter, pt in unit_labels:
-        cands = [p for p in unit_polys if p.buffer(0.05).contains(pt)]
+        cands = [i for i, p in enumerate(unit_polys) if p.buffer(0.05).contains(pt) and i not in claimed]
         if cands:
-            fl.units[letter] = min(cands, key=lambda p: p.area)
+            i = min(cands, key=lambda i: unit_polys[i].area)
+            fl.units[letter] = unit_polys[i]
+            claimed.add(i)
+        else:
+            pending.append((letter, pt))
+    for letter, pt in pending:
+        d = sorted((unit_polys[i].distance(pt), i) for i in range(len(unit_polys)) if i not in claimed)
+        if d and d[0][0] < 3.0:
+            fl.units[letter] = unit_polys[d[0][1]]
+            claimed.add(d[0][1])
+            fl.unit_by_distance.add(letter)
     for r in fl.rooms:
         for letter, up in fl.units.items():
             if r.poly.intersection(up).area > 0.5 * r.poly.area:
@@ -265,7 +370,8 @@ def parse_floor(dxf_path: str, pdf_path: str | None = None) -> Floor:
 
     # ---- fixtures
     for comp, mem in _fixture_groups(list(msp.query('*[layer=="FIXTURE"]'))):
-        fl.symbols.append(Symbol(_classify_fixture(mem), comp))
+        kind, sure = _classify_fixture(mem)
+        fl.symbols.append(Symbol(kind, comp, sure))
 
     # numbered rooms printed without a name: bathrooms/WCs drawn with fixtures count as rooms,
     # empty ones are shafts. Verified against dev apartment totals.
@@ -275,5 +381,18 @@ def parse_floor(dxf_path: str, pdf_path: str | None = None) -> Floor:
             r.has_sanitary = any(r.poly.intersects(g.centroid) for g in sanitary)
 
     if pdf_path and Path(pdf_path).exists():
-        fl.to_page = _fit_page_transform(fl.texts, pdf_path)
+        import pymupdf
+
+        with pymupdf.open(pdf_path) as doc:
+            page = doc[0]
+            fl.to_page = _fit_page_transform(fl.texts, page)
+            fills = _pdf_room_fills(page) if fl.to_page else []
+        if fills:
+            ax, bx, ay, by = fl.to_page
+            for r in fl.rooms:
+                pt = r.poly.representative_point()
+                q = Point(ax * pt.x + bx, ay * pt.y + by)
+                c = [(P.area, g) for P, g in fills if P.contains(q)]
+                if c:
+                    r.fill = min(c)[1]
     return fl

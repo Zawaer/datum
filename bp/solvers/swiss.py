@@ -143,7 +143,7 @@ class SwissSolver:
                     "explanation": " + ".join(f"{r.area:.2f}" for r in hits) + f" = {tot:.2f} m²"}
 
         if kind == "area_numbered":
-            hits = [r for r in rooms_num if r.counts_as_room and not r.outdoor and not r.shaft_void]
+            hits = [r for r in rooms_num if not r.outdoor and not r.shaft_void]
             for r in hits:
                 poly(r, r.area)
             tot = round(sum(r.area for r in hits), 2)
@@ -154,7 +154,7 @@ class SwissSolver:
             letter = intent[1]
             if letter not in fl.units:
                 return {**base, "explanation": f"apartment {letter} not found"}
-            hits = [r for r in rooms_num if r.counts_as_room and r.unit == letter and not r.outdoor]
+            hits = [r for r in rooms_num if r.unit == letter and not r.outdoor and not r.shaft_void]
             for r in hits:
                 poly(r, r.area)
             tot = round(sum(r.area for r in hits), 2)
