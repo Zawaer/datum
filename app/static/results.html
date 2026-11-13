@@ -45,7 +45,8 @@
   <h1>Scoreboard</h1>
   <p class="lede">Accuracy on our held-out test split (split by drawing, so no drawing seen during development is scored),
     read live from the evaluation runs in <code>runs/*.summary.md</code>. Counts must be exact; areas, lengths and volumes within 2 %.
-    An abstention counts as wrong.</p>
+    An abstention counts as wrong. Free-text answers (IFC bench) are scored with a token-F1 ≥ 0.5 proxy.
+    Sample sizes differ between columns: each cell shows its n.</p>
   <div class="legend" id="legend"></div>
   <div class="tiles" id="tiles"></div>
   <h2>By source and question type</h2>
@@ -95,7 +96,7 @@ const nice = g => g.split(' / ').map((p, i) => i === 0 ? (NICE[p] || p) : p).joi
     const o = best('ours', 'By source', s), f = best('frontier', 'By source', s), p = best('prior', 'By source', s);
     if (!o && !f) return '';
     return `<div class="tile"><h4>${esc(nice(s))}</h4>
-      <div class="hero" style="color:${o ? 'var(--text)' : 'var(--mut)'}">${o ? o.row.accuracy.toFixed(1) + '%' : 'in progress'} <small>ours</small></div>
+      <div class="hero" style="${o ? '' : 'color:var(--mut);font-size:24px;padding:8px 0 6px'}">${o ? o.row.accuracy.toFixed(1) + '%' : 'no test run yet'} <small>ours</small></div>
       <div class="vs">frontier ${f ? f.row.accuracy.toFixed(1) + '%' : '—'} · prior ${p ? p.row.accuracy.toFixed(1) + '%' : '—'}<br>
       ours ${o ? '$' + o.row.usd_per_1k.toFixed(2) : '—'} vs frontier ${f ? '$' + f.row.usd_per_1k.toFixed(2) : '—'} per 1k questions</div></div>`;
   }).join('');

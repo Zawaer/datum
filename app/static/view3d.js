@@ -8,6 +8,8 @@ let positions = null, elements = [], byGuid = new Map(), storeys = [], allIdx = 
 let clip = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1e9);
 let cbs = {};
 const ray = new THREE.Raycaster();
+// not drawn as context: spaces (would hide the interior) and site / terrain (a big box around everything)
+const CONTEXT_SKIP = new Set(['IfcSpace', 'IfcSite', 'IfcGeographicElement']);
 
 function b64(s, Type) {
   const bin = atob(s), u8 = new Uint8Array(bin.length);
@@ -98,7 +100,7 @@ export async function load(path, onStatus) {
   elements = d.elements;
   storeys = d.storeys || [];
   byGuid = new Map(elements.map(e => [e.guid, e]));
-  model = subMesh(elements.filter(e => e.type !== 'IfcSpace'), new THREE.MeshLambertMaterial({
+  model = subMesh(elements.filter(e => !CONTEXT_SKIP.has(e.type)), new THREE.MeshLambertMaterial({
     color: 0xc9d1dc, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false, clippingPlanes: [clip] }));
   scene.add(model);
   setClip(null);
@@ -150,7 +152,7 @@ export function autoStorey(items) {
 }
 
 // items: [{guids, on}] in evidence order. Elements light up one item at a time.
-export function highlight(items, animate = true, onStep = null, reframe = true) {
+export function highlight(items, animate = true, onStep = null, reframe = true, onDone = null) {
   clear();
   if (!model) return;
   const on = [], off = [], ends = [];
@@ -166,8 +168,11 @@ export function highlight(items, animate = true, onStep = null, reframe = true) 
     scene.add(offMesh);
   }
   if (!on.length) return;
+  // rooms are volumes: draw them see-through so what's inside (and the rooms behind) stays visible
+  const volumes = on.filter(e => e.type === 'IfcSpace').length > on.length / 2;
   hl = subMesh(on, new THREE.MeshLambertMaterial({ color: 0xff3b6b, emissive: 0x5a0010,
-    side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, clippingPlanes: [clip] }));
+    side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, clippingPlanes: [clip],
+    transparent: volumes, opacity: volumes ? 0.42 : 1, depthWrite: !volumes }));
   hl.renderOrder = 2;
   scene.add(hl);
   if (reframe) frame(hl.geometry, clip.constant < 1e8);
@@ -177,7 +182,7 @@ export function highlight(items, animate = true, onStep = null, reframe = true) 
   const step = Math.max(20, Math.min(120, 1800 / Math.max(1, items.length)));
   anim = setInterval(() => {
     hl.geometry.setDrawRange(0, ends[i]); onStep && onStep(i + 1); i++;
-    if (i >= ends.length) { clearInterval(anim); anim = null; hl.geometry.setDrawRange(0, Infinity); }
+    if (i >= ends.length) { clearInterval(anim); anim = null; hl.geometry.setDrawRange(0, Infinity); onDone && onDone(); }
   }, step);
 }
 

@@ -142,9 +142,7 @@ function highlight3d(animate) {
   const it = ifcItems();
   applyStorey(false);
   if (!it.length) { V3.clear(); V3.focusStorey(null, false); return; }
-  const step = Math.max(20, Math.min(120, 1800 / it.length));
-  V3.highlight(it, animate, animate ? (k => renderAnswer(k)) : null, true);
-  if (animate) setTimeout(() => { renderAnswer(null); recompute(); }, it.length * step + 80);
+  V3.highlight(it, animate, animate ? (k => renderAnswer(k)) : null, true, () => { renderAnswer(null); recompute(); });
 }
 const guidItem = () => { const m = new Map(); items.forEach((e, i) => (e.guids || []).forEach(g => m.set(g, i))); return m; };
 window.onPick3d = g => {
