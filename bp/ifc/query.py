@@ -13,7 +13,14 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from bp.templates import _Q, slots as _slots
+from bp.templates import _Q as _Q0
+
+# bp.templates' quote set plus Polish/Romanian „...” (U+201E ... U+201D)
+_Q = _Q0 + r"|„[^”“]*”"
+
+
+def _slots(question: str) -> list[str]:
+    return [m.strip("'\"«»„“”‘’ ") for m in re.findall(_Q, question)]
 
 # key -> (IFC classes counted, subtype-inclusive; word-start regex alternatives in many languages)
 CLASSES = {

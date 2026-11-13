@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 
 CACHE_DIR = Path(os.environ.get("BP_CACHE", "cache")) / "ifc"
-CACHE_VERSION = 6
+CACHE_VERSION = 7
 
 # classes whose geometry we evaluate (cost: a few seconds per model)
 GEO_CLASSES = ["IfcSpace", "IfcWall", "IfcWallStandardCase", "IfcSlab", "IfcColumn", "IfcBeam",
@@ -148,6 +148,20 @@ def _materials(e, ue):
 _QTO_SI = {"length": 1.0}
 
 
+def _union_footprint(v, g) -> float:
+    """Projected area as the union of all triangles (robust when footprint extraction returns 0)."""
+    try:
+        from shapely.geometry import Polygon
+        from shapely.ops import unary_union
+
+        fa = np.asarray(g.faces, dtype=int).reshape(-1, 3)
+        polys = [Polygon(v[t][:, :2]) for t in fa]
+        polys = [p for p in polys if p.is_valid and p.area > 1e-9]
+        return float(unary_union(polys).area) if polys else 0.0
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
 def _geometry(path: str, guids: set, unit_scale: float, threads: int):
     import ifcopenshell
     import ifcopenshell.geom as G
@@ -183,8 +197,11 @@ def _geometry(path: str, guids: set, unit_scale: float, threads: int):
             m = np.asarray(sh.transformation.matrix, dtype=float).reshape(4, 4).T  # column-major -> row
             if len(v):
                 w = (np.c_[v, np.ones(len(v))] @ m.T)[:, :3]
+                fp = float(us.get_footprint_area(g))
+                if fp < 1e-6:
+                    fp = _union_footprint(v, g)
                 rec = {
-                    "footprint": float(us.get_footprint_area(g)),
+                    "footprint": fp,
                     "volume": float(us.get_volume(g)),
                     "len_x": float(v[:, 0].max() - v[:, 0].min()),
                     "len_y": float(v[:, 1].max() - v[:, 1].min()),

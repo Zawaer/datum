@@ -2,8 +2,9 @@
 
 Measure definitions (checked against the dev-split gold answers of ifc_models):
   * counts           - elements of the IFC class *including subtypes* (IfcWall counts IfcWallStandardCase),
-                       top-level only: parts aggregated into another element (IfcStair risers/treads,
-                       IfcStairFlight, wall parts) are not counted. Spaces: every IfcSpace.
+                       excluding parts aggregated into an element of the same class (IfcStair risers/treads
+                       modelled as IfcStair inside an IfcStair); doors/windows aggregated into an IfcCurtainWall
+                       and columns in an IfcElementAssembly do count. Spaces: every IfcSpace.
                        "on the floor plan of <storey>": elements contained in that IfcBuildingStorey
                        (spatial containment, walking up aggregation for parts/spaces).
   * room net area    - quantity NetFloorArea (BaseQuantities / Qto_SpaceBaseQuantities) when present,
@@ -52,7 +53,7 @@ def _schema(m):
 def nkey(s) -> str:
     s = unicodedata.normalize("NFKD", str(s or "")).casefold()
     s = "".join(c for c in s if not unicodedata.combining(c))
-    return re.sub(r"[^\w]+", "", s)
+    return re.sub(r"[^\w.\-]+", "", s)
 
 
 def storey_by_guid(m):
@@ -63,6 +64,10 @@ def match_storey(m, name: str):
     """Return (storey, score) for a quoted storey name; score 1.0 = exact (normalised)."""
     if not name:
         return None, 0.0
+    raw = str(name).strip().casefold()
+    for s in m["storeys"]:
+        if raw in (str(s["name"] or "").strip().casefold(), str(s["long_name"] or "").strip().casefold()):
+            return s, 1.0
     k = nkey(name)
     for s in m["storeys"]:
         if k and k in (nkey(s["name"]), nkey(s["long_name"])):
@@ -119,7 +124,9 @@ def elements_of(m, classes, storey=None, top_level=True):
     for e in m["elements"]:
         if not any(isa(e["cls"], c, sc) for c in classes):
             continue
-        if top_level and e["cls"] != "IfcSpace" and e.get("parent_cls") and isa(e["parent_cls"], "IfcElement", sc):
+        # parts of an element of the same kind (stair treads in an IfcStair) are not counted; doors/windows
+        # hosted by an IfcCurtainWall, columns in an IfcElementAssembly are
+        if top_level and e.get("parent_cls") and any(isa(e["parent_cls"], c, sc) for c in classes):
             continue
         if storey is not None and e["storey"] != storey["guid"]:
             continue
