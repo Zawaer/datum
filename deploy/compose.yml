@@ -1,0 +1,33 @@
+# docker compose --env-file /opt/bp/site.env up -d --build   (site.env: SITE=..., PREFIX=d-...; never committed)
+services:
+  app:
+    build: {context: .., dockerfile: deploy/Dockerfile}
+    image: bp-demo:latest
+    restart: unless-stopped
+    env_file: [/opt/bp/app.env]          # ANTHROPIC_API_KEY, BP_* caps; chmod 600, outside the repo
+    environment:
+      BP_ROOT_PATH: /${PREFIX:?set PREFIX}
+    volumes:
+      - /opt/bp/bundle/dataset:/srv/bundle/dataset:ro
+      - /opt/bp/bundle/runs:/app/runs:ro
+      - /opt/bp/bundle/analysis:/app/analysis/out:ro
+      - cache:/app/cache
+      - /opt/bp/bundle/weights:/app/cache/cubicasa/weights:ro
+    expose: ["8000"]
+    mem_limit: 12g
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      SITE: ${SITE:?set SITE}
+      PREFIX: ${PREFIX:?set PREFIX}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [app]
+volumes:
+  cache: {}
+  caddy_data: {}
+  caddy_config: {}

@@ -1,0 +1,37 @@
+# Only https://{$SITE}/{$PREFIX}/... serves the app; every other path is a bare 404.
+{
+	admin off
+}
+
+{$SITE} {
+	header {
+		-Server
+		-Via
+		X-Robots-Tag "noindex, nofollow"
+		Referrer-Policy "no-referrer"
+		X-Content-Type-Options "nosniff"
+		Strict-Transport-Security "max-age=31536000"
+		-Access-Control-Allow-Origin
+	}
+	request_body {
+		max_size 200MB
+	}
+	handle /robots.txt {
+		respond "User-agent: *
+Disallow: /
+" 200
+	}
+	redir /{$PREFIX} /{$PREFIX}/ 308
+	handle_path /{$PREFIX}/* {
+		reverse_proxy {$UPSTREAM:app:8000} {
+			header_down -Server
+			header_down -Access-Control-Allow-Origin
+			transport http {
+				response_header_timeout 300s
+			}
+		}
+	}
+	handle {
+		respond 404
+	}
+}

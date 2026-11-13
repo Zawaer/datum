@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""Drop-in for the `claude` CLI (set CLAUDE_CLI to this) that enforces a daily budget for paid model calls.
+
+Every call's total_cost_usd is appended to $BP_SPEND_LEDGER as {"t", "day", "cost_usd"}; once today's (UTC)
+sum reaches $BP_DAILY_USD_CAP, calls are refused without reaching the API (the solvers then abstain).
+Works with both --output-format json and stream-json (the refusal is a result event with is_error).
+"""
+import datetime
+import fcntl
+import json
+import os
+import subprocess
+import sys
+import time
+
+REAL = os.environ.get("CLAUDE_REAL", "claude")
+LEDGER = os.environ.get("BP_SPEND_LEDGER", "/app/cache/spend/ledger.jsonl")
+CAP = float(os.environ.get("BP_DAILY_USD_CAP", "5") or 5)
+MODELS = set(filter(None, os.environ.get("BP_ALLOWED_MODELS", "haiku,sonnet").split(",")))
+
+
+def today():
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+
+
+def spent(day):
+    tot = 0.0
+    try:
+        with open(LEDGER) as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if r.get("day") == day:
+                    tot += float(r.get("cost_usd") or 0)
+    except FileNotFoundError:
+        pass
+    return tot
+
+
+def refuse(msg):
+    print(json.dumps({"type": "result", "subtype": "error", "is_error": True, "result": msg, "total_cost_usd": 0.0}))
+    sys.exit(1)
+
+
+args = sys.argv[1:]
+if "--model" in args:
+    m = args[args.index("--model") + 1] if args.index("--model") + 1 < len(args) else ""
+    if MODELS and m not in MODELS:
+        refuse(f"model {m} is not allowed on the public demo")
+day = today()
+if spent(day) >= CAP:
+    refuse(f"daily model budget of ${CAP:g} reached")
+p = subprocess.run([REAL] + args, stdin=sys.stdin, capture_output=True, text=True)
+cost = 0.0
+for line in p.stdout.splitlines():
+    try:
+        ev = json.loads(line)
+    except ValueError:
+        continue
+    if isinstance(ev, dict) and ev.get("total_cost_usd") is not None:
+        cost = float(ev["total_cost_usd"])
+os.makedirs(os.path.dirname(LEDGER), exist_ok=True)
+with open(LEDGER, "a") as f:
+    fcntl.flock(f, fcntl.LOCK_EX)
+    f.write(json.dumps({"t": round(time.time()), "day": day, "cost_usd": cost}) + "\n")
+sys.stdout.write(p.stdout)
+sys.stderr.write(p.stderr)
+sys.exit(p.returncode)

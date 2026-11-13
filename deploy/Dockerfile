@@ -1,0 +1,33 @@
+# Public demo image: FastAPI app + solvers, CPU only. Data, weights and secrets are mounted, never baked in.
+FROM python:3.11-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 libgomp1 curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Claude Code CLI (the frontier-model fallback calls it one-shot, no tools); wrapped by claude-capped below
+COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:22-bookworm-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && npm install -g @anthropic-ai/claude-code@2.1.322 && claude --version
+
+RUN pip install torch==2.11.0 torchvision==0.26.0 --index-url https://download.pytorch.org/whl/cpu
+COPY deploy/requirements.txt /tmp/req.txt
+RUN pip install -r /tmp/req.txt
+
+RUN useradd -m -u 1000 bp
+WORKDIR /app
+COPY bp/ bp/
+COPY app/ app/
+COPY deploy/claude-capped /usr/local/bin/claude-capped
+COPY deploy/warm.py warm.py
+RUN mkdir -p cache runs && chown -R bp /app
+
+USER bp
+ENV BP_DATA=/srv/bundle/dataset CLAUDE_CLI=/usr/local/bin/claude-capped CLAUDE_REAL=claude \
+    BP_SPEND_LEDGER=/app/cache/spend/ledger.jsonl HF_HUB_OFFLINE=1 YOLO_OFFLINE=1 \
+    YOLO_CONFIG_DIR=/app/cache/yolo DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8000/api/drawings?limit=0 >/dev/null || exit 1
+CMD ["uvicorn", "app.server:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--no-server-header", "--proxy-headers", "--forwarded-allow-ips", "*"]
