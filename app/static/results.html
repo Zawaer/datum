@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scoreboard · Blueprints that talk</title>
+<link rel="stylesheet" href="/static/app.css">
+<style>
+  body { display: block; overflow: auto; }
+  .viz-root { --ours: #3987e5; --frontier: #d95926; --prior: #199e70; --grid: #24334b; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 22px 18px 60px; }
+  h1 { font-size: 28px; letter-spacing: -.5px; margin: 6px 0 4px; }
+  .lede { color: var(--mut); margin: 0 0 18px; max-width: 760px; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: #c5d0de; margin: 10px 0 16px; }
+  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 26px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+  .tile h4 { margin: 0 0 10px; font-size: 13px; color: var(--mut); font-weight: 600; text-transform: uppercase; letter-spacing: .6px; }
+  .tile .hero { font-size: 40px; font-weight: 800; letter-spacing: -1px; line-height: 1; font-variant-numeric: tabular-nums; }
+  .tile .hero small { font-size: 14px; color: var(--mut); font-weight: 500; letter-spacing: 0; }
+  .tile .vs { margin-top: 8px; font-size: 13px; color: #c5d0de; font-variant-numeric: tabular-nums; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13px; }
+  th { text-align: left; color: var(--mut); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .5px; padding: 8px 8px; border-bottom: 1px solid var(--line); }
+  td { padding: 7px 8px; border-bottom: 1px solid rgba(36,51,75,.6); vertical-align: middle; }
+  td.g { white-space: nowrap; }
+  .cell { display: grid; grid-template-columns: 1fr 52px; gap: 8px; align-items: center; min-width: 150px; }
+  .bar { height: 8px; background: #1a2638; border-radius: 4px; position: relative; }
+  .bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 0 4px 4px 0; }
+  .cell b { text-align: right; font-weight: 600; }
+  .cell.na { color: #56657a; }
+  .nsub { color: #6d7c92; font-size: 11px; display: block; }
+  .card2 { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 6px 12px 10px; margin-bottom: 26px; overflow-x: auto; }
+  h2 { font-size: 17px; margin: 22px 0 8px; }
+  .note { color: var(--mut); font-size: 12.5px; margin: 6px 0 0; }
+  .money { text-align: right; white-space: nowrap; }
+  details summary { cursor: pointer; color: #c5d0de; margin: 6px 0; }
+</style>
+</head>
+<body class="viz-root">
+<header>
+  <a class="brand" href="/"><span class="logo">▦</span> Blueprints <em>that talk</em></a>
+  <nav class="links" style="margin-left:auto"><a class="linkbtn" href="/">← Ask a drawing</a></nav>
+</header>
+<div class="wrap">
+  <h1>Scoreboard</h1>
+  <p class="lede">Accuracy on our held-out test split (split by drawing, so no drawing seen during development is scored),
+    read live from the evaluation runs in <code>runs/*.summary.md</code>. Counts must be exact; areas, lengths and volumes within 2 %.
+    An abstention counts as wrong.</p>
+  <div class="legend" id="legend"></div>
+  <div class="tiles" id="tiles"></div>
+  <h2>By source and question type</h2>
+  <div class="card2"><table id="tbl"></table></div>
+  <p class="note" id="tblnote"></p>
+  <h2>Cost per 1,000 questions</h2>
+  <div class="card2"><table id="cost"></table></div>
+  <h2>Every run</h2>
+  <details><summary>show all evaluation runs (including dev and partial ones)</summary>
+    <div class="card2"><table id="allruns"></table></div></details>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const FAM = [['ours', 'Ours: routed solvers', 'var(--ours)'], ['frontier', 'Frontier VLM, asked directly', 'var(--frontier)'],
+             ['prior', 'Prior: most common answer, never looks', 'var(--prior)']];
+const NICE = {swiss_dwellings: 'Swiss apartments', cubicasa5k: 'Finnish plans (CubiCasa)', ifc_models: 'IFC models', ifc_bench: 'IFC bench (text)',
+              opening_design: 'US drawing sets'};
+const nice = g => g.split(' / ').map((p, i) => i === 0 ? (NICE[p] || p) : p).join(' · ');
+
+(async () => {
+  const {runs} = await (await fetch('/api/results')).json();
+  const test = runs.filter(r => r.split === 'test');
+  $('#legend').innerHTML = FAM.map(([, l, c]) => `<span><i style="background:${c}"></i>${l}</span>`).join('');
+
+  // for a family and a group, the test run that covers the group with the most questions (router runs first)
+  function best(fam, section, group) {
+    let pick = null;
+    for (const r of test.filter(r => r.family === fam)) {
+      const row = (r.sections[section] || []).find(x => x.group === group);
+      if (!row) continue;
+      const rank = [r.solver.startsWith('router') ? 1 : 0, row.n, r.mtime];
+      if (!pick || rank > pick.rank) pick = {rank, run: r, row};
+    }
+    return pick;
+  }
+  const cell = (p, fam) => {
+    if (!p) return `<td><div class="cell na"><span class="bar"></span><b>—</b></div></td>`;
+    const c = FAM.find(f => f[0] === fam)[2];
+    return `<td title="run ${esc(p.run.name)} (${esc(p.run.solver)}, n=${p.row.n})"><div class="cell"><span class="bar"><i style="width:${p.row.accuracy}%;background:${c}"></i></span>
+      <b>${p.row.accuracy.toFixed(1)}%</b></div><span class="nsub">n=${p.row.n}${p.row.answered < 100 ? ` · answered ${p.row.answered}%` : ''}</span></td>`;
+  };
+
+  // tiles: one per source
+  const sources = [...new Set(test.flatMap(r => (r.sections['By source'] || []).map(x => x.group)))].filter(g => g !== 'ALL');
+  $('#tiles').innerHTML = sources.map(s => {
+    const o = best('ours', 'By source', s), f = best('frontier', 'By source', s), p = best('prior', 'By source', s);
+    if (!o && !f) return '';
+    return `<div class="tile"><h4>${esc(nice(s))}</h4>
+      <div class="hero" style="color:${o ? 'var(--text)' : 'var(--mut)'}">${o ? o.row.accuracy.toFixed(1) + '%' : 'in progress'} <small>ours</small></div>
+      <div class="vs">frontier ${f ? f.row.accuracy.toFixed(1) + '%' : '—'} · prior ${p ? p.row.accuracy.toFixed(1) + '%' : '—'}<br>
+      ours ${o ? '$' + o.row.usd_per_1k.toFixed(2) : '—'} vs frontier ${f ? '$' + f.row.usd_per_1k.toFixed(2) : '—'} per 1k questions</div></div>`;
+  }).join('');
+
+  // accuracy table by source/type
+  const groups = [...new Set(test.flatMap(r => (r.sections['By source and type'] || []).map(x => x.group)))].filter(g => g !== 'ALL').sort();
+  $('#tbl').innerHTML = `<tr><th>group</th>${FAM.map(([, l]) => `<th>${l.split(':')[0]}</th>`).join('')}</tr>` +
+    groups.map(g => `<tr><td class="g">${esc(nice(g))}</td>${FAM.map(([f]) => cell(best(f, 'By source and type', g), f)).join('')}</tr>`).join('');
+  const used = new Set();
+  for (const g of groups) for (const [f] of FAM) { const p = best(f, 'By source and type', g); if (p) used.add(`${p.run.name} (${p.run.solver}${p.run.note ? ', ' + p.run.note : ''})`); }
+  $('#tblnote').textContent = 'Runs used: ' + [...used].join('; ') + '. Hover a cell to see its run.';
+
+  // cost table
+  $('#cost').innerHTML = `<tr><th>source</th>${FAM.map(([, l]) => `<th class="money">${l.split(':')[0]}</th>`).join('')}<th class="money">ours, seconds / question</th></tr>` +
+    sources.map(s => {
+      const ps = FAM.map(([f]) => best(f, 'By source', s));
+      return `<tr><td class="g">${esc(nice(s))}</td>${ps.map(p => `<td class="money">${p ? '$' + p.row.usd_per_1k.toFixed(2) : '—'}</td>`).join('')}
+        <td class="money">${ps[0] ? ps[0].row.s_per_q.toFixed(2) + ' s' : '—'}</td></tr>`;
+    }).join('');
+
+  // all runs
+  $('#allruns').innerHTML = '<tr><th>run</th><th>solver</th><th>split</th><th>n</th><th>accuracy</th><th class="money">$ / 1k q</th></tr>' +
+    runs.sort((a, b) => b.mtime - a.mtime).map(r => {
+      const a = (r.sections['By type'] || []).find(x => x.group === 'ALL');
+      return `<tr><td>${esc(r.name)}</td><td>${esc(r.solver)}</td><td>${esc(r.split)}${r.note ? ' · ' + esc(r.note) : ''}</td><td>${r.n}</td>
+        <td>${a ? a.accuracy.toFixed(1) + '%' : '—'}</td><td class="money">${a ? '$' + a.usd_per_1k.toFixed(2) : '—'}</td></tr>`;
+    }).join('');
+})();
+</script>
+</body>
+</html>

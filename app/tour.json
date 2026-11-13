@@ -1,0 +1,50 @@
+[
+  {
+    "title": "Count it out, symbol by symbol",
+    "caption": "Swiss apartment floor. Every door is read from the CAD layers and numbered on the drawing, so you can check the count in seconds. No model call: it costs $0.",
+    "source": "swiss_dwellings",
+    "path": "data/swiss_dwellings/site3387_bldg5238_floor23498.pdf",
+    "question": "How many doors (interior doors and entrance doors together) are drawn on this floor plan?",
+    "actions": ["wait:600", "hover:7"]
+  },
+  {
+    "title": "Ask in German, get a measured area",
+    "caption": "Net living area of apartment A: each room polygon is outlined with its own m², and the list adds them up to the answer.",
+    "source": "swiss_dwellings",
+    "path": "data/swiss_dwellings/site3387_bldg5238_floor23498.pdf",
+    "question": "Wie gross ist die Nettowohnfläche von Wohnung A in m² (Summe aller Räume ohne Balkone, Loggien, Terrassen und andere Aussenräume)?",
+    "actions": ["wait:600", "hover:0"]
+  },
+  {
+    "title": "Disagree? Correct it with a click",
+    "caption": "The evidence is the answer. Untick an item or click to add one the solver missed, and the total updates on the spot.",
+    "source": "swiss_dwellings",
+    "path": "data/swiss_dwellings/site3387_bldg5238_floor23498.pdf",
+    "question": "How many windows are drawn on this floor plan?",
+    "actions": ["wait:500", "toggle:3", "wait:900", "toggle:3"]
+  },
+  {
+    "title": "A Finnish plan, asked in Finnish",
+    "caption": "CubiCasa raster plans: a small detector finds the door symbols and boxes each one it counted.",
+    "source": "cubicasa5k",
+    "path": "data/cubicasa5k/colorful-10052.png",
+    "question": "Kuinka monta ovea pohjapiirustuksessa on? Laske oviaukot, joissa on ovi; pelkkiä oviaukkoja ilman ovea ei lasketa.",
+    "actions": ["wait:800"]
+  },
+  {
+    "title": "BIM model: wall lengths, in Danish, in 3D",
+    "caption": "The IFC model answers exactly. Every wall that adds to the total lights up in 3D, on its own storey, with its length in the list.",
+    "source": "ifc_models",
+    "path": "data/ifc_models/bsc-molio_molio-with-uris_plan-03-grundplan.pdf",
+    "question": "Hvad er den samlede længde af alle vægge på 'Grundplan' i meter?",
+    "actions": ["wait:1200", "hover:1"]
+  },
+  {
+    "title": "Rooms inside the building",
+    "caption": "The storey is cut open so interior spaces are visible. Click any element in 3D to drop it from the answer.",
+    "source": "ifc_models",
+    "path": "data/ifc_models/bsc-molio_molio-with-uris_plan-03-grundplan.pdf",
+    "question": "How many rooms (spaces) are shown on the floor plan of 'Grundplan'?",
+    "actions": ["wait:1200", "hover:2"]
+  }
+]

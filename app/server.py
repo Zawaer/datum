@@ -1,26 +1,31 @@
-"""Demo server: pick a drawing, ask in any language, get the answer with its evidence.
+"""Demo server: pick (or upload) a drawing, ask in any language, get the answer with its evidence.
 
     .venv/bin/python -m uvicorn app.server:app --host 0.0.0.0 --port 3123
 """
 from __future__ import annotations
 
 import collections
+import concurrent.futures as cf
 import functools
-import io
+import hashlib
 import json
 import re
 import time
+import traceback
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from bp.data import data_root, load_questions
 from bp.router import Router, guess_type
 
 ROOT = data_root()
-STATIC = Path(__file__).parent / "static"
+APP = Path(__file__).parent
+STATIC = APP / "static"
+RUNS = Path("runs")
+UPLOADS = Path("cache/uploads")
 app = FastAPI(title="Blueprints that talk")
 router = Router()
 
@@ -29,25 +34,37 @@ BY_PATH: dict[str, list] = collections.defaultdict(list)
 for _q in QUESTIONS:
     BY_PATH[_q["path"]].append(_q)
 VIEWABLE = (".png", ".jpg", ".jpeg", ".pdf")
+SOURCES = ["swiss_dwellings", "cubicasa5k", "ifc_models", "ifc_bench", "opening_design"]
+DRAWINGS: list[dict] = []
+SOLVER_TIMEOUT_S = 120
+_pool = cf.ThreadPoolExecutor(8)
 
 
-def _baseline_cost_per_q() -> dict:
-    """Mean frontier cost per question by source, from our own baseline run."""
+# ---------------------------------------------------------------- helpers
+
+def _baseline_per_q(field: str) -> dict:
+    """Mean frontier cost / latency per question by source, from our own baseline run(s)."""
     out, n = collections.defaultdict(float), collections.Counter()
-    for f in sorted(Path("runs").glob("baseline_*.jsonl")):
+    for f in sorted(RUNS.glob("baseline_*.jsonl")):
         for line in open(f):
-            r = json.loads(line)
-            out[r["source"]] += r["cost_usd"]
-            n[r["source"]] += 1
+            try:
+                r = json.loads(line)
+                out[r["source"]] += float(r.get(field) or 0)
+                n[r["source"]] += 1
+            except (ValueError, KeyError):
+                continue
     tot = sum(out.values()) / max(1, sum(n.values()))
     return {k: out[k] / n[k] for k in n} | {"_all": tot}
 
 
-BASELINE_COST = _baseline_cost_per_q()
+BASELINE_COST = _baseline_per_q("cost_usd")
+BASELINE_LATENCY = _baseline_per_q("latency_s")
 
 
-@functools.lru_cache(maxsize=64)
+@functools.lru_cache(maxsize=256)
 def credit_for(path: str) -> str:
+    if path.startswith("uploads/"):
+        return "your upload (stays on this server, not shared)"
     src = path.split("/")[1]
     lic = ROOT / "data" / src / "LICENSE.md"
     if not lic.exists():
@@ -64,67 +81,125 @@ def credit_for(path: str) -> str:
     return f"see data/{src}/LICENSE.md"
 
 
+def resolve(path: str) -> Path:
+    """Client path -> file on disk (dataset or upload), refusing anything outside those roots."""
+    if path.startswith("uploads/"):
+        p = (UPLOADS / path[len("uploads/"):]).resolve()
+        if not p.is_relative_to(UPLOADS.resolve()):
+            raise HTTPException(404)
+        return p
+    p = (ROOT / path).resolve()
+    if not p.is_relative_to(ROOT.resolve()):
+        raise HTTPException(404)
+    return p
+
+
 def view_path(path: str) -> str | None:
-    """The file we render for a question's drawing (IFC -> a rendered plan if there is one)."""
-    p = ROOT / path
+    """The file we render for a drawing (IFC -> a rendered plan if there is one; DXF upload -> its PNG)."""
+    p = resolve(path)
     if p.suffix.lower() in VIEWABLE:
         return path
+    if path.startswith("uploads/"):
+        if p.suffix.lower() == ".dxf" and (p.parent / (p.name + ".png")).exists():
+            return path + ".png"
+        return None
     for ext in (".pdf", ".png", ".jpg"):
         if p.with_suffix(ext).exists():
             return str(Path(path).with_suffix(ext))
     plans = sorted(p.parent.glob(p.stem + "_plan-*.pdf"))
-    return str(plans[0].relative_to(ROOT)) if plans else None
+    return str(plans[0].relative_to(ROOT.resolve())) if plans else None
+
+
+def ifc_for(path: str) -> Path | None:
+    p = resolve(path)
+    if p.suffix.lower() == ".ifc":
+        return p
+    if path.startswith("uploads/"):
+        return None
+    model = p.parent / (p.stem.split("_plan-")[0] + ".ifc")
+    return model if model.exists() else None
+
+
+def _abstain(msg: str, **kw) -> dict:
+    return {"answer": None, "confidence": 0.0, "evidence": [], "cost_usd": 0.0, "method": "none",
+            "explanation": msg, "route": "-", **kw}
+
+
+# ---------------------------------------------------------------- drawings
+
+def _build_drawings():
+    for path, qs in BY_PATH.items():
+        src = qs[0]["source"]
+        if src not in SOURCES:
+            continue
+        DRAWINGS.append({"path": path, "source": src, "ext": qs[0]["ext"], "n": len(qs), "split": qs[0]["split"]})
+    DRAWINGS.sort(key=lambda d: (SOURCES.index(d["source"]), d["split"] != "test", d["path"]))
+
+
+_build_drawings()
 
 
 @app.get("/api/drawings")
-def drawings():
-    out = []
-    for path, qs in BY_PATH.items():
-        src = qs[0]["source"]
-        if src not in ("swiss_dwellings", "cubicasa5k", "ifc_models", "ifc_bench"):
-            continue
-        out.append({"path": path, "source": src, "ext": qs[0]["ext"], "n": len(qs), "split": qs[0]["split"],
-                    "view": view_path(path)})
-    order = {"swiss_dwellings": 0, "cubicasa5k": 1, "ifc_models": 2, "ifc_bench": 3}
-    out.sort(key=lambda d: (order[d["source"]], d["split"] != "test", d["path"]))
-    return out
+def drawings(source: str | None = None, q: str = "", offset: int = 0, limit: int = 80):
+    """Paged drawing list (the full dataset has thousands); counts per source for the tabs."""
+    counts = collections.Counter(d["source"] for d in DRAWINGS)
+    sel = [d for d in DRAWINGS if (source is None or d["source"] == source) and q.lower() in d["path"].lower()]
+    return {"counts": {s: counts[s] for s in SOURCES if counts[s]}, "total": len(sel),
+            "items": sel[offset:offset + limit]}
 
 
 @app.get("/api/questions")
 def questions(path: str):
+    if path.startswith("uploads/"):
+        meta = _upload_meta(path)
+        return {"path": path, "view": view_path(path), "credit": credit_for(path), "has3d": ifc_for(path) is not None,
+                "kind": meta.get("kind"), "questions": [{"question": s, "type": guess_type(s), "answer": None}
+                                                         for s in _upload_suggestions(meta.get("kind"))]}
     qs = BY_PATH.get(path)
     if not qs:
         raise HTTPException(404)
+    seen, out = set(), []
+    for q in qs:  # dedupe identical question text
+        if q["question"] in seen:
+            continue
+        seen.add(q["question"])
+        out.append({"question": q["question"], "type": q["type"], "answer": q["answer"]})
     return {"path": path, "view": view_path(path), "credit": credit_for(path), "has3d": ifc_for(path) is not None,
-            "questions": [{"question": q["question"], "type": q["type"], "answer": q["answer"]} for q in qs]}
+            "source": qs[0]["source"], "split": qs[0]["split"], "questions": out[:120]}
 
+
+# ---------------------------------------------------------------- rendering
 
 @functools.lru_cache(maxsize=128)
 def _render(path: str, page: int, dpi: int) -> bytes:
-    p = ROOT / path
-    if not p.resolve().is_relative_to(ROOT.resolve()) or not p.exists():
+    p = resolve(path)
+    if not p.exists():
         raise HTTPException(404)
     if p.suffix.lower() == ".pdf":
         import pymupdf
 
         with pymupdf.open(p) as doc:
-            return doc[page].get_pixmap(dpi=dpi).tobytes("png")
+            if page >= len(doc):
+                raise HTTPException(404, "no such page")
+            pg = doc[page]
+            # keep big sheets within a sane pixel budget
+            w, h = pg.rect.width / 72 * dpi, pg.rect.height / 72 * dpi
+            if w * h > 5000 * 5000:
+                dpi = int(dpi * (5000 * 5000 / (w * h)) ** 0.5)
+            return pg.get_pixmap(dpi=dpi).tobytes("png")
     return p.read_bytes()
 
 
 @app.get("/api/render")
 def render(path: str, page: int = 0, dpi: int = 130):
-    data = _render(path, page, min(dpi, 220))
+    try:
+        data = _render(path, page, min(dpi, 220))
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(422, f"could not render: {e}") from e
     mt = "image/jpeg" if path.lower().endswith((".jpg", ".jpeg")) else "image/png"
     return Response(data, media_type=mt, headers={"Cache-Control": "max-age=3600"})
-
-
-def ifc_for(path: str) -> Path | None:
-    p = ROOT / path
-    if p.suffix.lower() == ".ifc":
-        return p
-    model = p.parent / (p.stem.split("_plan-")[0] + ".ifc")
-    return model if model.exists() else None
 
 
 @app.get("/api/mesh")
@@ -134,57 +209,287 @@ def mesh(path: str):
     ifc = ifc_for(path)
     if ifc is None:
         raise HTTPException(404, "no IFC model for this drawing")
-    return Response(mesh_bytes(ifc), media_type="application/json",
+    try:
+        data = mesh_bytes(ifc)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(422, f"could not tessellate the model: {e}") from e
+    return Response(data, media_type="application/json",
                     headers={"Content-Encoding": "gzip", "Cache-Control": "max-age=3600"})
 
 
 @app.get("/api/file")
 def raw_file(path: str):
-    p = (ROOT / path).resolve()
-    if not p.is_relative_to(ROOT.resolve()) or not p.exists():
+    p = resolve(path)
+    if not p.exists():
         raise HTTPException(404)
     return FileResponse(p)
 
+
+# ---------------------------------------------------------------- uploads
+
+UPLOAD_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".dxf", ".ifc"}
+MAX_UPLOAD = 200 * 1024 * 1024
+
+
+def _upload_meta(path: str) -> dict:
+    p = resolve(path)
+    m = p.parent / "meta.json"
+    return json.loads(m.read_text()) if m.exists() else {}
+
+
+def _upload_suggestions(kind: str | None) -> list[str]:
+    if kind == "ifc":
+        return ["How many doors are in the model?", "How many windows are in the model?",
+                "What is the total length of all walls, in metres?", "How many storeys does the building have?",
+                "What is the total floor area of all spaces, in m²?"]
+    return ["How many doors are shown on this floor plan?", "How many windows are shown on this floor plan?",
+            "How many rooms are there?", "What is the total floor area, in m²?"]
+
+
+def _classify(p: Path) -> str:
+    ext = p.suffix.lower()
+    if ext == ".ifc":
+        return "ifc"
+    if ext == ".dxf":
+        return "dxf"
+    if ext in (".png", ".jpg", ".jpeg"):
+        return "raster"
+    import pymupdf
+
+    with pymupdf.open(p) as doc:
+        pg = doc[0]
+        vector = len(pg.get_drawings()) > 200 or len(pg.get_text("words")) > 30
+    return "pdf-vector" if vector else "pdf-raster"
+
+
+def _render_dxf(src: Path, out: Path):
+    """DXF -> PNG of the modelspace extents, no margins, so evidence normalised to the extents lines up."""
+    import ezdxf
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from ezdxf import bbox
+    from ezdxf.addons.drawing import Frontend, RenderContext
+    from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
+
+    doc = ezdxf.readfile(src)
+    msp = doc.modelspace()
+    ext = bbox.extents(msp, fast=True)
+    (x0, y0, _), (x1, y1, _) = ext.extmin, ext.extmax
+    w, h = max(x1 - x0, 1e-6), max(y1 - y0, 1e-6)
+    scale = 2400 / max(w, h)
+    fig = plt.figure(figsize=(w * scale / 100, h * scale / 100), dpi=100)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_axis_off()
+    Frontend(RenderContext(doc), MatplotlibBackend(ax)).draw_layout(msp, finalize=False)
+    ax.set_xlim(x0, x1)
+    ax.set_ylim(y0, y1)
+    ax.set_aspect("auto")
+    fig.patch.set_facecolor("white")
+    fig.savefig(out, dpi=100, facecolor="white")
+    plt.close(fig)
+    meta = out.parent / "meta.json"
+    m = json.loads(meta.read_text()) if meta.exists() else {}
+    m["dxf_extents"] = [x0, y0, x1, y1]
+    meta.write_text(json.dumps(m))
+
+
+@app.post("/api/upload")
+async def upload(request: Request, name: str):
+    """Raw-body upload (no multipart dependency): POST /api/upload?name=plan.pdf with the file as body."""
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(name).name)[-80:] or "drawing"
+    ext = Path(safe).suffix.lower()
+    if ext not in UPLOAD_EXT:
+        raise HTTPException(415, f"unsupported file type {ext or '?'}: use PDF, PNG, JPG, DXF or IFC")
+    body = await request.body()
+    if not body:
+        raise HTTPException(400, "empty file")
+    if len(body) > MAX_UPLOAD:
+        raise HTTPException(413, "file too large (max 200 MB)")
+    key = hashlib.sha1(body).hexdigest()[:12]
+    d = UPLOADS / key
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / safe
+    if not p.exists():
+        p.write_bytes(body)
+    try:
+        kind = _classify(p)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(422, f"could not read this file: {e}") from e
+    meta = d / "meta.json"
+    m = json.loads(meta.read_text()) if meta.exists() else {}
+    m.update({"name": safe, "kind": kind, "bytes": len(body), "uploaded": time.time()})
+    meta.write_text(json.dumps(m))
+    if kind == "dxf" and not (d / (safe + ".png")).exists():
+        try:
+            _render_dxf(p, d / (safe + ".png"))
+        except Exception as e:  # noqa: BLE001
+            m["render_error"] = repr(e)[:200]
+            meta.write_text(json.dumps(m))
+    path = f"uploads/{key}/{safe}"
+    return {"path": path, "source": "upload", "ext": ext.lstrip("."), "kind": kind, "n": 0, "split": "upload",
+            "view": view_path(path)}
+
+
+# ---------------------------------------------------------------- ask
 
 class Ask(BaseModel):
     path: str
     question: str
 
 
+def _upload_question(req: Ask) -> dict:
+    p = resolve(req.path)
+    if not p.exists():
+        raise HTTPException(404, "upload not found (uploads are cleared when the server is rebuilt)")
+    meta = _upload_meta(req.path)
+    view = view_path(req.path)
+    return {"path": str(p), "question": req.question, "type": guess_type(req.question), "unit": None,
+            "source": "upload", "ext": p.suffix.lower().lstrip("."), "kind": meta.get("kind"), "id": None,
+            "split": "upload", "answer": None, "view": str(resolve(view)) if view else None,
+            "dxf_extents": meta.get("dxf_extents")}
+
+
+def _run_router(q: dict) -> dict:
+    try:
+        fut = _pool.submit(router, q)
+        res = fut.result(timeout=SOLVER_TIMEOUT_S)
+    except cf.TimeoutError:
+        return _abstain(f"the solver took longer than {SOLVER_TIMEOUT_S} s, so we stopped waiting",
+                        method="timeout", error="timeout")
+    except Exception as e:  # noqa: BLE001  never 500 on a solver bug: abstain and say why
+        traceback.print_exc()
+        return _abstain(f"the solver failed on this question ({type(e).__name__}: {str(e)[:160]}), so we "
+                        "abstain rather than guess", method="error", error=repr(e)[:300])
+    if not isinstance(res, dict):
+        return _abstain("the solver returned nothing usable", method="error")
+    return res
+
+
+def _fix_upload_evidence(res: dict, q: dict, client_path: str):
+    """Solvers see absolute upload paths; the browser knows them as uploads/<key>/<name>."""
+    base = str(resolve(client_path).parent)
+    view = view_path(client_path)
+    for e in res.get("evidence") or []:
+        f = e.get("file")
+        if not f:
+            continue
+        if f.startswith(base):
+            e["file"] = "uploads/" + str(Path(f).relative_to(UPLOADS.resolve()))
+        if e["file"] == client_path and view and view != client_path and e.get("kind") != "ifc":
+            e["file"] = view
+
+
 @app.post("/api/ask")
 def ask(req: Ask):
-    qs = BY_PATH.get(req.path)
-    if not qs:
-        raise HTTPException(404, "unknown drawing")
-    known = next((q for q in qs if q["question"].strip() == req.question.strip()), None)
-    q = dict(known) if known else {**qs[0], "question": req.question, "type": guess_type(req.question),
-                                    "answer": None, "id": None}
+    if req.path.startswith("uploads/"):
+        q, known = _upload_question(req), None
+    else:
+        qs = BY_PATH.get(req.path)
+        if not qs:
+            raise HTTPException(404, "unknown drawing")
+        known = next((x for x in qs if x["question"].strip() == req.question.strip()), None)
+        q = dict(known) if known else {**qs[0], "question": req.question, "type": guess_type(req.question),
+                                        "answer": None, "id": None}
     t0 = time.time()
-    res = router(q)
+    res = _run_router(q)
+    if q["source"] == "upload" and res.get("route") == "-" and res.get("answer") is None:
+        res["explanation"] = (f"uploads of this kind ({q.get('kind')}) are not routed to a solver yet; "
+                              "nothing was guessed")
     res["latency_s"] = round(time.time() - t0, 3)
     res["type"] = q["type"]
+    res["source"] = q["source"]
     res["gold"] = known["answer"] if known else None
     res["baseline_cost_usd"] = BASELINE_COST.get(q["source"], BASELINE_COST.get("_all", 0.0))
+    res["baseline_latency_s"] = BASELINE_LATENCY.get(q["source"], BASELINE_LATENCY.get("_all", 0.0))
+    if q["source"] == "upload":
+        _fix_upload_evidence(res, q, req.path)
     res.pop("raw", None)
-    return res
+    try:
+        return JSONResponse(json.loads(json.dumps(res, default=str)))
+    except Exception as e:  # noqa: BLE001
+        return _abstain(f"could not serialise the answer: {e}", method="error")
+
+
+# ---------------------------------------------------------------- tour
+
+@app.get("/api/tour")
+def tour():
+    steps = json.loads((APP / "tour.json").read_text())
+    return [s for s in steps if s.get("path", "").startswith("uploads/") or s.get("path") in BY_PATH]
+
+
+# ---------------------------------------------------------------- results
+
+ROW = re.compile(r"^\| (.+?) \| (\d+) \| (\d+)% \| ([\d.]+)% \| ([\d.]+%|-) \| ([\d.]+) \| ([\d.]+) \|$")
+
+
+def parse_summary(f: Path) -> dict:
+    txt = f.read_text()
+    head = re.search(r"solver `([^`]+)`, split `([^`]+)`, n=(\d+)(.*)", txt)
+    out = {"name": f.name.replace(".summary.md", ""), "solver": head.group(1) if head else "?",
+           "split": head.group(2) if head else "?", "n": int(head.group(3)) if head else 0,
+           "note": head.group(4).strip(", ") if head else "", "mtime": f.stat().st_mtime, "sections": {}}
+    sec = None
+    for ln in txt.splitlines():
+        if ln.startswith("## "):
+            sec = ln[3:].strip()
+            out["sections"][sec] = []
+            continue
+        m = ROW.match(ln.strip())
+        if m and sec:
+            g = m.group(1).replace("**", "")
+            out["sections"][sec].append({"group": g, "n": int(m.group(2)), "answered": int(m.group(3)),
+                                         "accuracy": float(m.group(4)),
+                                         "precision": None if m.group(5) == "-" else float(m.group(5)[:-1]),
+                                         "usd_per_1k": float(m.group(6)), "s_per_q": float(m.group(7))})
+    return out
+
+
+def family(solver: str) -> str:
+    s = solver.split("@")[0]
+    if s == "prior":
+        return "prior"
+    if s in ("claude", "baseline"):
+        return "frontier"
+    return "ours"
+
+
+@app.get("/api/results")
+def results():
+    runs = []
+    for f in sorted(RUNS.glob("*.summary.md")):
+        try:
+            r = parse_summary(f)
+        except Exception:  # noqa: BLE001
+            continue
+        r["family"] = family(r["solver"])
+        runs.append(r)
+    return {"runs": runs}
 
 
 @app.get("/api/stats")
 def stats():
-    """Latest eval summaries for the scoreboard panel."""
+    """Headline numbers (ALL row) of every test-split run."""
     out = {}
-    for f in sorted(Path("runs").glob("*_test*.summary.md")):
-        txt = f.read_text()
-        m = re.search(r"\| \*\*ALL\*\* \| (\d+) \| (\d+)% \| ([\d.]+)% \| [^|]+ \| ([\d.]+) \|", txt)
-        if m:
-            out[f.name.replace(".summary.md", "")] = {"n": int(m.group(1)), "accuracy": float(m.group(3)),
-                                                      "usd_per_1k": float(m.group(4))}
+    for r in results()["runs"]:
+        allrow = next((x for x in r["sections"].get("By type", []) if x["group"] == "ALL"), None)
+        if allrow and r["split"] == "test":
+            out[r["name"]] = {"n": allrow["n"], "accuracy": allrow["accuracy"], "usd_per_1k": allrow["usd_per_1k"]}
     return out
 
+
+# ---------------------------------------------------------------- pages
 
 @app.get("/")
 def index():
     return HTMLResponse((STATIC / "index.html").read_text())
+
+
+@app.get("/results")
+def results_page():
+    return HTMLResponse((STATIC / "results.html").read_text())
 
 
 @app.get("/static/{name}")
@@ -192,4 +497,4 @@ def static(name: str):
     p = (STATIC / name).resolve()
     if not p.is_relative_to(STATIC.resolve()) or not p.exists():
         raise HTTPException(404)
-    return FileResponse(p)
+    return FileResponse(p, headers={"Cache-Control": "no-cache"})
