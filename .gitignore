@@ -1,0 +1,11 @@
+data/
+*.zip
+.env
+.env.*
+__pycache__/
+*.pyc
+node_modules/
+.venv/
+runs/
+cache/
+*.ifc.cache
