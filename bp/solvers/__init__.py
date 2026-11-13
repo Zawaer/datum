@@ -2,6 +2,7 @@
 import importlib
 
 SOLVERS = {
+    "router": "bp.router:Router",
     "prior": "bp.solvers.prior:PriorSolver",
     "claude": "bp.solvers.claude_vlm:ClaudeSolver",
     "swiss": "bp.solvers.swiss:SwissSolver",

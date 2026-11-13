@@ -107,7 +107,7 @@ class SwissSolver:
                 syms = sorted((s for s in fl.symbols if s.kind == what),
                               key=lambda s: (-round(s.geom.centroid.y, 0), s.geom.centroid.x))
                 for i, s in enumerate(syms, 1):
-                    box(s.geom, f"{i}", 1)
+                    box(s.geom, f"{what} {i}", 1)
                 n = len(syms)
                 expl = f"{n} {what} symbols found in the CAD layers"
             return {**base, "answer": n, "confidence": 0.97, "evidence": ev, "explanation": expl}

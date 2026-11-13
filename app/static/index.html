@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blueprints that talk</title>
+<style>
+  :root {
+    --bg: #0d1420; --panel: #131c2b; --panel2: #1a2537; --line: #26344a; --text: #e6edf6; --mut: #8d9bb0;
+    --acc: #3ea6ff; --ok: #2fbf71; --bad: #ff5d5d; --warn: #f5b942; --hl: #ff3b6b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 16px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 17px; margin: 0; letter-spacing: .2px; }
+  header h1 span { color: var(--acc); }
+  .meter { margin-left: auto; display: flex; gap: 18px; font-variant-numeric: tabular-nums; }
+  .meter div { text-align: right; }
+  .meter b { display: block; font-size: 16px; }
+  .meter small { color: var(--mut); }
+  main { flex: 1; display: grid; grid-template-columns: 260px 1fr 400px; min-height: 0; }
+  #list { border-right: 1px solid var(--line); overflow: auto; background: var(--panel); }
+  #list .tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px; position: sticky; top: 0; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .tab { border: 1px solid var(--line); background: transparent; color: var(--mut); border-radius: 12px; padding: 3px 9px; cursor: pointer; font-size: 12px; }
+  .tab.on { background: var(--acc); color: #001; border-color: var(--acc); }
+  .item { padding: 7px 10px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 12.5px; word-break: break-all; }
+  .item:hover { background: var(--panel2); }
+  .item.on { background: #1d3350; }
+  .item small { color: var(--mut); }
+  #viewer { position: relative; overflow: hidden; background: #f4f4f2; cursor: grab; }
+  #viewer.adding { cursor: crosshair; }
+  #stage { position: absolute; transform-origin: 0 0; }
+  #stage img { display: block; user-select: none; -webkit-user-drag: none; }
+  #stage svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .credit { position: absolute; left: 8px; bottom: 6px; right: 8px; font-size: 10.5px; color: #555; background: rgba(255,255,255,.85); padding: 2px 6px; border-radius: 4px; pointer-events: none; }
+  .hint { position: absolute; top: 8px; left: 8px; font-size: 12px; background: rgba(13,20,32,.85); color: #fff; padding: 4px 8px; border-radius: 6px; }
+  #side { border-left: 1px solid var(--line); overflow: auto; background: var(--panel); padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+  .ask { display: flex; gap: 6px; }
+  .ask input { flex: 1; background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 9px 10px; font-size: 14px; }
+  .ask button, .btn { background: var(--acc); color: #001; border: 0; border-radius: 8px; padding: 0 14px; font-weight: 600; cursor: pointer; }
+  .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); padding: 5px 10px; font-weight: 500; }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; max-height: 150px; overflow: auto; }
+  .chip { font-size: 12px; background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 12px; padding: 3px 9px; cursor: pointer; text-align: left; }
+  .chip:hover { border-color: var(--acc); }
+  .card { background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .big { font-size: 42px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.05; }
+  .big small { font-size: 18px; color: var(--mut); font-weight: 500; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .pill { font-size: 11.5px; border-radius: 10px; padding: 2px 8px; background: #22324a; color: var(--mut); }
+  .pill.ok { background: rgba(47,191,113,.15); color: var(--ok); }
+  .pill.bad { background: rgba(255,93,93,.15); color: var(--bad); }
+  .pill.warn { background: rgba(245,185,66,.15); color: var(--warn); }
+  .expl { color: var(--mut); margin-top: 6px; font-size: 13px; }
+  .corr { margin-top: 8px; color: var(--warn); font-size: 13px; }
+  .ev { max-height: 260px; overflow: auto; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .ev div { display: flex; justify-content: space-between; padding: 3px 6px; border-radius: 6px; cursor: pointer; }
+  .ev div:hover { background: #22324a; }
+  .ev div.off { text-decoration: line-through; color: var(--mut); }
+  .cost { font-size: 12.5px; color: var(--mut); font-variant-numeric: tabular-nums; }
+  .cost b { color: var(--text); }
+  h3 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--mut); }
+  .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--acc); border-radius: 50%; animation: s 0.8s linear infinite; }
+  @keyframes s { to { transform: rotate(360deg); } }
+  svg .bx { fill: rgba(255,59,107,.10); stroke: var(--hl); vector-effect: non-scaling-stroke; stroke-width: 2.2; cursor: pointer; }
+  svg .bx.off { fill: rgba(120,120,120,.10); stroke: #999; stroke-dasharray: 4 3; }
+  svg .bx.added { stroke: #00a86b; fill: rgba(0,168,107,.12); }
+  svg .bx.hot, svg .pg.hot { stroke-width: 4; fill: rgba(255,200,0,.25); }
+  svg .pg { fill: rgba(62,166,255,.18); stroke: #1478d4; vector-effect: non-scaling-stroke; stroke-width: 2.2; cursor: pointer; }
+  svg .pg.off { fill: rgba(120,120,120,.08); stroke: #999; stroke-dasharray: 4 3; }
+  svg .appear { animation: pop .28s ease-out; transform-box: fill-box; transform-origin: center; }
+  @keyframes pop { from { opacity: 0; transform: scale(1.6); } to { opacity: 1; transform: scale(1); } }
+  .badge { font: 700 11px system-ui; fill: #fff; }
+  .badgebg { fill: var(--hl); }
+  .badgebg.added { fill: #00a86b; }
+  .pglabel { font: 600 11px system-ui; fill: #0b3d6b; paint-order: stroke; stroke: rgba(255,255,255,.9); stroke-width: 3px; }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr; grid-template-rows: 160px 55vh auto; } #side { border-left: 0; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Blueprints <span>that talk</span></h1>
+  <small style="color:var(--mut)">ask a drawing anything: every answer shows its proof</small>
+  <div class="meter">
+    <div><b id="m-n">0</b><small>questions</small></div>
+    <div><b id="m-ours">$0.0000</b><small>our cost</small></div>
+    <div><b id="m-base">$0.00</b><small>frontier model would cost</small></div>
+  </div>
+</header>
+<main>
+  <nav id="list"><div class="tabs" id="tabs"></div><div id="items"></div></nav>
+  <section id="viewer">
+    <div id="stage"><img id="img" alt=""><svg id="ov" viewBox="0 0 1 1"></svg></div>
+    <div class="hint" id="hint" hidden></div>
+    <div class="credit" id="credit"></div>
+  </section>
+  <aside id="side">
+    <div>
+      <div class="ask"><input id="q" placeholder="Ask in any language, e.g. How many windows?"><button id="go">Ask</button></div>
+    </div>
+    <div><h3>Questions for this drawing</h3><div class="chips" id="chips"></div></div>
+    <div class="card" id="answer" hidden></div>
+    <div id="evwrap" hidden>
+      <div class="row" style="justify-content:space-between"><h3 id="evtitle">Evidence</h3>
+        <button class="btn ghost" id="addbtn" title="Click the drawing to add an item the solver missed">+ add missed item</button></div>
+      <div class="ev" id="ev"></div>
+    </div>
+  </aside>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const SRC = {swiss_dwellings: 'Swiss apartments', cubicasa5k: 'Finnish plans', ifc_models: 'IFC models', ifc_bench: 'IFC bench'};
+let drawings = [], cur = null, tab = 'swiss_dwellings', res = null, items = [], adding = false;
+let session = {n: 0, ours: 0, base: 0};
+
+// ---------- pan / zoom
+let view = {s: 1, x: 0, y: 0};
+const stage = $('#stage'), viewer = $('#viewer'), img = $('#img'), ov = $('#ov');
+function apply() { stage.style.transform = `translate(${view.x}px,${view.y}px) scale(${view.s})`; }
+function fit() {
+  const W = viewer.clientWidth, H = viewer.clientHeight, w = img.naturalWidth, h = img.naturalHeight;
+  if (!w) return;
+  view.s = Math.min(W / w, H / h) * 0.98; view.x = (W - w * view.s) / 2; view.y = (H - h * view.s) / 2; apply();
+}
+viewer.addEventListener('wheel', e => {
+  e.preventDefault();
+  const r = viewer.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  const k = Math.exp(-e.deltaY * 0.0015), s2 = Math.min(20, Math.max(0.05, view.s * k));
+  view.x = mx - (mx - view.x) * s2 / view.s; view.y = my - (my - view.y) * s2 / view.s; view.s = s2; apply();
+}, {passive: false});
+let drag = null;
+viewer.addEventListener('mousedown', e => { if (!adding) drag = {x: e.clientX - view.x, y: e.clientY - view.y, moved: false}; });
+window.addEventListener('mousemove', e => { if (drag) { view.x = e.clientX - drag.x; view.y = e.clientY - drag.y; drag.moved = true; apply(); } });
+window.addEventListener('mouseup', () => drag = null);
+img.addEventListener('load', fit); window.addEventListener('resize', fit);
+
+// ---------- adding missed items
+$('#addbtn').onclick = () => {
+  adding = !adding; viewer.classList.toggle('adding', adding);
+  $('#addbtn').textContent = adding ? 'done adding' : '+ add missed item';
+  $('#hint').hidden = !adding; $('#hint').textContent = 'Click on each item the solver missed';
+};
+viewer.addEventListener('click', e => {
+  if (!adding || !res) return;
+  const r = img.getBoundingClientRect();
+  const u = (e.clientX - r.left) / r.width, v = (e.clientY - r.top) / r.height;
+  const d = 0.012;
+  items.push({kind: 'box', bbox: [u - d, v - d, u + d, v + d], label: 'added', value: 1, on: true, added: true});
+  draw(false); renderEvidence(); recompute();
+});
+
+// ---------- data
+async function loadList() {
+  drawings = await (await fetch('/api/drawings')).json();
+  const tabs = $('#tabs'); tabs.innerHTML = '';
+  for (const s of Object.keys(SRC)) {
+    if (!drawings.some(d => d.source === s)) continue;
+    const b = document.createElement('button'); b.className = 'tab' + (s === tab ? ' on' : ''); b.textContent = SRC[s];
+    b.onclick = () => { tab = s; loadList(); }; tabs.appendChild(b);
+  }
+  const box = $('#items'); box.innerHTML = '';
+  for (const d of drawings.filter(d => d.source === tab)) {
+    const el = document.createElement('div'); el.className = 'item' + (cur && cur.path === d.path ? ' on' : '');
+    el.innerHTML = `${d.path.split('/').pop()}<br><small>${d.n} questions · ${d.split === 'test' ? 'held-out test' : 'dev'}</small>`;
+    el.onclick = () => select(d); box.appendChild(el);
+  }
+  if (!cur) { const first = drawings.find(d => d.source === tab); if (first) select(first); }
+}
+async function select(d) {
+  cur = d; res = null; items = []; ov.innerHTML = ''; $('#answer').hidden = true; $('#evwrap').hidden = true;
+  document.querySelectorAll('.item').forEach(e => e.classList.toggle('on', e.textContent.startsWith(d.path.split('/').pop())));
+  const info = await (await fetch('/api/questions?path=' + encodeURIComponent(d.path))).json();
+  cur.view = info.view;
+  img.src = info.view ? '/api/render?path=' + encodeURIComponent(info.view) : '';
+  $('#credit').textContent = info.credit ? '© ' + info.credit : '';
+  const chips = $('#chips'); chips.innerHTML = '';
+  for (const q of info.questions) {
+    const c = document.createElement('button'); c.className = 'chip'; c.textContent = q.question;
+    c.onclick = () => { $('#q').value = q.question; ask(); }; chips.appendChild(c);
+  }
+}
+
+// ---------- ask
+async function ask() {
+  const question = $('#q').value.trim(); if (!question || !cur) return;
+  $('#answer').hidden = false; $('#answer').innerHTML = '<span class="spin"></span> reading the drawing…';
+  $('#evwrap').hidden = true; ov.innerHTML = '';
+  const t0 = performance.now();
+  res = await (await fetch('/api/ask', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({path: cur.path, question})})).json();
+  res.client_ms = performance.now() - t0;
+  session.n++; session.ours += res.cost_usd || 0; session.base += res.baseline_cost_usd || 0;
+  $('#m-n').textContent = session.n; $('#m-ours').textContent = '$' + session.ours.toFixed(4);
+  $('#m-base').textContent = '$' + session.base.toFixed(3);
+  items = (res.evidence || []).filter(e => e.kind === 'box' || e.kind === 'polygon').map(e => ({...e, on: true}));
+  renderAnswer(0); zoomToEvidence(); draw(true); renderEvidence();
+}
+function zoomToEvidence() {
+  if (!items.length) { fit(); return; }
+  let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
+  for (const e of items) {
+    const pts = e.kind === 'box' ? [[e.bbox[0], e.bbox[1]], [e.bbox[2], e.bbox[3]]] : e.points;
+    for (const [x, y] of pts) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  }
+  const W = viewer.clientWidth, H = viewer.clientHeight, w = img.naturalWidth, h = img.naturalHeight;
+  const pad = 0.04; x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(1, x1 + pad); y1 = Math.min(1, y1 + pad);
+  const s = Math.min(W / ((x1 - x0) * w), H / ((y1 - y0) * h));
+  view.s = Math.min(s, 4); view.x = W / 2 - (x0 + x1) / 2 * w * view.s; view.y = H / 2 - (y0 + y1) / 2 * h * view.s;
+  stage.style.transition = 'transform .5s ease'; apply(); setTimeout(() => stage.style.transition = '', 520);
+}
+$('#go').onclick = ask; $('#q').addEventListener('keydown', e => { if (e.key === 'Enter') ask(); });
+
+const fmt = (v, t) => v == null ? '—' : (t === 'count' ? Math.round(v) : (+v).toFixed(2));
+const unitOf = t => ({area: 'm²', length: 'm', volume: 'm³', count: ''}[t] || '');
+
+function renderAnswer(shownSoFar) {
+  const a = $('#answer'); const t = res.type;
+  let val = res.answer;
+  if (shownSoFar !== null && items.length && typeof res.answer === 'number') {
+    val = items.slice(0, shownSoFar).reduce((s, e) => s + (e.value ?? 1), 0);
+  }
+  const conf = res.confidence ?? 0;
+  const confCls = conf >= 0.8 ? 'ok' : conf >= 0.5 ? 'warn' : 'bad';
+  let gold = '';
+  if (res.gold != null && res.answer != null && shownSoFar === null) {
+    const g = +res.gold, p = +res.answer;
+    const ok = t === 'count' ? Math.round(p) === Math.round(g) : Math.abs(p - g) <= 0.02 * Math.abs(g);
+    gold = `<span class="pill ${ok ? 'ok' : 'bad'}">${ok ? '✓ matches' : '✗ differs from'} ground truth ${fmt(g, t)}</span>`;
+  }
+  a.innerHTML = `
+    <div class="big">${res.answer == null ? 'not sure' : (typeof res.answer === 'number' ? fmt(val, t) : '')} <small>${res.answer == null ? '' : unitOf(t)}</small></div>
+    ${typeof res.answer === 'string' ? `<div style="white-space:pre-wrap">${res.answer}</div>` : ''}
+    <div class="expl">${res.explanation || ''}</div>
+    <div class="row" style="margin-top:8px"><span class="pill ${confCls}">confidence ${(conf * 100).toFixed(0)}%</span>
+      <span class="pill">${res.method || ''}</span>${gold}</div>
+    <div class="corr" id="corr"></div>
+    <div class="cost" style="margin-top:8px">answered in <b>${(res.latency_s * 1000).toFixed(0)} ms</b> for <b>$${(res.cost_usd || 0).toFixed(5)}</b>
+      · a frontier model takes ~8 s and ~<b>$${(res.baseline_cost_usd || 0).toFixed(3)}</b></div>`;
+}
+
+function draw(animate) {
+  ov.innerHTML = '';
+  const NS = 'http://www.w3.org/2000/svg';
+  const W = img.naturalWidth || 1, H = img.naturalHeight || 1;
+  ov.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  const fs = 14 / view.s;  // ~14 screen px whatever the zoom
+  const step = animate ? Math.max(25, Math.min(110, 1800 / Math.max(1, items.length))) : 0;
+  items.forEach((e, i) => {
+    const show = () => {
+      const g = document.createElementNS(NS, 'g'); g.dataset.i = i;
+      let shape, lx, ly;
+      if (e.kind === 'box') {
+        const [x0, y0, x1, y1] = e.bbox;
+        shape = document.createElementNS(NS, 'rect');
+        shape.setAttribute('x', x0 * W); shape.setAttribute('y', y0 * H);
+        shape.setAttribute('width', Math.max(2, (x1 - x0) * W)); shape.setAttribute('height', Math.max(2, (y1 - y0) * H));
+        shape.setAttribute('rx', 2);
+        shape.setAttribute('class', 'bx appear' + (e.on ? '' : ' off') + (e.added ? ' added' : '')); lx = x0 * W; ly = y0 * H;
+      } else {
+        shape = document.createElementNS(NS, 'polygon');
+        shape.setAttribute('points', e.points.map(p => (p[0] * W) + ',' + (p[1] * H)).join(' '));
+        shape.setAttribute('class', 'pg appear' + (e.on ? '' : ' off'));
+        const xs = e.points.map(p => p[0] * W), ys = e.points.map(p => p[1] * H);
+        lx = (Math.min(...xs) + Math.max(...xs)) / 2; ly = (Math.min(...ys) + Math.max(...ys)) / 2;
+      }
+      shape.onclick = ev => { ev.stopPropagation(); if (adding) return; e.on = !e.on; draw(false); renderEvidence(); recompute(); };
+      g.appendChild(shape);
+      if (e.kind === 'box' && e.on) {
+        const n = items.slice(0, i + 1).filter(x => x.on && x.kind === 'box').length;
+        const r = fs * 0.75;
+        const c = document.createElementNS(NS, 'circle');
+        c.setAttribute('cx', lx); c.setAttribute('cy', ly); c.setAttribute('r', r);
+        c.setAttribute('class', 'badgebg' + (e.added ? ' added' : '')); g.appendChild(c);
+        const t = document.createElementNS(NS, 'text');
+        t.setAttribute('x', lx); t.setAttribute('y', ly); t.setAttribute('text-anchor', 'middle');
+        t.setAttribute('dominant-baseline', 'central'); t.setAttribute('class', 'badge');
+        t.style.fontSize = (n > 99 ? fs * 0.6 : fs * 0.8) + 'px'; t.textContent = n; g.appendChild(t);
+      } else if (e.kind === 'polygon' && e.on && e.value != null && res.type !== 'count') {
+        const t = document.createElementNS(NS, 'text');
+        t.setAttribute('x', lx); t.setAttribute('y', ly + fs * 1.6); t.setAttribute('text-anchor', 'middle');
+        t.setAttribute('class', 'pglabel'); t.style.fontSize = fs + 'px';
+        t.textContent = (+e.value).toFixed(2) + ' m²'; g.appendChild(t);
+      }
+      ov.appendChild(g);
+      if (animate) renderAnswer(i + 1);
+    };
+    if (animate) setTimeout(show, i * step); else show();
+  });
+  if (animate) setTimeout(() => { renderAnswer(null); recompute(); }, items.length * step + 60);
+  else { renderAnswer(null); recompute(); }
+}
+
+function renderEvidence() {
+  $('#evwrap').hidden = !items.length;
+  const ev = $('#ev'); ev.innerHTML = '';
+  const t = res.type;
+  $('#evtitle').textContent = `Evidence · ${items.filter(e => e.on).length} of ${items.length} items (click to toggle)`;
+  let k = 0;
+  items.forEach((e, i) => {
+    const d = document.createElement('div'); d.className = e.on ? '' : 'off';
+    if (e.kind === 'box' && e.on) k++;
+    const name = e.kind === 'box' ? (e.added ? 'added by you' : (e.label || 'item').replace(/ \d+$/, '')) : (e.label || 'region');
+    d.innerHTML = `<span>${e.kind === 'box' ? (e.on ? '#' + k : '–') : ''} ${name}</span><span>${e.value != null && t !== 'count' ? (+e.value).toFixed(2) + ' ' + unitOf(t) : ''}</span>`;
+    d.onmouseenter = () => hot(i, true); d.onmouseleave = () => hot(i, false);
+    d.onclick = () => { e.on = !e.on; draw(false); renderEvidence(); recompute(); };
+    ev.appendChild(d);
+  });
+}
+function hot(i, on) { const g = ov.querySelector(`g[data-i="${i}"] rect, g[data-i="${i}"] polygon`); if (g) g.classList.toggle('hot', on); }
+
+function recompute() {
+  if (!res || typeof res.answer !== 'number') return;
+  const changed = items.some(e => !e.on || e.added);
+  const v = items.filter(e => e.on).reduce((s, e) => s + (e.value ?? 1), 0);
+  const el = $('#corr'); if (!el) return;
+  el.innerHTML = changed ? `✎ corrected by you: <b>${fmt(v, res.type)} ${unitOf(res.type)}</b> (solver said ${fmt(res.answer, res.type)})` : '';
+}
+
+loadList();
+</script>
+</body>
+</html>
