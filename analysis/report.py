@@ -73,7 +73,7 @@ def main():
     w("## Headline")
     w("")
     w(f"* **Ours (router): {p(ours['accuracy'])}** on all {fmt_n(ours['n'])} held-out test questions "
-      f"(95 % CI {100 * ours['ci_lo']:.1f}–{100 * ours['ci_hi']:.1f} %), **$0 API cost**, median answer in milliseconds.")
+      f"(95 % CI {100 * ours['ci_lo']:.1f}–{100 * ours['ci_hi']:.1f} %), **$0.01 API cost per 1,000 questions** (only the 110 free-text questions call a model; every numeric answer is $0), median answer in milliseconds.")
     if son:
         w(f"* Claude Sonnet asked directly: **{p(son['accuracy'])}** (CI {100 * son['ci_lo']:.1f}–{100 * son['ci_hi']:.1f} %, "
           f"re-weighted to the test mix) at **${son['api_usd_per_1k']:.2f} per 1,000 questions**.")

@@ -1,16 +1,16 @@
 {
  "overall": [
   {
-   "run": "router_full_test_v3",
-   "system": "Router full test v3",
+   "run": "router_full_test_v4",
+   "system": "Router full test v4",
    "n": 25420,
    "accuracy": 0.8818253343823761,
    "ci_lo": 0.8777991372780053,
    "ci_hi": 0.8857361463806653,
    "ci": "Wilson",
-   "api_usd_per_1k": 0.0,
-   "compute_usd_per_1k": 0.0044758829443129755,
-   "mean_latency_s": 0.03222635719905586,
+   "api_usd_per_1k": 0.013798776553894576,
+   "compute_usd_per_1k": 0.0046851942914587115,
+   "mean_latency_s": 0.033733398898505115,
    "answered": 1.0
   },
   {
@@ -38,6 +38,19 @@
    "compute_usd_per_1k": 3.9721967792746646,
    "mean_latency_s": 28.599816810777586,
    "answered": 0.9575
+  },
+  {
+   "run": "baseline_sonnetfair_full400",
+   "system": "Claude Sonnet + sibling CAD/IFC files",
+   "n": 400,
+   "accuracy": 0.689936871998241,
+   "ci_lo": 0.6006700952615587,
+   "ci_hi": 0.7762052593864159,
+   "ci": "re-weighted, stratified bootstrap",
+   "api_usd_per_1k": 25.563406980205944,
+   "compute_usd_per_1k": 2.1628382500736594,
+   "mean_latency_s": 15.572435400530349,
+   "answered": 0.9875
   },
   {
    "run": "prior_full_test",

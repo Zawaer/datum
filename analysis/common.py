@@ -45,6 +45,7 @@ LABELS = {
     "prior_full_test": "Template prior",
     "baseline_sonnet_full400": "Claude Sonnet, direct",
     "baseline_haiku_full400": "Claude Haiku, direct",
+    "baseline_sonnetfair_full400": "Claude Sonnet + sibling CAD/IFC files",
     "generic_cubicasa_300_haiku": "Generic VLM pipeline (Haiku)",
 }
 
