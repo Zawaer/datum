@@ -1,0 +1,110 @@
+"""Multilingual question -> typed IFC query (regex keyword rules, no LLM).
+
+A query is {kind, what, measure, slots, gross}:
+  kind:    count | sum (a measure summed over elements) | room_area
+  what:    element-class key from CLASSES (wall, door, ...)
+  measure: area_floor | area_side | volume | length | None
+Quoted names (storeys, rooms, the model) stay in `slots`; they are resolved against the model later.
+Keyword rules are matched on the question with the quoted names removed, so a room called 'Trappe'
+cannot turn the question into a stair question.
+"""
+from __future__ import annotations
+
+import re
+import unicodedata
+
+from bp.templates import _Q, slots as _slots
+
+# key -> (IFC classes counted, subtype-inclusive; word-start regex alternatives in many languages)
+CLASSES = {
+    "space": (["IfcSpace"], r"rooms?|spaces?|rum(?:met|mene|mets)?|rom(?:met|mene)?|ruum\w*|r(?:a|ä)um\w*|zimmer\w*|"
+              r"huone\w*|tilo\w*|tila\b|tilaa?\b|pi[eè]ces?|locaux|local\b|salles?|ruimte\w*|kamers?|habitaci\w*|espacios?|"
+              r"stanz\w*|vani?\b|pomieszcze\w*|m[ií]stnost\w*|helyis[eé]g\w*|telpa\w*|patalp\w*"),
+    "door": (["IfcDoor"], r"doors?|d(?:ø|o|ö)r(?:e|en|ene|ar|arna|r)?\b|uks\w*|ust\b|uste\w*|t(?:ü|u)r\w*|ov(?:i|ea|ia|en|et)\b|"
+             r"portes?\b|deur\w*|puertas?|porta\b|porte\b|drzwi|dve[rř]\w*|ajt\w*|durvis|durys"),
+    "window": (["IfcWindow"], r"windows?|vindu\w*|f(?:ö|o)nst\w*|ak(?:en|na|ent|nad|naid|ende)\b|fenster\w*|ikkun\w*|"
+               r"fen(?:ê|e)tres?|ramen\b|raam\b|ventanas?|finestr\w*|okn\w*|ablak\w*|log\w*s\b|langai\w*"),
+    "wall": (["IfcWall"], r"walls?|v(?:æ|a|ä)gg?(?:e|en|ene|ar|arna)?\b|sein(?:a|ad|u|ade|te|ä|iä|ien|ät)?\b|w(?:ä|a)nd\w*|"
+             r"murs?\b|muren?\b|muur\w*|pared\w*|par(?:e|ê)de?s?\b|muri?\b|[sś]cian\w*|st[eě]n\w*|fal(?:ak|at|ai)?\b|sien\w*"),
+    "column": (["IfcColumn"], r"columns?|s(?:ø|o)jle\w*|post(?:i|id|e|ide)?\b|st(?:ü|u)tz\w*|s(?:ä|a)ul\w*|pilar\w*|"
+               r"poteaux?|colonnes?|kolom\w*|columnas?|pelar\w*|kolumn\w*|sloup\w*|oszlop\w*"),
+    "beam": (["IfcBeam"], r"beams?|bj(?:æ|a)lk\w*|tala\b|tal(?:ad|u|asid|ade)\b|tr(?:ä|a)ger\w*|balk\w*|palk\w*|poutres?|"
+             r"vigas?\b|travi?\b|belk\w*|nosn\w*|gerend\w*|sij\w*"),
+    "stair": (["IfcStair"], r"stairs?|staircases?|trap(?:pe|per|perne|pa|por|porna|pen)?\b|trepp?\w*|treppe\w*|portai\w*|porras|"
+              r"escaliers?|escaleras?|scal[ae]\b|schod\w*|l(?:é|e)pcs\w*|k(?:ā|a)pn\w*|laipt\w*"),
+    "slab": (["IfcSlab"], r"slabs?|d(?:æ|a)k(?:ket|kene)?\b|plad(?:e|er|en|erne)\b|plaa?d\w*|vahelae\w*|decke\w*|deck\b|"
+             r"bodenplatt\w*|platten?\b|laat\w*|dalles?|vloer\w*|losas?|solai\w*|bjälklag\w*|stropy?\b|p(?:ł|l)yt\w*|f(?:ö|o)d(?:é|e)m\w*"),
+    "railing": (["IfcRailing"], r"railings?|r(?:æ|a)kv(?:æ|a)rk\w*|piir\w*|gel(?:ä|a)nder\w*|kaide\w*|garde-corps|balustrad\w*|"
+                r"leuning\w*|barandill\w*|r(?:ä|a)cke\w*"),
+    "sanitary": (["IfcSanitaryTerminal"], r"sanitary|sanit(?:æ|a|ä)r\w*|saniteet\w*|sanitaire\w*|sanitario\w*|wc\b|toilets?|"
+                 r"toilet(?:ter|ten)?\b|tualet\w*|wc-?\w*"),
+    "furniture": (["IfcFurnishingElement"], r"furniture|furnishings?|m(?:ø|ö|o)bel\w*|m(?:ö|o)bler\w*|mööbli\w*|huonekal\w*|"
+                  r"meubles?|meubilair|muebles?|mobili|meble"),
+    "covering": (["IfcCovering"], r"coverings?|bekl(?:æ|a)dning\w*|kat(?:e|ted)\b|bekleidung\w*|verkleidung\w*|p(?:ä|a)ällyst\w*|"
+                 r"rev(?:ê|e)tements?"),
+    "roof": (["IfcRoof"], r"roofs?|tag(?:et|e)?\b|katus\w*|d(?:ä|a)ch(?:er)?\b|katto\w*|katot\b|toits?\b|daken?\b|tejados?"),
+    "curtain_wall": (["IfcCurtainWall"], r"curtain\s*walls?|facadeelement\w*|vorhangfassad\w*|klaasfassaad\w*|lasijulkisivu\w*|murs?\s+rideaux?"),
+    "ramp": (["IfcRamp"], r"ramps?|rampe\w*|kaldtee\w*|luiska\w*"),
+    "footing": (["IfcFooting"], r"footings?|foundations?|fundament\w*|vundament\w*|perustu\w*|anturi\w*|fondations?"),
+    "plate": (["IfcPlate"], r"plates?\b"),
+    "member": (["IfcMember"], r"members?\b"),
+    "opening": (["IfcOpeningElement"], r"openings?|(?:å|a)bning\w*|ava\w*|(?:ö|o)ffnung\w*|aukko\w*"),
+    "pipe": (["IfcPipeSegment"], r"pipes?|r(?:ø|ö|o)r\b|toru\w*|rohr\w*|putki\w*|putke\w*|tuyaux?"),
+    "duct": (["IfcDuctSegment"], r"ducts?|kanal\w*|kanaal\w*|kanav\w*|gaines?"),
+    "light": (["IfcLightFixture"], r"light\s*fixtures?|luminaires?|lamp(?:s|e|er|id|en)?\b|valaisi\w*|leuchte\w*|valgust\w*"),
+    "proxy": (["IfcBuildingElementProxy"], r"proxy|proxies"),
+    "building_storey": (["IfcBuildingStorey"], r"storeys?|stor(?:ies|y)|floors|levels?|etage\w*|korrus(?:t|te|eid)\b|"
+                        r"geschoss\w*|kerro\w*|niveaux?|verdieping\w*|plantas\b|piani\b"),
+}
+
+# measure keywords
+_SIDE = r"side\s*area|sideareal\w*|seitenfl(?:ä|a)che\w*|k(?:ü|u)lje\w*\s*pind\w*|k(?:ü|u)ljepind\w*|sivupinta\w*|" \
+        r"surface\s+lat(?:é|e)rale|zijoppervlak\w*|wall\s*area|v(?:æ|a)gareal\w*|wandfl(?:ä|a)che\w*|seina\w*pind\w*"
+_GROSS = r"gross|brutto\w*|bruto\w*|brut\b|kogupind\w*"
+_TOTAL = r"total\w*|all\b|samlede?|alle\b|alles?\b|k(?:õ|o)ik\w*|k(?:õ|o)igi|kokku|gesamt\w*|insgesamt|summ\w*|yhteens(?:ä|a)|" \
+         r"kaikk\w*|tous|toutes|totale?|totaal|todos?|todas?|tutti|tutte|zusammen"
+
+
+def norm(s) -> str:
+    s = unicodedata.normalize("NFKC", str(s or "")).casefold()
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def strip_slots(question: str) -> str:
+    return re.sub(_Q, " X ", question)
+
+
+def _first_class(text: str):
+    best = None
+    for key, (_, rx) in CLASSES.items():
+        m = re.search(rf"(?<!\w)(?:{rx})", text, flags=re.I)
+        if m and (best is None or m.start() < best[1]):
+            best = (key, m.start())
+    return best[0] if best else None
+
+
+def parse(q: dict) -> dict:
+    question = q["question"]
+    qtype = q.get("type")
+    sl = _slots(question)
+    text = norm(strip_slots(question))
+    what = _first_class(text)
+    side = bool(re.search(_SIDE, text, re.I))
+    gross = bool(re.search(_GROSS, text, re.I))
+    total = bool(re.search(_TOTAL, text, re.I))
+    out = {"type": qtype, "what": what, "slots": sl, "gross": gross, "total": total, "text": text}
+    if qtype == "count":
+        out.update(kind="count", measure=None)
+    elif qtype == "area":
+        if what in (None, "space") or (not side and what not in ("wall", "slab", "curtain_wall", "covering", "window",
+                                                                    "door", "roof")):
+            out.update(kind="room_area", what="space", measure="area_floor")
+        else:
+            out.update(kind="sum", measure="area_side" if what in ("wall", "curtain_wall") or side else "area")
+    elif qtype == "volume":
+        out.update(kind="sum", measure="volume", what=what or "slab")
+    elif qtype == "length":
+        out.update(kind="sum", measure="length", what=what or "wall")
+    else:
+        out.update(kind="text", measure=None)
+    return out
