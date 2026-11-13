@@ -97,7 +97,7 @@ class CubicasaSolver:
             logp += math.log(max(p, 1 - p))
         conf = round(math.exp(logp), 3)
         label = LABEL[t]
-        ev = [{"kind": "box", "file": q["path"], "page": 0, "bbox": b, "label": f"{label} {i}",
+        ev = [{"kind": "box", "file": q["path"], "page": 0, "bbox": b, "label": f"{label} {i}" + (f" ({name.replace('_', ' ')})" if len(classes) > 1 else ""),
                "value": 1, "score": round(s, 3)} for i, (name, s, b) in enumerate(kept, 1)]
         return {
             "answer": len(kept),
