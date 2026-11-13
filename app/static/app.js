@@ -358,8 +358,8 @@ function setupEvidence() {
   }
 }
 
-function zoomToEvidence() {
-  const all = [...items, ...marks].filter(e => e.kind !== 'ifc');
+function zoomToEvidence(only, maxK = 6) {
+  const all = (only || [...items, ...marks]).filter(e => e.kind !== 'ifc' && (e.points || e.bbox));
   if (!all.length || !img.naturalWidth) { fit(); return; }
   let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
   for (const e of all) {
@@ -367,10 +367,10 @@ function zoomToEvidence() {
     for (const [x, y] of pts) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
   }
   const W = viewer.clientWidth, H = viewer.clientHeight - 20, w = img.naturalWidth, h = img.naturalHeight;
-  const pad = 0.04; x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(1, x1 + pad); y1 = Math.min(1, y1 + pad);
+  const pad = only ? 0.03 : 0.04; x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(1, x1 + pad); y1 = Math.min(1, y1 + pad);
   const fitS = Math.min(W / w, H / h) * 0.97;
   const s = Math.min(W / ((x1 - x0) * w), H / ((y1 - y0) * h));
-  view.s = Math.max(fitS, Math.min(s, fitS * 6)); view.x = W / 2 - (x0 + x1) / 2 * w * view.s; view.y = H / 2 - (y0 + y1) / 2 * h * view.s;
+  view.s = Math.max(fitS, Math.min(s, fitS * maxK)); view.x = W / 2 - (x0 + x1) / 2 * w * view.s; view.y = H / 2 - (y0 + y1) / 2 * h * view.s;
   stage.style.transition = 'transform .6s cubic-bezier(.2,.8,.2,1)'; apply(); setTimeout(() => stage.style.transition = '', 620);
 }
 
@@ -553,7 +553,7 @@ function shapeFor(e, i, W, H) {
     shape.setAttribute('x', x0 * W); shape.setAttribute('y', y0 * H);
     shape.setAttribute('width', Math.max(2, (x1 - x0) * W)); shape.setAttribute('height', Math.max(2, (y1 - y0) * H));
     shape.setAttribute('rx', 2);
-    const cls = e.mark ? (e.kind === 'text' ? 'bx txt' : 'bx mark') : 'bx appear' + (e.on ? '' : ' off') + (e.added ? ' added' : '');
+    const cls = e.mark ? (e.kind === 'text' ? 'bx txt' : 'bx mark') : 'bx appear' + (e.on ? '' : ' off') + (e.added ? ' added' : '') + (modelRead(e) ? ' model' : '');
     shape.setAttribute('class', cls); lx = x0 * W; ly = y0 * H;
     // a thin box (a text label, a wall): put the number just left of it so it does not cover what it marks
     if ((y1 - y0) * H < fs * 2.2) { lx = x0 * W - fs * 0.85; ly = (y0 + y1) / 2 * H; }
@@ -572,7 +572,7 @@ function shapeFor(e, i, W, H) {
     const n = items.slice(0, i + 1).filter(x => x.on && numbered(x)).length;
     const c = document.createElementNS(NS, 'circle');
     c.setAttribute('cx', lx); c.setAttribute('cy', ly); c.setAttribute('r', fs * 0.78);
-    c.setAttribute('class', 'badgebg' + (e.added ? ' added' : '')); g.appendChild(c);
+    c.setAttribute('class', 'badgebg' + (e.added ? ' added' : '') + (modelRead(e) ? ' model' : '')); g.appendChild(c);
     const t = document.createElementNS(NS, 'text');
     t.setAttribute('x', lx); t.setAttribute('y', ly); t.setAttribute('text-anchor', 'middle');
     t.setAttribute('dominant-baseline', 'central'); t.setAttribute('class', 'badge');
@@ -599,9 +599,10 @@ function renderEvidence() {
   $('#evtitle').textContent = `Evidence · ${on} of ${items.length}`;
   $('#addbtn').hidden = primary === 'ifc' || mode === '3d' || !num;
   $('#evhelp').textContent = primary === 'ifc'
-    ? 'Each row is an IFC element. Hover to find it in 3D; click a row or the element itself to drop it from the answer.'
-    : primary === 'paired' ? 'Each row is an IFC element, numbered on the plan. Switch to 3D to see the same elements in the model; click to drop one.'
-    : 'Hover a row to find it on the drawing; click a row or a shape to drop it. Missed one? Add it.';
+    ? 'Each row is an IFC element. Hover or click a row to find it in 3D; untick it (or click the element) to drop it from the answer.'
+    : primary === 'paired' ? 'Each row is an IFC element, numbered on the plan: click a row to zoom to it, untick it to drop it. Switch to 3D to see the same elements in the model.'
+    : 'Click a row to zoom to it; untick it (or click its shape) to drop it. Missed one? Add it.'
+      + (items.some(modelRead) ? ' Dashed amber = found by a model, with its score: please check.' : ' Solid = measured from the CAD / IFC geometry.');
   let k = 0;
   items.forEach((e, i) => {
     const d = document.createElement('div'); d.className = (e.on ? '' : 'off') + (e.added ? ' added' : ''); d.dataset.i = i;
@@ -609,9 +610,11 @@ function renderEvidence() {
     const name = e.kind === 'box' ? (e.label || 'item').replace(/ \d+$/, '') : (e.label || (e.kind === 'polygon' ? 'region' : 'item'));
     const lead = numbered(e) ? `<span class="n">${e.on ? '#' + k : '–'}</span>` : `<span class="n">${i + 1}</span>`;
     const val = e.value != null && t !== 'count' ? fmt(e.value, t) + ' ' + unitOf(t) : '';
-    d.innerHTML = `${lead}<span class="nm" title="${esc(name)}">${esc(name)}</span><span class="vl">${val}</span>`;
+    const read = modelRead(e) ? `<span class="rd" title="found by a model with score ${Math.round(100 * e.score)} %: please check">${Math.round(100 * e.score)}%</span>` : '';
+    d.innerHTML = `<button class="tg" title="${e.on ? 'drop this item from the answer' : 'put it back'}" aria-label="include">${e.on ? '✓' : ''}</button>${lead}<span class="nm" title="${esc(name)}">${esc(name)}${read}</span><span class="vl">${val}</span>`;
     d.onmouseenter = () => hotItem(i, true); d.onmouseleave = () => hotItem(i, false);
-    d.onclick = () => { e.on = !e.on; redraw(); };
+    d.querySelector('.tg').onclick = ev => { ev.stopPropagation(); e.on = !e.on; redraw(); };
+    d.onclick = () => focusItem(i);
     ev.appendChild(d);
   });
   if (num) {
@@ -620,6 +623,15 @@ function renderEvidence() {
     tot.innerHTML = `<span>${t === 'count' ? 'count' : 'sum'} of checked items</span><span>${fmt(v, t)} ${unitOf(t)}</span>`;
     ev.appendChild(tot);
   }
+}
+// read by a model (detector / LLM / vision) rather than measured from CAD or IFC geometry: drawn dashed amber
+const modelRead = e => e.score != null && !e.added;
+function focusItem(i) {
+  const e = items[i]; if (!e) return;
+  if (mode === '3d' || e.kind === 'ifc') { hotItem(i, true); setTimeout(() => hotItem(i, false), 1200); return; }
+  zoomToEvidence([e], 4); flashRow(i);
+  const s = ov.querySelector(`g[data-i="${i}"] rect, g[data-i="${i}"] polygon`);
+  if (s) { s.classList.add('flash'); setTimeout(() => s.classList.remove('flash'), 1300); }
 }
 function redraw() {
   if (mode === '3d') { highlight3d(false); renderAnswer(null); }

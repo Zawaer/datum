@@ -611,6 +611,72 @@ def trace_for(res: dict, q: dict) -> dict:
                                                          else "no model call")}
 
 
+CUBI_RULE = {  # the dataset's own definitions (bp/cubicasa/questions.py templates), one line each
+    "door": "Counts doorways fitted with a door leaf; open doorways without a leaf are excluded.",
+    "window": "Counts each window symbol on the plan once.",
+    "sink": "Kitchen sinks and wash basins together; a double-bowl sink counts as one.",
+    "shower_bath": "Showers and bathtubs together, one per fixture.",
+    "toilet": "Counts toilet bowls (WC seats), not WC rooms.",
+    "bathroom": "Bathrooms and washrooms (KH, KPH, PH, PESUH, SH); separate WC rooms are excluded.",
+    "wc_room": "Separate WC rooms only; bathrooms with a toilet are excluded.",
+    "sauna": "A sauna room, or a sauna stove outside any sauna room, counts as one sauna.",
+    "kitchen": "Kitchens, kitchenettes, open kitchens and utility kitchens all count.",
+    "bedroom": "Rooms marked as bedrooms (MH, makuuhuone).",
+    "balcony": "Balconies (parveke), glazed balconies included.",
+    "floor": "Counts the storeys drawn on the sheet.",
+}
+IFC_MEASURE = {"length": "Length", "area": "NetSideArea / NetFloorArea", "volume": "NetVolume"}
+
+
+def rule_for(res: dict, q: dict) -> str | None:
+    """One sentence: what was counted or summed, and what was left out."""
+    if res.get("answer") is None:
+        return None
+    m, ql, expl = str(res.get("method") or ""), (q.get("question") or "").lower(), res.get("explanation") or ""
+    if m.startswith("cubicasa"):
+        try:
+            from bp.cubicasa.questions import target
+
+            return CUBI_RULE.get(target(q.get("question") or ""))
+        except Exception:  # noqa: BLE001
+            return None
+    if m.startswith("swiss"):
+        lay = re.search(r"on layer (\w+)", expl)
+        if q.get("type") == "count":
+            if lay:
+                both = " Interior and entrance doors together." if "door" in expl.lower() else ""
+                return f"One per symbol on CAD layer {lay.group(1)}.{both}"
+            if "apartment" in expl.lower() or "apartments" in ql:
+                return "One per labelled apartment (residential unit) on the floor."
+            return "Rooms whose label matches the question, read from the CAD room polygons."
+        if re.search(r"apartment|wohnung|appartement|appartamento|lejlighed|asunto", ql) or "apartment" in expl.lower():
+            return ("Sum of the apartment's room polygons (net area); balconies, loggias, terraces and other outdoor "
+                    "spaces are excluded.")
+        if re.search(r"all numbered|alle nummerierten|tous les|tutti i", ql):
+            return "All numbered indoor rooms; balconies, loggias, terraces, outdoor spaces, shafts and voids excluded."
+        return "Net floor area of the room polygon(s) in the CAD file."
+    if m.startswith("ifc-count"):
+        st = re.search(r"storey '([^']+)'", expl)
+        cls = re.search(r"(Ifc\w+)", expl)
+        what = cls.group(1) if cls else "matching IFC"
+        return f"One per {what} element" + (f" on storey '{st.group(1)}'" if st else " in the whole model") + "."
+    if m.startswith(("ifc-sum", "ifc-area")):
+        srcs = m.split("-")[-1].split("+")
+        src = "the model's own base quantities (Qto_*)" if srcs == ["qto"] else \
+            "the model's base quantities (Qto_*), measured from geometry where an element has none"
+        if m.startswith("ifc-area"):
+            return f"Net floor area of each space (IfcSpace) from {src}."
+        meas = IFC_MEASURE.get(q.get("type"), "the quantity")
+        return f"Sum of {meas} per element, from {src}."
+    if m.startswith("ifctext"):
+        return "Composed only from the cited fact lines of the model; anything not in the facts is left out."
+    if m.startswith("generic-ground"):
+        return "A vision model boxed every instance it counted, and a second pass re-checked the count."
+    if m.startswith("generic-text"):
+        return "Read from the drawing's own text; the text it used is boxed."
+    return None
+
+
 def frontier_for(ids: list) -> list:
     tab = frontier_table()
     for i in ids:
@@ -680,6 +746,7 @@ def ask(req: Ask, request: Request):
         res["question_id"] = known["id"] if known else None
         res["calibration"] = calibration_for(res)
         res["trace"] = trace_for(res, q)
+        res["rule"] = rule_for(res, q)
         res["frontier"] = frontier_for([x["id"] for x in same]) if known else []
     except Exception:  # noqa: BLE001  the extras never break an answer
         traceback.print_exc()
@@ -843,6 +910,12 @@ def analysis():
             with open(f, newline="") as fh:
                 out[name] = list(csv.DictReader(fh))
     return out
+
+
+@app.get("/api/calibration")
+def calibration():
+    """Per-method calibration table (what each confidence band meant on the held-out test split)."""
+    return CALIB
 
 
 @app.get("/api/stats")

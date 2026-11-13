@@ -75,6 +75,10 @@
   <h2>Cost and speed per 1,000 questions</h2>
   <div class="card2"><table id="cost"></table></div>
   <p class="note">API = paid model calls; compute = our GPU / CPU time at cloud prices. Ours makes no paid calls on the dataset sources.</p>
+  <h2>Does the confidence mean what it says?</h2>
+  <div class="card2"><table id="calib"></table></div>
+  <p class="note">Every answer in the demo carries one of these lines: “answers like this were right N % of the time”. Measured on the
+    full held-out test split by how the answer was made and the confidence it came with; bands with fewer than 200 questions are pooled.</p>
   <h2>Every run</h2>
   <details><summary>show all raw evaluation runs (including dev, preview and partial ones, not re-weighted)</summary>
     <div class="card2"><table id="allruns"></table></div></details>
@@ -126,6 +130,18 @@ const usd = v => '$' + (+v).toFixed(2);
   $('#cost').innerHTML = `<tr><th>system</th><th class="money">accuracy</th><th class="money">API $ / 1k</th><th class="money">compute $ / 1k</th><th class="money">seconds / question</th></tr>` +
     SYS.map(([k, l]) => { const r = ov[k]; if (!r) return ''; return `<tr><td class="g">${l}</td><td class="money">${pct(r.accuracy)}</td>
       <td class="money">${usd(r.api_usd_per_1k)}</td><td class="money">${usd(r.compute_usd_per_1k)}</td><td class="money">${(+r.mean_latency_s).toFixed(2)} s</td></tr>`; }).join('');
+
+  const C = await (await fetch('/api/calibration')).json();
+  const fams = Object.entries(C.families || {}).sort((a, b) => b[1].n - a[1].n);
+  $('#calib').innerHTML = `<tr><th>how the answer was made</th><th>confidence</th><th class="money">questions</th><th>right</th></tr>` +
+    fams.flatMap(([, f]) => {
+      const bins = Object.entries(f.bins).map(([lo, b]) => [+lo, b]).sort((a, b) => b[0] - a[0]);
+      const big = bins.filter(([, b]) => b.n >= (C.min_n || 200));
+      const show = f.n >= 2000 && big.length > 1 ? bins.map(([lo, b], i) => [`${Math.round(lo * 100)}–${Math.round(100 * (i ? bins[i - 1][0] : 1))} %`, b])
+        : [['all', {n: f.n - (f.abstained || 0), right: f.right}]];
+      return show.map(([band, b], i) => `<tr><td class="g">${i ? '' : esc(f.label)}</td><td>${band}</td><td class="money">${num(b.n)}</td>
+        <td><div class="cell"><span class="bar"><i style="width:${100 * b.right / b.n}%;background:var(--ours)"></i></span><b>${pct(b.right / b.n)}</b></div></td></tr>`);
+    }).join('');
 
   const {runs} = await (await fetch('/api/results')).json();
   $('#allruns').innerHTML = '<tr><th>run</th><th>solver</th><th>split</th><th>n</th><th>accuracy</th><th class="money">$ / 1k q</th></tr>' +
