@@ -16,6 +16,7 @@ import threading
 from pathlib import Path
 
 from bp.cubicasa.classes import COUNTS
+from bp.cubicasa.counting import calib_p, posterior
 from bp.cubicasa.infer import SYMBOLS, predict
 from bp.cubicasa.questions import LABEL, target
 from bp.data import data_root
@@ -33,6 +34,8 @@ class CubicasaSolver:
         self.weights = weights or variant or os.environ.get("CUBICASA_WEIGHTS") or DEFAULT_WEIGHTS
         tf = Path(self.weights).with_name("thresholds.json")
         self.thresh = json.loads(tf.read_text()) if tf.exists() else {}
+        cf = Path(self.weights).with_name("calib.json")
+        self.calib = json.loads(cf.read_text()) if cf.exists() else {}
         self.imgsz = str(self.thresh.pop("_imgsz", 1024))
         self.cls_imgsz = self.thresh.pop("_cls_imgsz", {})
         self._model = None
@@ -76,34 +79,61 @@ class CubicasaSolver:
         return float(self.thresh.get(cls, 0.4))
 
     # -- answer ----------------------------------------------------------------------------------
+    def decide(self, t, dets, rule=None):
+        """(answer, confidence, kept detections, how) for template t from its class detections.
+
+        rule {"method": "threshold"} counts detections over the tuned per-class thresholds.
+        rule {"method": "posterior", "w": w} takes the mode of the count distribution implied by the
+        calibrated detection probabilities, a Poisson term for missed objects and the template's dev
+        answer distribution ** w (bp/cubicasa/counting.py)."""
+        rule = rule or self.calib.get("templates", {}).get(t) or {"method": "threshold"}
+        if t == "sauna":  # a sauna = a sauna room, or a stove not inside a detected sauna room
+            rooms = [d[2] for d in dets if d[0] == "sauna_room" and d[1] >= self.th("sauna_room")]
+            dets = [d for d in dets if d[0] == "sauna_room" or not any(_inside(d[2], r) for r in rooms)]
+        if not self.calib.get("classes"):  # uncalibrated weights: plain threshold counting
+            kept = [d for d in dets if d[1] >= self.th(d[0])]
+            logp = 0.0
+            for name, sc, _ in dets:
+                p = 1 / (1 + math.exp(-(sc - self.th(name)) * 12))
+                logp += math.log(max(p, 1 - p))
+            return len(kept), math.exp(logp), kept, "detected"
+        cc = self.calib["classes"]
+        ps = [calib_p(sc, cc[n]["ab"]) for n, sc, _ in dets]
+        lam = sum(cc[n]["lam"] for n in set(COUNTS[t]) if n in cc)
+        prior = self.calib.get("priors", {}).get(t)
+        post = posterior(ps, lam, prior, rule.get("w", 0.0))
+        if rule["method"] == "threshold":
+            k = sum(1 for d in dets if d[1] >= self.th(d[0]))
+        elif rule["method"] == "prior":
+            k = int(max(prior, key=prior.get))
+        else:
+            k = max(range(len(post)), key=post.__getitem__)
+        k = min(k, len(post) - 1)
+        kept = sorted(dets, key=lambda d: -d[1])[:k]  # the k most likely detections are the evidence
+        kept.sort(key=lambda d: (d[2][1], d[2][0]))
+        how = "detected" if len(kept) == k and all(d[1] >= self.th(d[0]) for d in kept) else "estimated"
+        return k, post[k], kept, how
+
     def __call__(self, q):
         t = target(q["question"])
         if t is None:
             return {"answer": None, "confidence": 0.0, "evidence": [], "cost_usd": 0.0,
                     "method": "cubicasa-yolo", "explanation": "question template not recognised"}
         classes = COUNTS[t]
-        dets = self.detections(q["path"], classes)
-        kept = [d for d in dets if d[1] >= self.th(d[0])]
-        if t == "sauna":  # a sauna = a sauna room, or a stove not inside a detected sauna room
-            rooms = [d[2] for d in kept if d[0] == "sauna_room"]
-            kept = [d for d in kept if d[0] == "sauna_room" or not any(_inside(d[2], r) for r in rooms)]
-        # confidence: probability that every kept detection is real and every rejected one is not,
-        # treating the detector score as a rough probability around the class threshold.
-        logp = 0.0
-        for name, s, _ in dets:
-            th = self.th(name)
-            p = 1 / (1 + math.exp(-(s - th) * 12))  # ~0.5 at threshold, saturates quickly
-            logp += math.log(max(p, 1 - p))
-        conf = round(math.exp(logp), 3)
+        k, conf, kept, how = self.decide(t, self.detections(q["path"], classes))
         label = LABEL[t]
-        ev = [{"kind": "box", "file": q["path"], "page": 0, "bbox": b, "label": f"{label} {i}" + (f" ({name.replace('_', ' ')})" if len(classes) > 1 else ""),
-               "value": 1, "score": round(s, 3)} for i, (name, s, b) in enumerate(kept, 1)]
+        ev = [{"kind": "box", "file": q["path"], "page": 0, "bbox": b,
+               "label": f"{label} {i}" + (f" ({name.replace('_', ' ')})" if len(classes) > 1 else ""),
+               "value": 1, "score": round(sc, 3)} for i, (name, sc, b) in enumerate(kept, 1)]
+        expl = f"{len(kept)} {label}{'' if len(kept) == 1 else 's'} detected"
+        if how == "estimated":
+            expl = (f"{k} {label}{'' if k == 1 else 's'}: weak detections combined with how common each count is"
+                    f" ({len(kept)} box{'' if len(kept) == 1 else 'es'} shown)")
         return {
-            "answer": len(kept),
-            "confidence": conf,
-            "method": "cubicasa-yolo",
+            "answer": k,
+            "confidence": round(conf, 3),
+            "method": "cubicasa-yolo" if how == "detected" else "cubicasa-yolo+prior",
             "cost_usd": 0.0,
-            "explanation": f"{len(kept)} {label}{'' if len(kept) == 1 else 's'} detected"
-                           + (f" ({', '.join(classes)})" if len(classes) > 1 else ""),
+            "explanation": expl,
             "evidence": ev,
         }
