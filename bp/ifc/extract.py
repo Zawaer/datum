@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 
 CACHE_DIR = Path(os.environ.get("BP_CACHE", "cache")) / "ifc"
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 
 # classes whose geometry we evaluate (cost: a few seconds per model)
 GEO_CLASSES = ["IfcSpace", "IfcWall", "IfcWallStandardCase", "IfcSlab", "IfcColumn", "IfcBeam",
@@ -35,6 +35,25 @@ SKIP_CLASSES = {"IfcOpeningElement", "IfcVirtualElement", "IfcDistributionPort",
                 "IfcSite", "IfcBuilding", "IfcBuildingStorey", "IfcProject"}
 
 MAX_PSET_PROPS = 60  # ArchiCAD dumps hundreds of GDL params per element; skip such sets
+# ... but keep these keys even from oversized property sets
+KEEP_KEYS = {"IsExternal", "LoadBearing", "FireRating", "Reference", "Status", "AcousticRating", "ThermalTransmittance"}
+
+
+def _layers(e):
+    out = []
+    try:
+        rep = getattr(e, "Representation", None)
+        for r in (rep.Representations if rep else []):
+            for la in getattr(r, "LayerAssignments", None) or []:
+                if la.Name and la.Name not in out:
+                    out.append(la.Name)
+            for it in r.Items or []:
+                for la in getattr(it, "LayerAssignments", None) or getattr(it, "LayerAssignment", None) or []:
+                    if la.Name and la.Name not in out:
+                        out.append(la.Name)
+    except Exception:  # noqa: BLE001
+        pass
+    return out
 
 
 def _cache_path(path: Path) -> Path:
@@ -254,6 +273,10 @@ def extract(path: str, geometry: bool = True, threads: int = 4) -> dict:
                         qto[f"{name}.{k}"] = _qto_si(k, v, ls, as_, vs_)
             elif len(props) <= MAX_PSET_PROPS:
                 psets[name or "?"] = {k: _clean(v) for k, v in props.items()}
+            else:
+                keep = {k: _clean(v) for k, v in props.items() if k in KEEP_KEYS}
+                if keep:
+                    psets[name or "?"] = keep
         tpsets = {}
         for name, props in tps.items():
             props = {k: v for k, v in props.items() if k != "id"}
@@ -286,7 +309,7 @@ def extract(path: str, geometry: bool = True, threads: int = 4) -> dict:
             "parent": agg.GlobalId if agg is not None else None,
             "parent_cls": agg.is_a() if agg is not None else None,
             "psets": psets, "tpsets": tpsets, "qto": qto, "attrs": attrs, "systems": sys_names,
-            "mats": _materials(e, ue), "geo": None,
+            "mats": _materials(e, ue), "layers": _layers(e), "geo": None,
         })
 
     systems = []

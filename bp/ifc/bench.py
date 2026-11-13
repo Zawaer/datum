@@ -44,11 +44,25 @@ def prop(e, key):
     return None
 
 
+_EXT_LAYER = r"au(?:ß|ss)enw|exterior|external|ytterveg+er|outer wall|fassade|fa[cç]ade|fasade|ulkosein|v(?:ä|a)lissein"
+_INT_LAYER = r"innenw|interior|internal|innerveg|inner wall|partition|zwischenw|v(?:æ|a)gge?|sein|vegg|wand|wall"
+
+
 def is_external(e):
+    """Pset *Common.IsExternal, else the CAD layer name (Außenwände / A23_Yttervegger ...)."""
     v = prop(e, "IsExternal")
     if isinstance(v, str):
         v = v.lower() in ("true", "yes", "1", ".t.")
-    return v
+    if v is not None:
+        return v
+    lay = " ".join(e.get("layers") or [])
+    if not lay:
+        return None
+    if re.search(_EXT_LAYER, lay, re.I):
+        return True
+    if re.search(_INT_LAYER, lay, re.I):
+        return False
+    return None
 
 
 def storeys(m):
@@ -110,9 +124,14 @@ def find_storey(m, text: str):
     with_spaces = [s for s in sts if spaces(m, s)] or sts
     if not with_spaces:
         return None
-    ground_i = min(range(len(with_spaces)), key=lambda i: abs(with_spaces[i]["elevation"] or 0))
+    base = r"basement|keller|kjeller|k(?:æ|a)lder|cellar|souterrain|^ug\b|^b\d|underground|kelder|sous-sol|kellari"
+    below = [i for i, s in enumerate(with_spaces) if re.search(base, f"{s['name']} {s['long_name'] or ''}", re.I)]
+    if below and below[-1] + 1 < len(with_spaces):
+        ground_i = below[-1] + 1
+    else:
+        ground_i = min(range(len(with_spaces)), key=lambda i: abs(with_spaces[i]["elevation"] or 0))
     if re.search(r"basement|underground|cellar|keller", t):
-        return with_spaces[0]
+        return with_spaces[below[-1]] if below else with_spaces[0]
     if re.search(r"attic|roof level|top floor|dach", t):
         return with_spaces[-1]
     if re.search(r"ground (?:floor|level)", t):
@@ -159,7 +178,8 @@ def g_software(m, q, rel):
     h = m["meta"].get("header") or {}
     lines = ["Modeling Standards:", f"   - IFC Schema: {m['meta'].get('schema')}"]
     for d in h.get("description") or []:
-        lines.append(f"   - {d}")
+        if d.lower().startswith(("viewdefinition", "exchangerequirement")):
+            lines.append(f"   - {d}")
     lines.append("")
     lines.append("   Originating Application:")
     for a in m["meta"].get("applications") or []:
@@ -472,7 +492,12 @@ def g_materials(m, q, rel, cls="IfcWall", scope=None):
         k = tname(e)
         cnt[k] += 1
         if e.get("mats") and k not in by:
-            by[k] = e["mats"]
+            seen, uniq = set(), []
+            for mn, th in e["mats"]:
+                if (mn, th) not in seen:
+                    seen.add((mn, th))
+                    uniq.append((mn, th))
+            by[k] = uniq
         for mn, _ in e.get("mats") or []:
             if mn:
                 mats_all[mn] += 1
@@ -978,7 +1003,7 @@ def _rules():
         (r"furniture", g_furniture),
         (r"pipe|piping|duct", g_pipes),
         (r"\bmep\b|heating|cooling|electrical|lighting|hvac|plumbing", g_mep),
-        (r"largest room|biggest room|largest space", g_largest_room),
+        (r"largest room|biggest room|largest space|room.*(?:largest|biggest)", g_largest_room),
         (r"height of the ceiling in room|ceiling .*room [\w.]+", g_room_height),
         (r"bedrooms?", lambda m, q, r: g_bedrooms(m, q, r, r"bed|schlaf|sove|makuu", "bedrooms")),
         (r"bathrooms?", lambda m, q, r: g_bedrooms(m, q, r, r"bath|bad|wc|toilet", "bathrooms")),
