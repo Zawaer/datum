@@ -113,8 +113,9 @@ def evidence_2d(pdf_rel: str, pdf_abs: Path, items: list[dict], polygon: bool = 
                         "points": [[round(x, 5), round(y, 5)] for x, y in poly],
                         "label": it["label"], "value": it.get("value")})
         else:
+            n = sum(1 for o in out if o["kind"] == "box") + 1
             out.append({"kind": "box", "file": pdf_rel, "page": 0, "bbox": r["bbox"],
-                        "label": it["label"], "value": None})
+                        "label": f"{n}. {it['label']}", "value": None})
     return out
 
 
