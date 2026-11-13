@@ -42,11 +42,11 @@ or isn't sure, it says so instead of guessing.
 
 | | accuracy | cost / 1,000 questions | time / question |
 |---|---|---|---|
-| Frontier VLM (Claude Sonnet 5.5, drawing + question) | 67.5 % | $15.67 | ~8 s |
-| Guess the most common answer per question type | 40.3 % | $0 | 0 s |
-| **Blueprints That Talk** | TODO | TODO (~$0) | TODO |
+| Claude Sonnet 5.5, drawing + question | 63.2 % | $13.06 | ~15 s |
+| Claude Haiku 5.5, drawing + question | 60.6 % | $1.21 | ~15 s |
+| **Blueprints That Talk** | **87.2 %** (all 25,420 test questions) | **$0** | **0.03 s** |
 
-By source: Swiss floor plans 97.0 % (frontier 61 %), IFC room areas 99.8 % (frontier 0 %), TODO cubicasa.
+By source: Swiss floor plans 99.95 % (Sonnet 80 % counts / 39 % areas), IFC models 100 % on counts, areas, volumes and lengths (Sonnet 4–43 %), Finnish raster plans 80.8 % (Sonnet 64 %). Frontier numbers: 400-question stratified sample, re-weighted to the test mix.
 All numbers come from `eval.py` in the repo; the split is by drawing, so no drawing used for tuning appears in test.
 
 ### Why this won't be obsolete next year
