@@ -14,6 +14,7 @@ ROUTES = {
     "ifc_models": "ifc",
     "ifc_bench": "ifctext",  # free-text IFC questions: rules where validated, else Haiku on a cited fact sheet
     "cubicasa5k": "cubicasa",
+    "opening_design": "generic",  # real US drawing sets: vector text + grounded vision
 }
 
 # uploads: app/server.py sets q["kind"] from the file (ifc / dxf / pdf-vector / pdf-raster / raster)
