@@ -418,7 +418,7 @@ function calibHTML(r) {
   const conf = Math.round(100 * (r.confidence ?? 0));
   if (!c.measured) return `<div class="calib unk"><b>No track record yet</b><span>answers made this way were not part of our held-out test, so the confidence (${conf} %) is the model's own guess: check the evidence before relying on it.</span></div>`;
   const p = c.right / c.n, cls = p >= 0.95 ? 'hi' : p >= 0.85 ? 'mid' : p >= 0.6 ? 'lo' : 'bad';
-  const word = p >= 0.95 ? 'Very likely right' : p >= 0.85 ? 'Usually right' : p >= 0.6 ? 'Often right: check the evidence' : 'Likely wrong: check the evidence';
+  const word = p >= 0.95 ? 'Very likely right' : p >= 0.85 ? 'Usually right' : p >= 0.6 ? 'Often right: check the evidence' : 'Uncertain: check the evidence';
   const band = c.scope === 'bin' ? `, confidence ${Math.round(c.lo * 100)}–${Math.round(c.hi * 100)} %` : '';
   const tally = c.right === c.n ? `all ${nf(c.n)}` : `${nf(c.right)} of ${nf(c.n)}`;
   return `<div class="calib ${cls}" title="Calibration from the full held-out test split (${nf(c.family_n)} questions answered this way, ${pctOf(c.family_right, c.family_n)} % right overall)">
@@ -451,11 +451,14 @@ function frontierHTML(r, oursOk) {
   const fr = r.frontier || []; if (!fr.length || r.answer == null) return '';
   const mark = ok => ok === true ? '<span class="okt">✓</span>' : ok === false ? '<span class="badt">✗</span>' : '<span class="mut" title="free-text answer not judged">?</span>';
   const ours = typeof r.answer === 'number' ? fmt(r.answer, r.type) : esc(String(r.answer).slice(0, 38));
-  const rows = fr.map(f => `<tr><td>${esc(f.model)}<small>${esc(f.setting)}</small></td><td class="num">${predTxt(f, r.type)}</td><td>${mark(f.correct)}</td><td class="num">${money(f.cost_usd || 0)}</td><td class="num">${f.latency_s ? f.latency_s.toFixed(1) + ' s' : ''}</td></tr>`).join('');
+  const text = typeof r.answer !== 'number';
+  const ansCell = f => text ? '' : `<td class="num">${predTxt(f, r.type)}</td>`;
+  const sub = f => text ? `<small class="said">${f.pred == null || f.pred === '' ? '<i>no answer</i>' : '“' + esc(String(f.pred).replace(/\s+/g, ' ').slice(0, 90)) + (String(f.pred).length > 90 ? '…' : '') + '”'}</small>` : '';
+  const rows = fr.map(f => `<tr><td>${esc(f.model)}<small>${esc(f.setting)}</small>${sub(f)}</td>${ansCell(f)}<td>${mark(f.correct)}</td><td class="num">${money(f.cost_usd || 0)}</td><td class="num">${f.latency_s ? f.latency_s.toFixed(1) + ' s' : ''}</td></tr>`).join('');
   const wrong = fr.filter(f => f.correct === false).length;
   return `<div class="vs"><div class="vshead">Same question, asked to frontier models${wrong ? ` · <span class="badt">${wrong} of ${fr.length} wrong</span>` : ''}</div>
-    <table><tr class="us"><td>Blueprints that talk<small>evidence on the drawing</small></td><td class="num"><b>${ours}</b></td><td>${mark(oursOk)}</td><td class="num"><b>${money(r.cost_usd || 0)}</b></td><td class="num">${latency(r.latency_s)}</td></tr>${rows}</table>
-    <div class="vsnote">From our baseline run on a 400-question sample of the same held-out test split; the gold answer is ${fmt(r.gold, r.type)}${r.type !== 'count' && r.type !== 'text' ? ' ' + unitOf(r.type) : ''}.</div></div>`;
+    <table><tr class="us"><td>Blueprints that talk<small>${text ? 'answer above, with the facts it cites' : 'evidence on the drawing'}</small></td>${text ? '' : `<td class="num"><b>${ours}</b></td>`}<td>${mark(oursOk)}</td><td class="num"><b>${money(r.cost_usd || 0)}</b></td><td class="num">${latency(r.latency_s)}</td></tr>${rows}</table>
+    <div class="vsnote">From our baseline run on a 400-question sample of the same held-out test split${text ? '; free-text answers were scored by an LLM judge against the reference' : `; the gold answer is ${fmt(r.gold, r.type)}${r.type !== 'count' ? ' ' + unitOf(r.type) : ''}`}.</div></div>`;
 }
 
 function renderAnswer(shownSoFar) {
@@ -709,6 +712,7 @@ async function runStep() {
     loadList();
   }
   if (s.question) {
+    traceOpen = false;
     await sleep(400); await typeQuestion(s.question); await sleep(250);
     if (myI !== tourI) return;
     await ask();
@@ -732,6 +736,12 @@ async function doAction(act) {
     setAdding(true); await sleep(500); addAt(r.left + u * r.width, r.top + v * r.height); await sleep(600); setAdding(false);
   } else if (k === 'mode') await setMode(arg);
   else if (k === 'storey') { storeyFocus = arg; $('#storey').value = arg; applyStorey(true); await sleep(600); }
+  else if (k === 'trace') {
+    traceOpen = arg !== 'close'; const d = $('#answer details.trace'); if (!d) return;
+    d.open = traceOpen;
+    if (!PHONE.matches) { const side = $('#side'); side.scrollTo({top: Math.max(0, d.getBoundingClientRect().top - side.getBoundingClientRect().top + side.scrollTop - 120), behavior: 'smooth'}); }
+    await sleep(900);
+  }
   else if (k === 'hover') { const i = +arg; hotItem(i, true); rowHot(i, true, true); await sleep(1400); hotItem(i, false); rowHot(i, false); }
 }
 function endTour() { tour = null; $('#caption').hidden = true; document.body.classList.remove('touring'); }

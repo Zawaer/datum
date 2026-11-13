@@ -11,26 +11,29 @@
     ]
   },
   {
-    "title": "Ask in German, get a measured area",
-    "caption": "Net living area of apartment A: each room polygon is outlined with its own m², and the list adds them up to the answer.",
+    "title": "Ask in German, compare with frontier models",
+    "caption": "Net living area of apartment A: each room is outlined with its own m² and the list adds up to 62.74 m², as in the dataset. Frontier models given the same drawing said 59 to 73.9 m². “Why this answer” shows the route, what was read and the sum.",
     "source": "swiss_dwellings",
-    "path": "data/swiss_dwellings/site3387_bldg5238_floor23498.pdf",
+    "path": "data/swiss_dwellings/site11487_bldg17991_floor47889.pdf",
     "question": "Wie gross ist die Nettowohnfläche von Wohnung A in m² (Summe aller Räume ohne Balkone, Loggien, Terrassen und andere Aussenräume)?",
     "actions": [
       "wait:600",
-      "hover:0"
+      "hover:0",
+      "wait:1500",
+      "trace:open",
+      "wait:1800"
     ]
   },
   {
     "title": "Disagree? Correct it with a click",
-    "caption": "The evidence is the answer. Untick an item or click to add one the solver missed, and the total updates on the spot.",
+    "caption": "The evidence is the answer. Untick an item or click to add one the solver missed: the total updates on the spot, and the correction is saved as feedback for the next training run.",
     "source": "swiss_dwellings",
     "path": "data/swiss_dwellings/site3387_bldg5238_floor23498.pdf",
     "question": "How many windows are drawn on this floor plan?",
     "actions": [
       "wait:500",
       "toggle:3",
-      "wait:900",
+      "wait:1800",
       "toggle:3"
     ]
   },
