@@ -27,6 +27,7 @@ OUTDOOR = ("balkon", "balcon", "loggia", "terrass", "sitzplatz", "veranda", "aus
 # room fill greys on the PDF (stroke 0.54): 1.0 apartment room, 0.953 circulation / common / non-residential,
 # 0.894 outdoor (balcony, loggia, terrace, garden; also unnamed ones), 0.812 rare (stairs / voids)
 FILL_OUTDOOR = 0.894
+FILL_COMMON = 0.953
 SHAFT_VOID = ("schacht", "luftraum", "gaine", "vide", "cavedio", "vuoto", "void", "shaft")
 
 
@@ -37,6 +38,7 @@ class Room:
     number: str | None = None
     area_text: float | None = None
     unit: str | None = None
+    assigned: str = "contained"  # how the label found its outline: contained / nearest / shared / none
     fill: float | None = None  # grey of the room's fill on the PDF (1.0 white = room; see ROOM_FILLS)
 
     holes: list = field(default_factory=list)  # unlabelled outlines (shafts, columns) lying inside this room
@@ -81,6 +83,7 @@ class Floor:
     texts: list[tuple[str, float, float]] = field(default_factory=list)
     unit_labels: list[str] = field(default_factory=list)
     unit_by_distance: set = field(default_factory=set)
+    unit_merged: set = field(default_factory=set)  # apartments made of several outlines
     n_unit_outlines: int = 0
     to_page: tuple | None = None  # (ax, bx, ay, by): u = ax*x+bx, v = ay*y+by (normalised page coords)
 
@@ -299,20 +302,28 @@ def parse_floor(dxf_path: str, pdf_path: str | None = None) -> Floor:
         labels.append((t, name, area, Point(x, y)))
 
     polys = [p for p in (_poly(e) for e in msp.query('LWPOLYLINE[layer=="ROOM_OUTLINE"]')) if p is not None
-             and p.area > 0.05]
-    used = set()
+             and p.area > 1e-4]
+    used = {}
     for num, name, area, pt in labels:
-        cands = [i for i, p in enumerate(polys) if p.contains(pt)]
+        # smallest outline holding the label; slivers (door reveals, 0.002 m²) whose edge the label sits on
+        # count too, otherwise their number would take the big neighbouring room twice
+        cands = [i for i, p in enumerate(polys) if p.contains(pt) or p.distance(pt) < 0.02]
+        how = "contained"
         if not cands:
             d = [(p.distance(pt), i) for i, p in enumerate(polys)]
             d = [x for x in d if x[0] < 1.0]
             cands = [min(d)[1]] if d else []
+            how = "nearest"
         if cands:
             i = min(cands, key=lambda i: polys[i].area)  # innermost
-            used.add(i)
-            fl.rooms.append(Room(polys[i], name, num, area))
+            used.setdefault(i, []).append(len(fl.rooms))
+            fl.rooms.append(Room(polys[i], name, num, area, assigned=how))
         else:
-            fl.rooms.append(Room(Point(pt).buffer(0.3), name, num, area))
+            fl.rooms.append(Room(Point(pt).buffer(0.3), name, num, area, assigned="none"))
+    for i, idx in used.items():
+        if len(idx) > 1:
+            for k in idx:
+                fl.rooms[k].assigned = "shared"
     free = [p for i, p in enumerate(polys) if i not in used]
     for p in free:
         fl.rooms.append(Room(p))  # unlabelled region (shaft, void, ...)
@@ -348,11 +359,11 @@ def parse_floor(dxf_path: str, pdf_path: str | None = None) -> Floor:
             fl.units[letter] = unit_polys[d[0][1]]
             claimed.add(d[0][1])
             fl.unit_by_distance.add(letter)
-    for r in fl.rooms:
-        for letter, up in fl.units.items():
-            if r.poly.intersection(up).area > 0.5 * r.poly.area:
-                r.unit = letter
+    # an apartment can be drawn as several outlines with one label (a room across the stair hall, a
+    # split-level part): unlabelled outlines holding apartment rooms (white fill on the PDF) join the
+    # nearest labelled apartment. Rooms are attached after the PDF fills are known (_attach_rooms_to_units).
     fl.n_unit_outlines = len(unit_polys)
+    fl._spare_unit_polys = [unit_polys[i] for i in range(len(unit_polys)) if i not in claimed]
 
     # ---- doors: every door (single or double leaf, swing or sliding) has exactly one 5-vertex
     # frame polyline on layer DOOR; arcs and leaf lines are decoration. Verified on dev: matches gold.
@@ -395,4 +406,29 @@ def parse_floor(dxf_path: str, pdf_path: str | None = None) -> Floor:
                 c = [(P.area, g) for P, g in fills if P.contains(q)]
                 if c:
                     r.fill = min(c)[1]
+    _attach_rooms_to_units(fl)
     return fl
+
+
+def _attach_rooms_to_units(fl):
+    def owner(r, polys):
+        for letter, up in polys.items():
+            if r.poly.intersection(up).area > 0.5 * r.poly.area:
+                return letter
+        return None
+
+    for up in fl._spare_unit_polys:
+        inside = [r for r in fl.rooms if r.number and r.poly.intersection(up).area > 0.5 * r.poly.area]
+        if not fl.units or not inside or not all(r.fill == 1.0 for r in inside) or up.area > 40:
+            continue
+        # a whole unlabelled flat (kitchen, bath) is a separate unit the plan just doesn't name; only
+        # a detached room or two without fixtures belongs to a labelled neighbour (2 dev cases)
+        if any(up.contains(s.geom.centroid) for s in fl.symbols if s.kind not in ("door", "window", "other")):
+            continue
+        letter = min(fl.units, key=lambda k: fl.units[k].distance(up))
+        if fl.units[letter].distance(up) < 5.0:
+            fl.units[letter] = unary_union([fl.units[letter], up])
+            fl.unit_merged.add(letter)
+    del fl._spare_unit_polys
+    for r in fl.rooms:
+        r.unit = owner(r, fl.units)

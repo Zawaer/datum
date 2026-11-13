@@ -11,7 +11,7 @@ import unicodedata
 from pathlib import Path
 
 from bp.data import data_root
-from bp.swiss.parse import parse_floor
+from bp.swiss.parse import FILL_COMMON, parse_floor
 
 SYMBOL_PATTERNS = [
     ("apartment", r"apartments|wohnungen|appartamenti|logements|appartements"),
@@ -154,7 +154,7 @@ class SwissSolver:
             letter = intent[1]
             if letter not in fl.units:
                 return {**base, "explanation": f"apartment {letter} not found"}
-            hits = [r for r in rooms_num if r.unit == letter and not r.outdoor and not r.shaft_void]
+            hits = [r for r in rooms_num if r.unit == letter and not r.outdoor and not r.shaft_void and r.fill != FILL_COMMON]
             for r in hits:
                 poly(r, r.area)
             tot = round(sum(r.area for r in hits), 2)
