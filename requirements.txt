@@ -1,3 +1,4 @@
+# CUDA builds of torch/torchvision: pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu128
 accelerate==1.15.0
 ezdxf==1.4.5
 fastapi==0.162.7
@@ -14,8 +15,8 @@ pydantic==2.14.3
 pymupdf==2.1
 qwen-vl-utils==0.0.14
 shapely==2.2.0
-torch==2.11.0+cu128
-torchvision==0.26.0+cu128
+torch==2.11.0
+torchvision==0.26.0
 transformers==5.23.0
 trl==1.18.0
 ultralytics==8.4.212
