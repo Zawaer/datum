@@ -20,6 +20,16 @@ newer Qwen3.5 small models (9B / 4B) were considered: their hybrid Gated-DeltaNe
 (an issue on ROCm and for LoRA tooling) and they think by default; `--model Qwen/Qwen3.5-9B` should work with
 the same scripts but is untested. The 2B / 4B Qwen3-VL variants are good for smoke tests and cheap serving.
 
+### Gemma-family variant: PaliGemma 2
+
+`--model google/paligemma2-3b-pt-896 --attn eager` (gated on Hugging Face: accept the licence, pass
+`HF_TOKEN` as an env var for the download only, then train with `HF_HUB_OFFLINE=1`). PaliGemma 2 was picked
+over Gemma 3 for its native detection output (`<locYYYY><locXXXX><locYYYY><locXXXX> label ; ...`, 1024 bins)
+and 896 px input (4,096 image tokens); Gemma 3 sees 896 px through only 256 tokens, too coarse for 15 px
+symbols. Same data: the JSON targets are converted to the `<loc>` format on the fly
+(`bp.vlm.format.pali_from_target`), the question is the prefix, and the count is the number of boxes.
+Gemma 2 has no SDPA path in transformers, hence `--attn eager` (~2x slower per token than Qwen with flash-attn).
+
 ## Data (`train/vlm/build_dataset.py`)
 
 Dev-split drawings only: test drawings (`bp.data.split_of(path) == "test"`) are dropped before anything is

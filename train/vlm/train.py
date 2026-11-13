@@ -25,7 +25,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from bp.data import split_of  # noqa: E402
-from bp.vlm.format import messages  # noqa: E402
+from bp.vlm.format import is_paligemma, messages, pali_from_target  # noqa: E402
 
 Image.MAX_IMAGE_PIXELS = None
 LLM_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
@@ -87,6 +87,22 @@ class Collator:
         if ids.shape[1] > self.max_len:
             raise ValueError(f"sequence of {ids.shape[1]} tokens > --max-len {self.max_len}; raise it "
                              "(cutting would drop image tokens)")
+        return b
+
+
+class PaliCollator:
+    """PaliGemma 2: prefix = question (image tokens added by the processor), suffix = <loc> detections.
+    The processor builds labels (prefix masked) and token_type_ids for the prefix-LM attention."""
+
+    def __init__(self, processor, data_dir: Path, max_len: int):
+        self.p, self.dir, self.max_len = processor, data_dir, max_len
+
+    def __call__(self, rows):
+        images = [Image.open(self.dir / r["image"]).convert("RGB") for r in rows]
+        b = self.p(text=["<image>" + r["question"].strip() for r in rows], images=images,
+                   suffix=[pali_from_target(r["answer"]) for r in rows], return_tensors="pt", padding="longest")
+        if b["input_ids"].shape[1] > self.max_len:
+            raise ValueError(f"sequence of {b['input_ids'].shape[1]} tokens > --max-len {self.max_len}")
         return b
 
 
@@ -154,7 +170,7 @@ def main():
             model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=not a.no_gc)
         # language-model linears by name; vision blocks (qkv / proj / mlp.linear_fc*) only with --tune-vision
         targets = [n for n, m in model.named_modules() if isinstance(m, torch.nn.Linear) or "Linear" in type(m).__name__]
-        lm = [n for n in targets if "visual" not in n and n.split(".")[-1] in LLM_TARGETS]
+        lm = [n for n in targets if "visual" not in n and "vision_tower" not in n and n.split(".")[-1] in LLM_TARGETS]
         vis = [n for n in targets if "visual" in n and n.split(".")[-1] in ("qkv", "proj", "linear_fc1", "linear_fc2")]
         cfg = LoraConfig(r=a.lora_r, lora_alpha=a.lora_alpha, lora_dropout=a.lora_dropout, bias="none",
                          target_modules=lm + (vis if a.tune_vision else []), task_type="CAUSAL_LM")
@@ -177,7 +193,8 @@ def main():
     )
     trainer = SFTTrainer(model=model, args=cfg, train_dataset=Dataset.from_list(train_rows),
                          eval_dataset=Dataset.from_list(val_rows) if val_rows else None,
-                         data_collator=Collator(processor, data, a.max_len), processing_class=processor)
+                         data_collator=(PaliCollator if is_paligemma(a.model) else Collator)(processor, data, a.max_len),
+                         processing_class=processor)
     trainer.train(resume_from_checkpoint=any(Path(a.out).glob("checkpoint-*")) or None)
     final = Path(a.out) / "final"
     trainer.save_model(str(final))

@@ -26,7 +26,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from bp.vlm.format import SYSTEM, budget_for, decision_confidence, messages, parse_output, prepare_image, user_text
+from bp.vlm.format import (SYSTEM, budget_for, decision_confidence, is_paligemma, messages, pali_decision_confidence,
+                           parse_output, parse_paligemma, prepare_image, user_text)
 
 DEFAULT_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
 
@@ -75,22 +76,35 @@ class LocalRunner:
 
         self.load()
         img = image if prepared else prepare_image(image, budget_for(source))
-        msgs = messages(question, img)
+        pali = is_paligemma(self.model_name)
         with self._lock:
             t0 = time.time()
-            inputs = self.processor.apply_chat_template(msgs, tokenize=True, add_generation_prompt=True,
-                                                        return_dict=True, return_tensors="pt")
-            inputs = inputs.to(self._model.device)
+            if pali:  # prefix = question; the processor adds the image tokens and resizes to its fixed square
+                inputs = self.processor(text="<image>" + user_text(question), images=img.convert("RGB"),
+                                        return_tensors="pt")
+                inputs = inputs.to(self._model.device)
+                inputs["pixel_values"] = inputs["pixel_values"].to(self._model.dtype)
+            else:
+                inputs = self.processor.apply_chat_template(messages(question, img), tokenize=True,
+                                                            add_generation_prompt=True, return_dict=True,
+                                                            return_tensors="pt")
+                inputs = inputs.to(self._model.device)
             with torch.inference_mode():
                 out = self._model.generate(**inputs, max_new_tokens=self.max_new, do_sample=False,
                                            output_scores=True, return_dict_in_generate=True)
             seq = out.sequences[0, inputs["input_ids"].shape[1]:]
             scores = self._model.compute_transition_scores(out.sequences, out.scores, normalize_logits=True)[0]
             tok = self.processor.tokenizer
-            toks = [(tok.decode([int(t)]), float(s)) for t, s in zip(seq, scores) if int(t) not in tok.all_special_ids]
-            text = tok.decode(seq, skip_special_tokens=True)
+            if pali:  # <loc> tokens must survive decoding; keep <eos> as the stop decision
+                toks = [(tok.decode([int(t)]), float(s)) for t, s in zip(seq, scores) if int(t) != tok.pad_token_id]
+                text = tok.decode(seq, skip_special_tokens=False).replace("<eos>", "").replace("<pad>", "").strip()
+                parsed, conf = parse_paligemma(text), pali_decision_confidence(toks)
+            else:
+                toks = [(tok.decode([int(t)]), float(s)) for t, s in zip(seq, scores) if int(t) not in tok.all_special_ids]
+                text = tok.decode(seq, skip_special_tokens=True)
+                parsed, conf = parse_output(text), decision_confidence(toks)
             dt = time.time() - t0
-        return {"text": text, "parsed": parse_output(text), "confidence": decision_confidence(toks),
+        return {"text": text, "parsed": parsed, "confidence": conf,
                 "seconds": round(dt, 2), "backend": f"local:{self.model_name}" + (f"+{self.adapter}" if self.adapter else ""),
                 "n_in": int(inputs["input_ids"].shape[1]), "n_out": len(seq)}
 

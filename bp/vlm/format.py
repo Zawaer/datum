@@ -157,3 +157,49 @@ def decision_confidence(tokens: list[tuple[str, float]]) -> float | None:
         return None
     lp = sum(l for s, l in tokens if l is not None and any(c in s for c in "{}]"))
     return float(math.exp(lp))
+
+
+# ---- PaliGemma 2 (Gemma family): native detection format --------------------------------------------
+# "<loc{y0}><loc{x0}><loc{y1}><loc{x1}> label ; ..." with 1024 bins per axis (PaliGemma's pretraining
+# convention, so the fine-tune builds on its detection skill); "none" for zero items. Count = number of boxes.
+PALI_NONE = "none"
+_LOC_RE = re.compile(r"<loc(\d{4})><loc(\d{4})><loc(\d{4})><loc(\d{4})>\s*([^;<]*)")
+
+
+def is_paligemma(model_name_or_type: str | None) -> bool:
+    return "paligemma" in (model_name_or_type or "").lower()
+
+
+def pali_suffix(items: list[tuple[str, list[float]]]) -> str:
+    """items (label, normalised bbox) in reading order -> PaliGemma detection string."""
+    if not items:
+        return PALI_NONE
+    out = []
+    for lab, (x0, y0, x1, y1) in items:
+        q = [min(1023, max(0, round(v * 1023))) for v in (y0, x0, y1, x1)]
+        out.append("".join(f"<loc{v:04d}>" for v in q) + f" {lab}")
+    return " ; ".join(out)
+
+
+def pali_from_target(answer_json: str) -> str:
+    """Our JSON target (0..1000 ints) -> PaliGemma suffix, same item order."""
+    d = json.loads(answer_json)
+    return pali_suffix([(it["label"], [v / 1000 for v in it["bbox_2d"]]) for it in d["items"]])
+
+
+def parse_paligemma(text: str) -> dict:
+    items = []
+    for m in _LOC_RE.finditer(text):
+        y0, x0, y1, x1 = (int(v) / 1023 for v in m.groups()[:4])
+        items.append((m.group(5).strip(), [min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)]))
+    t = text.strip()
+    ok = bool(items) or t.lower().startswith(PALI_NONE)
+    return {"items": items, "count": len(items) if ok else None, "ok": ok}
+
+
+def pali_decision_confidence(tokens: list[tuple[str, float]]) -> float | None:
+    """As decision_confidence, for the PaliGemma format: ';' (another item) vs end of sequence."""
+    if not tokens:
+        return None
+    lp = sum(l for s, l in tokens if l is not None and (";" in s or s in ("<eos>", "</s>") or "none" in s))
+    return float(math.exp(lp))
