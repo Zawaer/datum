@@ -32,6 +32,8 @@ OUT = ROOT / "analysis" / "out"
 
 OURS = os.environ.get("BP_OURS_RUN", "router_full_test")
 PRIOR = os.environ.get("BP_PRIOR_RUN", "prior_full_test")
+# runs to leave out (e.g. a baseline still writing rows): BP_SKIP_RUNS=baseline_x_full400,baseline_y_full400
+SKIP = {n for n in os.environ.get("BP_SKIP_RUNS", "").split(",") if n}
 
 # Local compute is not free: price our wall-clock time at a rented-GPU rate so it can sit on a log axis.
 # $0.50/h is a typical on-demand price for one consumer-class (RTX 4070/4090-class) cloud GPU.
@@ -42,11 +44,14 @@ SEED = 20261113
 
 LABELS = {
     "router_full_test": "Ours (router)",
+    "router_full_test_v4": "Ours (router)",
     "prior_full_test": "Template prior",
     "baseline_sonnet_full400": "Claude Sonnet, direct",
     "baseline_haiku_full400": "Claude Haiku, direct",
     "baseline_sonnetfair_full400": "Claude Sonnet + sibling CAD/IFC files",
     "generic_cubicasa_300_haiku": "Generic VLM pipeline (Haiku)",
+    "baseline_gemini_full400": "Gemini 3.1 Pro, direct",
+    "baseline_nemotron_full400": "Nemotron 3.5 Super VL (open), direct",
 }
 
 SOURCE_LABEL = {
@@ -140,7 +145,7 @@ def discover_frontier():
     out = []
     for p in sorted(glob.glob(str(RUNS / "baseline_*.jsonl"))):
         name = Path(p).name[: -len(".jsonl")]
-        if name.endswith(".judged"):
+        if name.endswith(".judged") or name in SKIP:
             continue
         ids = {r["id"] for r in _read(Path(p))}
         if ids and ids <= test_ids:

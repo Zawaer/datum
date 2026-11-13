@@ -2,7 +2,7 @@
  "overall": [
   {
    "run": "router_full_test_v4",
-   "system": "Router full test v4",
+   "system": "Ours (router)",
    "n": 25420,
    "accuracy": 0.8818253343823761,
    "ci_lo": 0.8777991372780053,
@@ -38,6 +38,19 @@
    "compute_usd_per_1k": 3.9721967792746646,
    "mean_latency_s": 28.599816810777586,
    "answered": 0.9575
+  },
+  {
+   "run": "baseline_gemini_full400",
+   "system": "Gemini 3.1 Pro, direct",
+   "n": 400,
+   "accuracy": 0.641656348430542,
+   "ci_lo": 0.558648575977451,
+   "ci_hi": 0.7227226666083866,
+   "ci": "re-weighted, stratified bootstrap",
+   "api_usd_per_1k": 52.47163625502335,
+   "compute_usd_per_1k": 4.361285942823492,
+   "mean_latency_s": 31.401258788329137,
+   "answered": 0.8475
   },
   {
    "run": "baseline_sonnetfair_full400",
