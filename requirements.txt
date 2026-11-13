@@ -1,0 +1,8 @@
+ifcopenshell
+pymupdf
+ezdxf
+shapely
+numpy
+pandas
+pillow
+langdetect
