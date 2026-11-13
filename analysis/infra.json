@@ -1,0 +1,8 @@
+{
+  "_note": "Cloud machines used by the project. Rates are on-demand list prices. stop=null means still running (costed up to now).",
+  "machines": [
+    {"name": "stoa-h100",   "provider": "Verda", "what": "1x H100 80GB: VLM fine-tuning (Qwen3-VL-8B LoRA)",       "usd_per_h": 5.19,  "start": "2026-11-13T20:14:00Z", "stop": null},
+    {"name": "stoa-h100-b", "provider": "Verda", "what": "1x H100 80GB: PaliGemma 2 fine-tune, zero-shot evals",   "usd_per_h": 5.189, "start": "2026-11-13T21:22:00Z", "stop": null},
+    {"name": "stoa-demo",   "provider": "Verda", "what": "CPU.4V.16G: public demo (FastAPI + Caddy)",              "usd_per_h": 0.048, "start": "2026-11-13T21:10:00Z", "stop": null}
+  ]
+}
