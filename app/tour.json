@@ -39,7 +39,7 @@
     "caption": "CubiCasa raster plans: a small detector finds the door symbols and boxes each one it counted.",
     "source": "cubicasa5k",
     "path": "data/cubicasa5k/colorful-10052.png",
-    "question": "Kuinka monta ovea pohjapiirustuksessa on? Laske oviaukot, joissa on ovi; pelkkiä oviaukkoja ilman ovea ei lasketa.",
+    "question": "Kuinka monta ovea pohjapiirustuksessa on? Laske oviaukot, joissa on ovi; pelkkiä oviaukkoja ilman ovilehteä ei lasketa.",
     "actions": [
       "wait:800"
     ]

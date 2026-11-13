@@ -4,7 +4,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 const SRC = {swiss_dwellings: 'Swiss apartments', cubicasa5k: 'Finnish plans', ifc_models: 'IFC models', ifc_bench: 'IFC bench',
              opening_design: 'US drawing sets', upload: 'Your uploads'};
-const ROUTE = {swiss: 'CAD layers (DXF twin)', ifc: 'IFC model query', cubicasa: 'plan symbol detector', generic: 'generic drawing reader'};
+const ROUTE = {swiss: 'CAD layers (DXF twin)', ifc: 'IFC model query', cubicasa: 'plan symbol detector', generic: 'generic drawing reader', ifctext: 'IFC fact sheet'};
 const NS = 'http://www.w3.org/2000/svg';
 
 let tab = 'swiss_dwellings', cur = null, res = null, items = [], marks = [], adding = false, primary = '2d';
@@ -144,7 +144,10 @@ function applyStorey(reframe) {
   return si;
 }
 function highlight3d(animate) {
-  if (!window.V3 || !V3.hasModel() || loaded3d !== cur.path) return;
+  if (!window.V3 || !V3.hasModel() || loaded3d !== cur.path) {  // model still loading: show the final number now
+    if (animate) { animating = false; renderAnswer(null); }
+    return;
+  }
   const it = ifcItems();
   applyStorey(false);
   if (!it.length) { V3.clear(); V3.focusStorey(null, false); return; }
@@ -225,12 +228,16 @@ async function select(d, how = 'push') {
   }
   const info = await r.json();
   if (cur.path !== d.path) return;
+  if (d.path.startsWith('uploads/') && !uploads.some(u => u.path === d.path)) {  // opened from a shared link
+    uploads = [{path: d.path, kind: info.kind, ext: d.path.split('.').pop(), source: 'upload', split: 'upload'}, ...uploads].slice(0, 30);
+    localStorage.setItem('bp_uploads', JSON.stringify(uploads)); if (tab === 'upload') loadList();
+  }
   Object.assign(cur, info); has3d = info.has3d; loaded3d = null; loading(''); if (window.V3) V3.clear();
-  $('#modes').classList.toggle('show', has3d && !!info.view);
+  $('#modes').classList.toggle('show', has3d);  // a model without a plan sheet still shows "3D model", with Plan disabled
+  $('#m2d').disabled = !info.view; $('#m2d').title = info.view ? '' : 'no plan sheet for this model';
   $('#credit').textContent = info.credit ? '© ' + info.credit : '';
   showImage(info.view);
   if (!info.view && !has3d) { $('#empty').hidden = false; $('#empty').textContent = 'No preview for this file type, but you can still ask about it.'; }
-  await setMode(info.view ? '2d' : (has3d ? '3d' : '2d'));
   const chips = $('#chips'); chips.innerHTML = '';
   $('#qstitle').textContent = d.source === 'upload' || d.split === 'upload' ? 'Try asking' : `Dataset questions for this drawing (${info.questions.length})`;
   for (const q of info.questions) {
@@ -238,6 +245,8 @@ async function select(d, how = 'push') {
     c.innerHTML = `<span class="ty">${esc(q.type)}</span>${esc(q.question)}`;
     c.onclick = () => { $('#q').value = q.question; ask(); }; chips.appendChild(c);
   }
+  // chips first: a big model can take a while to tessellate and the questions should not wait for it
+  if (cur.path === d.path) await setMode(info.view ? '2d' : (has3d ? '3d' : '2d'));
 }
 function showImage(view) {
   cur.shown = view || null;
@@ -309,7 +318,7 @@ async function ask() {
   renderAnswer(items.length && typeof res.answer === 'number' ? 0 : null);
   if (primary === 'ifc' && has3d) { await setMode('3d'); highlight3d(true); }
   else {
-    if (mode === '3d') await setMode('2d');
+    if (mode === '3d' && cur.shown) await setMode('2d');  // no plan sheet (IFC-only): stay in 3D
     const go = () => { zoomToEvidence(); draw(true); };
     if (cur.shown && img.complete && img.naturalWidth && img.getAttribute('src')?.includes(encodeURIComponent(cur.shown))) go();
     else pendingDraw = go;
@@ -471,6 +480,8 @@ function shapeFor(e, i, W, H) {
     shape.setAttribute('rx', 2);
     const cls = e.mark ? (e.kind === 'text' ? 'bx txt' : 'bx mark') : 'bx appear' + (e.on ? '' : ' off') + (e.added ? ' added' : '');
     shape.setAttribute('class', cls); lx = x0 * W; ly = y0 * H;
+    // a thin box (a text label, a wall): put the number just left of it so it does not cover what it marks
+    if ((y1 - y0) * H < fs * 2.2) { lx = x0 * W - fs * 0.85; ly = (y0 + y1) / 2 * H; }
   }
   const tip = document.createElementNS(NS, 'title'); tip.textContent = (e.label || '') + (e.value != null && res.type !== 'count' ? ` = ${fmt(e.value, res.type)} ${unitOf(res.type)}` : '');
   shape.appendChild(tip);

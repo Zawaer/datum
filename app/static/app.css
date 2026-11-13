@@ -63,6 +63,7 @@ main { flex: 1; display: grid; grid-template-columns: 270px 1fr 410px; min-heigh
 .modes.show { display: flex; }
 .modes button { border: 1px solid var(--line); background: var(--panel); color: var(--mut); padding: 6px 13px; cursor: pointer; font-size: 13px; }
 .modes button:first-child { border-radius: 9px 0 0 9px; } .modes button:last-child { border-radius: 0 9px 9px 0; }
+.modes button:disabled { opacity: .45; cursor: not-allowed; }
 .modes button.on { background: var(--acc); color: #001; border-color: var(--acc); font-weight: 600; }
 .tools3d { position: absolute; top: 50px; right: 10px; display: none; flex-direction: column; gap: 6px; z-index: 5; background: rgba(17,26,40,.92); padding: 8px 10px; border-radius: 9px; font-size: 12px; color: var(--mut); }
 #viewer.mode3d .tools3d.show { display: flex; }
