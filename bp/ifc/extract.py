@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 
 CACHE_DIR = Path(os.environ.get("BP_CACHE", "cache")) / "ifc"
-CACHE_VERSION = 4
+CACHE_VERSION = 5
 
 # classes whose geometry we evaluate (cost: a few seconds per model)
 GEO_CLASSES = ["IfcSpace", "IfcWall", "IfcWallStandardCase", "IfcSlab", "IfcColumn", "IfcBeam",
@@ -259,6 +259,7 @@ def extract(path: str, geometry: bool = True, threads: int = 4) -> dict:
         st = _storey_of(e, ue, cache)
         typ = ue.get_type(e)
         ps_all = ue.get_psets(e)
+        qnames = set(ue.get_psets(e, qtos_only=True))
         if typ is not None:
             tps = ue.get_psets(typ)
         else:
@@ -266,7 +267,7 @@ def extract(path: str, geometry: bool = True, threads: int = 4) -> dict:
         psets, qto = {}, {}
         for name, props in ps_all.items():
             props = {k: v for k, v in props.items() if k != "id"}
-            if _is_qto(name, props):
+            if name in qnames or _is_qto(name, props):
                 for k, v in props.items():
                     if isinstance(v, (int, float)) and not isinstance(v, bool):
                         qto.setdefault(k, _qto_si(k, v, ls, as_, vs_))
