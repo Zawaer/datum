@@ -16,6 +16,7 @@ import threading
 from pathlib import Path
 
 from bp.cubicasa.classes import COUNTS
+from bp.cubicasa.infer import SYMBOLS, predict
 from bp.cubicasa.questions import LABEL, target
 from bp.data import data_root
 
@@ -32,7 +33,7 @@ class CubicasaSolver:
         self.weights = weights or variant or os.environ.get("CUBICASA_WEIGHTS") or DEFAULT_WEIGHTS
         tf = Path(self.weights).with_name("thresholds.json")
         self.thresh = json.loads(tf.read_text()) if tf.exists() else {}
-        self.imgsz = int(self.thresh.pop("_imgsz", 1024))
+        self.imgsz = str(self.thresh.pop("_imgsz", 1024))
         self.cls_imgsz = self.thresh.pop("_cls_imgsz", {})
         self._model = None
         self._lock = threading.Lock()
@@ -46,10 +47,10 @@ class CubicasaSolver:
             self._model = YOLO(self.weights)
         return self._model
 
-    def detect(self, path: str, imgsz: int | None = None):
+    def detect(self, path: str, imgsz: str | int | None = None):
         """All detections (conf >= 0.05) for one image at one inference size:
         list of (cls_name, conf, [x0, y0, x1, y1] normalised), sorted top-to-bottom."""
-        imgsz = imgsz or self.imgsz
+        imgsz = str(imgsz or self.imgsz)
         key = (path, imgsz)
         with self._lock:  # the model is not thread-safe; one predict at a time
             if key in self._cache:
@@ -57,9 +58,7 @@ class CubicasaSolver:
                 return self._cache[key]
             m = self._load()
             img = str(data_root() / path) if not Path(path).is_absolute() else path
-            r = m.predict(img, imgsz=imgsz, conf=0.05, iou=0.5, verbose=False, max_det=600)[0]
-            out = [(r.names[int(c)], float(s), [round(v, 5) for v in b])
-                   for b, c, s in zip(r.boxes.xyxyn.tolist(), r.boxes.cls.tolist(), r.boxes.conf.tolist())]
+            out = [(n, sc, [round(v, 5) for v in b]) for n, sc, b in predict(m, img, imgsz, tile_classes=SYMBOLS)]
             out.sort(key=lambda d: (d[2][1], d[2][0]))
             self._cache[key] = out
             if len(self._cache) > 4096:
@@ -70,7 +69,7 @@ class CubicasaSolver:
         """Detections of the given classes, each class taken at its tuned inference size."""
         out = []
         for c in classes:
-            out += [d for d in self.detect(path, int(self.cls_imgsz.get(c, self.imgsz))) if d[0] == c]
+            out += [d for d in self.detect(path, self.cls_imgsz.get(c, self.imgsz)) if d[0] == c]
         return sorted(out, key=lambda d: (d[2][1], d[2][0]))
 
     def th(self, cls: str) -> float:

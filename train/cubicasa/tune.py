@@ -1,9 +1,9 @@
 """Pick, per class, the inference size and score threshold that maximise exact-count accuracy on the
 YOLO validation drawings (dev split only), and write them next to the weights as thresholds.json.
 
-    .venv/bin/python train/cubicasa/tune.py --weights cache/cubicasa/runs/cc/weights/best.pt --imgsz 1024 1280
+    .venv/bin/python train/cubicasa/tune.py --weights cache/cubicasa/runs/cc/weights/best.pt --imgsz 1024 t1024
 
-thresholds.json: {"_imgsz": default size, "_cls_imgsz": {class: size}, class: threshold, ...}
+thresholds.json: {"_imgsz": default mode, "_cls_imgsz": {class: mode}, class: threshold, ...}
 """
 import argparse
 import collections
@@ -17,21 +17,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from bp.cubicasa.classes import NAMES  # noqa: E402
 
 
-def predict_all(m, imgs, imgsz):
-    preds = {}
-    for i in range(0, len(imgs), 4):
-        batch = imgs[i:i + 4]
-        for p, r in zip(batch, m.predict([str(x) for x in batch], imgsz=imgsz, conf=0.05, iou=0.5,
-                                         verbose=False, max_det=600)):
-            preds[p.stem] = list(zip([r.names[int(c)] for c in r.boxes.cls.tolist()], r.boxes.conf.tolist()))
-    return preds
+def predict_all(m, imgs, mode):
+    from bp.cubicasa.infer import SYMBOLS, predict
+
+    return {p.stem: [(n, s) for n, s, _ in predict(m, str(p), mode, tile_classes=SYMBOLS)] for p in imgs}
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--weights", required=True)
     ap.add_argument("--data", default="cache/yolo_cc")
-    ap.add_argument("--imgsz", type=int, nargs="+", default=[1024])
+    ap.add_argument("--imgsz", nargs="+", default=["1024"], help="modes: 1024, 1280, t1024 (tiled) ...")
     ap.add_argument("--out", help="thresholds.json path (default: next to weights)")
     a = ap.parse_args()
     from ultralytics import YOLO
