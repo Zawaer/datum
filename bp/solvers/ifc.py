@@ -6,6 +6,7 @@ split of the preview dataset.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from bp.data import data_root
@@ -21,7 +22,14 @@ def ifc_path_for(qpath: str) -> tuple[str, Path]:
     """Dataset-relative + absolute path of the IFC model a question is about."""
     p = Path(qpath)
     if p.suffix.lower() != ".ifc":
-        p = p.with_name(p.stem.split("_plan-")[0] + ".ifc")
+        stem = re.split(r"_(?:plan|elevation|section)-", p.stem)[0]
+        p = p.with_name(stem + ".ifc")
+        if not (data_root() / p).exists():
+            # fall back to the longest model stem that prefixes the drawing name
+            d = data_root() / p.parent
+            cands = [f for f in d.glob("*.ifc") if Path(qpath).stem.startswith(f.stem)]
+            if cands:
+                p = p.with_name(max(cands, key=lambda f: len(f.stem)).name)
     return str(p), data_root() / p
 
 
