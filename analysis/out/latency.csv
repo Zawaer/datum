@@ -1,0 +1,12 @@
+run,solver,n,p50,p90,p99,mean,max
+router_full_test,CubiCasa detector,16496,0.011,0.092,0.127,0.036536,4.374
+router_full_test,IFC text (rules),110,0.178,1.2645,1.96259,0.416009,2.091
+router_full_test,IFC geometry / quantities,600,0.023,0.05,0.46001,0.03339,0.487
+router_full_test,Swiss DXF geometry,8214,0.003,0.029,0.066,0.010922,0.62
+router_full_test,CubiCasa detector · slowest per drawing,922,0.084,0.12,0.21158,0.09074,4.374
+router_full_test,IFC text (rules) · slowest per drawing,4,0.7265,1.7514,2.05704,0.90625,2.091
+router_full_test,IFC geometry / quantities · slowest per drawing,20,0.0615,0.3226,0.46363,0.11285,0.487
+router_full_test,Swiss DXF geometry · slowest per drawing,228,0.055,0.0791,0.19864,0.062368,0.62
+baseline_sonnet_full400,"Claude Sonnet, direct",400,14.964,27.3536,58.74627,17.15185,71.103
+baseline_haiku_full400,"Claude Haiku, direct",400,29.194,60.7942,119.09709,34.944007,140.403
+generic_cubicasa_300_haiku,Generic VLM pipeline (Haiku),300,28.2855,80.7843,378.70978,48.391407,654.911

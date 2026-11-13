@@ -1,0 +1,3 @@
+baseline,n,ours_raw,ours_reweighted,ours_lo,ours_hi,baseline_raw,both_right,only_ours_right,only_baseline_right
+"Claude Sonnet, direct",400,0.8675,0.820027,0.737592,0.890978,0.3425,132,215,5
+"Claude Haiku, direct",400,0.8675,0.820027,0.737592,0.890978,0.31,118,229,6

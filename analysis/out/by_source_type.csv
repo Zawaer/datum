@@ -1,0 +1,9 @@
+source,type,n_test,router_full_test:n,router_full_test:acc,router_full_test:lo,router_full_test:hi,baseline_sonnet_full400:n,baseline_sonnet_full400:acc,baseline_sonnet_full400:lo,baseline_sonnet_full400:hi,baseline_haiku_full400:n,baseline_haiku_full400:acc,baseline_haiku_full400:lo,baseline_haiku_full400:hi,prior_full_test:n,prior_full_test:acc,prior_full_test:lo,prior_full_test:hi,router_full_test:proxy_acc,router_full_test:text_scoring,baseline_sonnet_full400:proxy_acc,baseline_sonnet_full400:text_scoring,baseline_haiku_full400:proxy_acc,baseline_haiku_full400:text_scoring,prior_full_test:proxy_acc,prior_full_test:text_scoring
+cubicasa5k,count,16496,16496,0.807953,0.801871,0.813893,55,0.636364,0.504228,0.750695,55,0.636364,0.504228,0.750695,16496,0.558802,0.551212,0.566365,,,,,,,,
+swiss_dwellings,count,5580,5580,0.999642,0.998694,0.999902,54,0.796296,0.670977,0.882259,54,0.740741,0.610691,0.838813,5580,0.223656,0.212915,0.234777,,,,,,,,
+swiss_dwellings,area,2634,2634,0.999241,0.997236,0.999792,54,0.388889,0.270419,0.522117,54,0.259259,0.161187,0.389309,2634,0.033409,0.027197,0.04098,,,,,,,,
+ifc_models,area,390,390,1.0,0.990246,1.0,54,0.092593,0.040201,0.199099,54,0.074074,0.029182,0.175541,390,0.002564,0.000453,0.014379,,,,,,,,
+ifc_models,count,136,136,1.0,0.97253,1.0,54,0.425926,0.303318,0.558373,54,0.333333,0.222414,0.46639,136,0.154412,0.103268,0.224542,,,,,,,,
+ifc_bench,text,110,110,0.318182,0.238538,0.410097,55,0.090909,0.039458,0.195775,55,0.072727,0.028644,0.172599,110,0.009091,0.001607,0.049706,0.345455,judge,0.018182,"abstain,judge",0.018182,"abstain,judge",0.0,"abstain,judge"
+ifc_models,volume,52,52,1.0,0.931208,1.0,52,0.038462,0.010612,0.129812,52,0.019231,0.003403,0.101205,52,0.038462,0.010612,0.129812,,,,,,,,
+ifc_models,length,22,22,1.0,0.851345,1.0,22,0.136364,0.04749,0.33335,22,0.363636,0.197332,0.570483,22,0.045455,0.008069,0.21798,,,,,,,,

@@ -1,0 +1,173 @@
+{
+ "overall": [
+  {
+   "run": "router_full_test",
+   "system": "Ours (router)",
+   "n": 25420,
+   "accuracy": 0.8722659323367428,
+   "ci_lo": 0.8681062625724192,
+   "ci_hi": 0.8763131057834432,
+   "ci": "Wilson",
+   "api_usd_per_1k": 0.0,
+   "compute_usd_per_1k": 0.00414268074132323,
+   "mean_latency_s": 0.029827301337529505,
+   "answered": 1.0
+  },
+  {
+   "run": "baseline_sonnet_full400",
+   "system": "Claude Sonnet, direct",
+   "n": 400,
+   "accuracy": 0.6323429681022128,
+   "ci_lo": 0.5436919483319955,
+   "ci_hi": 0.7183957328331836,
+   "ci": "re-weighted, stratified bootstrap",
+   "api_usd_per_1k": 13.061452293607461,
+   "compute_usd_per_1k": 1.7870937132308897,
+   "mean_latency_s": 12.867074735262406,
+   "answered": 0.9875
+  },
+  {
+   "run": "baseline_haiku_full400",
+   "system": "Claude Haiku, direct",
+   "n": 400,
+   "accuracy": 0.6060149091226983,
+   "ci_lo": 0.5154213191447652,
+   "ci_hi": 0.6926239989721502,
+   "ci": "re-weighted, stratified bootstrap",
+   "api_usd_per_1k": 1.2101479346298016,
+   "compute_usd_per_1k": 3.9721967792746646,
+   "mean_latency_s": 28.599816810777586,
+   "answered": 0.9575
+  },
+  {
+   "run": "prior_full_test",
+   "system": "Template prior",
+   "n": 25420,
+   "accuracy": 0.4162077104642014,
+   "ci_lo": 0.41016120738020456,
+   "ci_hi": 0.42227953502727866,
+   "ci": "Wilson",
+   "api_usd_per_1k": 0.0,
+   "compute_usd_per_1k": 1.092752863012501e-08,
+   "mean_latency_s": 7.867820613690008e-08,
+   "answered": 0.9953186467348545
+  }
+ ],
+ "twins": {
+  "pairs": 8248,
+  "same_answer": 8248,
+  "en_acc": 0.8079534432589719,
+  "fi_acc": 0.8079534432589719
+ },
+ "confident_zero": {
+  "high_conf": 6608,
+  "high_conf_wrong": 338,
+  "high_conf_wrong_pred0": 142
+ },
+ "selective": {
+  "all": {
+   "n": 25420,
+   "base_acc": 0.8722659323367428,
+   "aurc": 0.04808138153311718,
+   "thresholds": [
+    {
+     "threshold": 0.5,
+     "coverage": 0.9287568843430369,
+     "answered": 23609,
+     "accuracy_answered": 0.9159218941928925,
+     "wrong_kept": 1985,
+     "wrong_abstained": 1262
+    },
+    {
+     "threshold": 0.7,
+     "coverage": 0.8620377655389457,
+     "answered": 21913,
+     "accuracy_answered": 0.943366951124903,
+     "wrong_kept": 1241,
+     "wrong_abstained": 2006
+    },
+    {
+     "threshold": 0.9,
+     "coverage": 0.7422501966955154,
+     "answered": 18868,
+     "accuracy_answered": 0.9655501377994488,
+     "wrong_kept": 650,
+     "wrong_abstained": 2597
+    },
+    {
+     "threshold": 0.95,
+     "coverage": 0.6962234461054287,
+     "answered": 17698,
+     "accuracy_answered": 0.9723132557351113,
+     "wrong_kept": 490,
+     "wrong_abstained": 2757
+    },
+    {
+     "threshold": 0.99,
+     "coverage": 0.25995279307631786,
+     "answered": 6608,
+     "accuracy_answered": 0.9488498789346247,
+     "wrong_kept": 338,
+     "wrong_abstained": 2909
+    }
+   ],
+   "coverage_at": {
+    "0.9": 0.9587726199842643,
+    "0.95": 0.8334382376081826,
+    "0.99": 0.0
+   }
+  },
+  "cubicasa": {
+   "n": 16496,
+   "base_acc": 0.8079534432589719,
+   "aurc": 0.07701049459899717,
+   "thresholds": [
+    {
+     "threshold": 0.5,
+     "coverage": 0.893913676042677,
+     "answered": 14746,
+     "accuracy_answered": 0.8669469686694697,
+     "wrong_kept": 1962,
+     "wrong_abstained": 1206
+    },
+    {
+     "threshold": 0.7,
+     "coverage": 0.7940106692531523,
+     "answered": 13098,
+     "accuracy_answered": 0.9056344480073294,
+     "wrong_kept": 1236,
+     "wrong_abstained": 1932
+    },
+    {
+     "threshold": 0.9,
+     "coverage": 0.612027158098933,
+     "answered": 10096,
+     "accuracy_answered": 0.936014263074485,
+     "wrong_kept": 646,
+     "wrong_abstained": 2522
+    },
+    {
+     "threshold": 0.95,
+     "coverage": 0.5537099903006789,
+     "answered": 9134,
+     "accuracy_answered": 0.9467922049485439,
+     "wrong_kept": 486,
+     "wrong_abstained": 2682
+    },
+    {
+     "threshold": 0.99,
+     "coverage": 0.4005819592628516,
+     "answered": 6608,
+     "accuracy_answered": 0.9488498789346247,
+     "wrong_kept": 338,
+     "wrong_abstained": 2830
+    }
+   ],
+   "coverage_at": {
+    "0.9": 0.8142580019398642,
+    "0.95": 0.526188166828322,
+    "0.99": 0.0
+   }
+  }
+ }
+}
