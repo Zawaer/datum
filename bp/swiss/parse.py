@@ -38,6 +38,8 @@ class Room:
     number: str | None = None
     area_text: float | None = None
     unit: str | None = None
+    label_pos: tuple | None = None  # DXF position of the room number (text centre)
+    area_pos: tuple | None = None  # DXF position of the printed "x.xx m²" (if any)
     assigned: str = "contained"  # how the label found its outline: contained / nearest / shared / none
     fill: float | None = None  # grey of the room's fill on the PDF (1.0 white = room; see ROOM_FILLS)
 
@@ -73,6 +75,7 @@ class Symbol:
     kind: str
     geom: object  # shapely geometry (DXF coords)
     sure: bool = True  # False: signature seen rarely / ambiguous grouping -> lower the answer's confidence
+    odd: bool = False  # "other" group with curves or circles: an unrecognised fixture rather than furniture
 
 
 @dataclass
@@ -85,6 +88,8 @@ class Floor:
     unit_by_distance: set = field(default_factory=set)
     unit_merged: set = field(default_factory=set)  # apartments made of several outlines
     n_unit_outlines: int = 0
+    fit_rms: float | None = None  # rms residual of the DXF->page fit, in page units (0..1)
+    pdf_words: list = field(default_factory=list)  # numeric words on the PDF: (text, u0, v0, u1, v1)
     to_page: tuple | None = None  # (ax, bx, ay, by): u = ax*x+bx, v = ay*y+by (normalised page coords)
 
     def norm_bbox(self, g, pad=0.0):
@@ -93,6 +98,10 @@ class Floor:
         u0, u1 = sorted((ax * (x0 - pad) + bx, ax * (x1 + pad) + bx))
         v0, v1 = sorted((ay * (y0 - pad) + by, ay * (y1 + pad) + by))
         return [round(u0, 5), round(v0, 5), round(u1, 5), round(v1, 5)]
+
+    def norm_pt(self, x, y):
+        ax, bx, ay, by = self.to_page
+        return ax * x + bx, ay * y + by
 
     def norm_poly(self, poly):
         ax, bx, ay, by = self.to_page
@@ -272,10 +281,18 @@ def _fit_page_transform(dxf_texts, page):
             xs.append(x); us.append(((x0 + x1) / 2) / W)
             ys.append(y); vs.append(((y0 + y1) / 2) / H)
     if len(xs) < 3:
-        return None
+        return None, None
+    xs, us, ys, vs = map(np.asarray, (xs, us, ys, vs))
     ax, bx = np.polyfit(xs, us, 1)
     ay, by = np.polyfit(ys, vs, 1)
-    return float(ax), float(bx), float(ay), float(by)
+    # one refit without gross outliers (a number reused as e.g. a dimension elsewhere)
+    res = np.hypot(ax * xs + bx - us, ay * ys + by - vs)
+    keep = res < max(3 * np.median(res), 0.002)
+    if keep.sum() >= 3 and not keep.all():
+        ax, bx = np.polyfit(xs[keep], us[keep], 1)
+        ay, by = np.polyfit(ys[keep], vs[keep], 1)
+        res = np.hypot(ax * xs + bx - us, ay * ys + by - vs)[keep]
+    return (float(ax), float(bx), float(ay), float(by)), float(np.sqrt(np.mean(res ** 2)))
 
 
 @functools.lru_cache(maxsize=256)
@@ -299,12 +316,13 @@ def parse_floor(dxf_path: str, pdf_path: str | None = None) -> Floor:
         name = next((t2 for d, t2 in above if not NUM_RE.match(t2) and not AREA_RE.match(t2)
                      and not UNIT_RE.match(t2)), None)
         area = next((float(AREA_RE.match(t2).group(1)) for d, t2 in below if AREA_RE.match(t2)), None)
-        labels.append((t, name, area, Point(x, y)))
+        area_pos = next(((x, y - d) for d, t2 in below if AREA_RE.match(t2)), None)
+        labels.append((t, name, area, Point(x, y), area_pos))
 
     polys = [p for p in (_poly(e) for e in msp.query('LWPOLYLINE[layer=="ROOM_OUTLINE"]')) if p is not None
              and p.area > 1e-4]
     used = {}
-    for num, name, area, pt in labels:
+    for num, name, area, pt, area_pos in labels:
         # smallest outline holding the label; slivers (door reveals, 0.002 m²) whose edge the label sits on
         # count too, otherwise their number would take the big neighbouring room twice
         cands = [i for i, p in enumerate(polys) if p.contains(pt) or p.distance(pt) < 0.02]
@@ -317,9 +335,10 @@ def parse_floor(dxf_path: str, pdf_path: str | None = None) -> Floor:
         if cands:
             i = min(cands, key=lambda i: polys[i].area)  # innermost
             used.setdefault(i, []).append(len(fl.rooms))
-            fl.rooms.append(Room(polys[i], name, num, area, assigned=how))
+            fl.rooms.append(Room(polys[i], name, num, area, assigned=how, label_pos=(pt.x, pt.y), area_pos=area_pos))
         else:
-            fl.rooms.append(Room(Point(pt).buffer(0.3), name, num, area, assigned="none"))
+            fl.rooms.append(Room(Point(pt).buffer(0.3), name, num, area, assigned="none", label_pos=(pt.x, pt.y),
+                                 area_pos=area_pos))
     for i, idx in used.items():
         if len(idx) > 1:
             for k in idx:
@@ -382,7 +401,8 @@ def parse_floor(dxf_path: str, pdf_path: str | None = None) -> Floor:
     # ---- fixtures
     for comp, mem in _fixture_groups(list(msp.query('*[layer=="FIXTURE"]'))):
         kind, sure = _classify_fixture(mem)
-        fl.symbols.append(Symbol(kind, comp, sure))
+        odd = kind == "other" and any(t == "CIRCLE" or (t == "LWPOLYLINE" and n > 5) for t, n, r, g in mem)
+        fl.symbols.append(Symbol(kind, comp, sure, odd))
 
     # numbered rooms printed without a name: bathrooms/WCs drawn with fixtures count as rooms,
     # empty ones are shafts. Verified against dev apartment totals.
@@ -396,7 +416,10 @@ def parse_floor(dxf_path: str, pdf_path: str | None = None) -> Floor:
 
         with pymupdf.open(pdf_path) as doc:
             page = doc[0]
-            fl.to_page = _fit_page_transform(fl.texts, page)
+            fl.to_page, fl.fit_rms = _fit_page_transform(fl.texts, page)
+            W, H = page.rect.width, page.rect.height
+            fl.pdf_words = [(w, x0 / W, y0 / H, x1 / W, y1 / H) for x0, y0, x1, y1, w, *_ in page.get_text("words")
+                            if re.match(r"^\d+(?:\.\d+)?$", w)]
             fills = _pdf_room_fills(page) if fl.to_page else []
         if fills:
             ax, bx, ay, by = fl.to_page
