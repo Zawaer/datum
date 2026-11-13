@@ -1,6 +1,6 @@
 """Detector inference shared by the solver and the tuning script.
 
-mode "1024" = whole image letterboxed to 1024 px. mode "t1024" = the same, plus, for images much
+mode "1024" = whole image letterboxed to 1024 px; "a1024" = with ultralytics test-time augmentation. mode "t1024" = the same, plus, for images much
 larger than that, overlapping tiles at near-native resolution, merged with the whole-image pass so
 small symbols (windows, shower drains) on big scans are not lost to downscaling.
 """
@@ -49,8 +49,9 @@ def _parse(r, x0=0, y0=0, sx=1.0, sy=1.0, W=1, H=1):
 def predict(model, path, mode, tile_classes=None, conf=0.05):
     """Detections [(cls, score, [x0, y0, x1, y1] normalised)] for one image path."""
     tiled = str(mode).startswith("t")
-    imgsz = int(str(mode).lstrip("t"))
-    r = model.predict(path, imgsz=imgsz, conf=conf, iou=0.5, verbose=False, max_det=600)[0]
+    aug = str(mode).startswith("a")
+    imgsz = int(str(mode).lstrip("ta"))
+    r = model.predict(path, imgsz=imgsz, conf=conf, iou=0.5, verbose=False, max_det=600, augment=aug)[0]
     H, W = r.orig_shape
     dets = _parse(r, W=W, H=H)
     if not tiled or max(W, H) < 1.6 * imgsz:
