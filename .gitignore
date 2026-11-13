@@ -9,3 +9,6 @@ node_modules/
 runs/
 cache/
 *.ifc.cache
+.secrets/
+*.pem
+id_*
