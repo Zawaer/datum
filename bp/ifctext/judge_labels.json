@@ -376,5 +376,215 @@
   "label": true,
   "ambiguous": false,
   "note": "synthetic#4"
+ },
+ {
+  "id": 85726,
+  "pred": "Pipe types and counts (IfcPipeSegment, total 504):\n- Rohrtypen:Edelstahl - Pressfitting: 294\n- Rohrtypen:Abwasser HT: 208\n- Rohrtypen:Kupfer - Pressfittings: 2\n\nPipe fitting types (IfcPipeFitting, total 411):\n- Bogen Edelstahl - Press:Standard: 166\n- Bogen HT:Standard: 103\n- T-Stück Edelstahl - Press:Standard: 53\n- T-Stück HT:Standard: 52\n- Übergang Edelstahl - Press:Standard: 22\n- Enddeckel HT:Standard: 10\n- Übergang HT:Standard: 5",
+  "label": true,
+  "ambiguous": false,
+  "note": "llm#0"
+ },
+ {
+  "id": 85652,
+  "pred": "Spaces on Level B01_OKRD (12 spaces, total 558.1 m2):\n- Flur - UG (0-1): 105.04 m2\n- RLT-Raum (0-10): 206.37 m2\n- Treppenhaus Ost - UG (0-11): 19.79 m2\n- Treppenhaus West - UG (0-12): 19.79 m2\n- Putzmittel (0-2): 10.34 m2\n- Hausanschluss (0-3): 26.49 m2\n- Wasser-/Gasverteilung (0-4): 26.49 m2\n- Heizzentrale (0-5): 53.97 m2\n- NSHV (0-6): 26.49 m2\n- Lager 1 (0-7): 26.49 m2\n- Lager2 (0-8): 26.49 m2\n- BMZ (0-9): 10.33 m2",
+  "label": true,
+  "ambiguous": false,
+  "note": "llm#1"
+ },
+ {
+  "id": 85770,
+  "pred": "Fire-rated walls between zones:\n- This information is not available in the BIM model. The wall types list only thickness, external/load-bearing flags, materials and totals, with no fire rating.\n- Related fire data: doors (14 elements, 4 types) and windows (24 elements, 5 types) have a fire rating property, but the fact sheet gives no rating values.\n- Zones: spaces are named by level (e.g., Level 1: Foyer, Living Room, Kitchen, Bathroom 1, Stair, Room; Level 2: Hallway, Bedroom 1, Bedroom 2, Bathroom 2, Utility), but no wall-to-space adjacency is given.",
+  "label": true,
+  "ambiguous": false,
+  "note": "llm#2"
+ },
+ {
+  "id": 85621,
+  "pred": "This information is not available in the BIM model. The model has 250 IfcCovering elements (f11), which may include floor finishes, but the fact sheet gives no covering types or materials, and no room named sterilization appears in the listed spaces. The sheet also omits 90 lines.",
+  "label": true,
+  "ambiguous": false,
+  "note": "llm#3"
+ },
+ {
+  "id": 85909,
+  "pred": "Slab types and thicknesses (IfcSlab, 18 elements):\n- Geschossdecke:STB 20.0, insul, parquet: 410 mm (12 elements; levels OG1, OG2, OG3)\n- Geschossdecke:STB 20.0 groundfloor: 480 mm (4 elements; level EG)\n- Geschossdecke:STB 20.0, insul, concrete: 320 mm (2 elements; level OG4)",
+  "label": true,
+  "ambiguous": false,
+  "note": "llm#4"
+ },
+ {
+  "id": 85670,
+  "pred": "Walls by load-bearing status (IfcWall, 178 total)\n- Load-bearing: 0\n- Non-load-bearing: 178 (100%)\n- Check: the 11 wall types listed each report load-bearing False for all their elements (46 + 45 + 25 + 16 + 12 + 10 + 8 + 4 + 4 + 4 + 4 = 178)",
+  "label": true,
+  "ambiguous": false,
+  "note": "llm#5"
+ },
+ {
+  "id": 85683,
+  "pred": "This information is not available in the BIM model. The three IfcWindow types (47 windows) list dimensions, volume, materials and external flag only, with no fire rating property.",
+  "label": true,
+  "ambiguous": false,
+  "note": "llm#6"
+ },
+ {
+  "id": 85757,
+  "pred": "Estimated total window area (W x H, all 24 windows)\n- 819x759 mm (12 units): 7.46 m2\n- 2800x2410 mm (4 units): 26.99 m2\n- 750x2200 mm (4 units): 6.60 m2\n- 4835x2420 mm (2 units): 23.40 m2\n- 1173x635 mm (2 units, from the W x H field; the type name reads 1180 x 1170 mm): 1.49 m2\n- Total: 65.94 m2\n\nThis is the overall opening area per window, since the model has no separate glazing-area data and frame deductions are not applied.",
+  "label": true,
+  "ambiguous": false,
+  "note": "llm#7"
+ },
+ {
+  "id": 86042,
+  "pred": "This information is not available in the BIM model. The model lists all 13 IfcWallStandardCase elements by type with their total lengths, but it does not flag walls as interior or exterior. The two wall types total 109.66 m: 'Leichtbeton 102890359 300' (8 walls, 85.6 m) and 'Leichtbeton 102890359 240' (5 walls, 24.06 m).",
+  "label": false,
+  "ambiguous": false,
+  "note": "llm#8"
+ },
+ {
+  "id": 85828,
+  "pred": "Roads and paths in the model:\n- result: This information is not available in the BIM model.\n- related data: The sheet lists the site 'Gelaende-fuer-ADT' (IfcSite) and building names such as 'Unterer-Torturm' and 'Kirche'. No road or path elements appear in the visible lines, but 126 lines are omitted from the sheet.",
+  "label": false,
+  "ambiguous": false,
+  "note": "llm#9"
+ },
+ {
+  "id": 86171,
+  "pred": "This information is not available in the BIM model. The model has 3 WC-type ('[L]XLD') and 3 Basin-type ('[L]XLC') flow terminals on level '1. Sal', but it does not assign them to individual rooms, so I cannot say which are in room 110.",
+  "label": false,
+  "ambiguous": false,
+  "note": "llm#10"
+ },
+ {
+  "id": 86252,
+  "pred": "Flow terminal types in the model (IfcFlowTerminal; 219 in total, no IfcSanitaryTerminal class listed):\n- no flange (predefined GULLYTRAP): 107\n- Pass through grill 80 (predefined FLOORWASTE): 70\n- 4016 (predefined GULLYTRAP): 28\n- Grohe_Rapid_SL (predefined CISTERN): 8\n- Ruimtebeslag:Boiler (predefined Ruimtebeslag:Boiler): 2\n- NLRS_52_d56 12L/s (predefined ROOFDRAIN): 2\n- 500x500x300 (predefined M_Cabinet_Dry_Riser_F_MEPcontent_Chubb_Fire_&_Security:500x500x300): 1\n- Flush Mounting Frame (predefined M_Cabinet_Dry Riser_MEPcontent_Chubb Fire & Security_Flush Mounting Frame:Flush Mounting Frame): 1\n- Total: 219\n- Types assigned to S4Rx_Sanitary systems: Grohe_Rapid_SL (8), NLRS_52_d56 12L/s (2)",
+  "label": false,
+  "ambiguous": false,
+  "note": "llm#11"
+ },
+ {
+  "id": 86275,
+  "pred": "This information is not available in the BIM model.\n\n- Related data available: the fact sheet gives element counts by IFC class (IfcFlowSegment 5234, IfcFlowFitting 5503, IfcFlowController 669, IfcFlowTerminal 419) and per level, plus type counts for fittings.\n- System names: the sheet lists system names on some fitting types, such as CV-r LT, GKW-r HT and GKW-a HT (f29), but it does not classify them as heating, and the lists are truncated (\"+228 more\").\n- Not in the sheet: system type classification, total counts per system, and distribution network details such as pipe lengths, diameters or routing.",
+  "label": false,
+  "ambiguous": false,
+  "note": "llm#12"
+ },
+ {
+  "id": 85585,
+  "pred": "This information is not available in the BIM model. The model lists no IfcCovering elements; the only material data is for walls (Kalksandstein), windows (Leer + Luftschicht) and furnishings (Leer).",
+  "label": true,
+  "ambiguous": true,
+  "note": "llm#13"
+ },
+ {
+  "id": 89413,
+  "pred": "5' - 10 3/8\"",
+  "label": true,
+  "ambiguous": false,
+  "note": "pdf"
+ },
+ {
+  "id": 89414,
+  "pred": "Door 121.A is type B3, an aluminium sliding door.",
+  "label": true,
+  "ambiguous": false,
+  "note": "pdf"
+ },
+ {
+  "id": 89415,
+  "pred": "Width 12' - 0\", height 14' - 0\" (door 128.B, Fieldhouse, type C1)",
+  "label": true,
+  "ambiguous": false,
+  "note": "pdf"
+ },
+ {
+  "id": 89416,
+  "pred": "Hardware group 19 (door 107.A, LAUNDRY ROOM)",
+  "label": true,
+  "ambiguous": false,
+  "note": "pdf"
+ },
+ {
+  "id": 89417,
+  "pred": "Aluminium. Door 115.A is door type B1, a single aluminium swing door, with door material code AL-2/GL-2 (AL-2 aluminium storefront with thermal break; GL-2 tempered and insulated glazing).",
+  "label": true,
+  "ambiguous": false,
+  "note": "pdf"
+ },
+ {
+  "id": 89418,
+  "pred": "7' - 10 1/4\" (all four doors, 118.A1, 118.A2, 118.B1 and 118.B2, are type B2 with this height)",
+  "label": true,
+  "ambiguous": false,
+  "note": "pdf"
+ },
+ {
+  "id": 89428,
+  "pred": "3 rooms have floor finish F0 (unfinished concrete slab): 120 C. VEST. (1,916 SF), 121 CLINIC (2,470 SF), and 130 TRASH ENCLOSURE (155 SF). Total area: 4,541 SF.",
+  "label": true,
+  "ambiguous": false,
+  "note": "pdf"
+ },
+ {
+  "id": 89432,
+  "pred": "Room 113 (Aerobics & Yoga) has floor finish F4, which the legend defines as resilient flooring (T.B.D.), meaning the specific product is still to be determined.",
+  "label": true,
+  "ambiguous": false,
+  "note": "pdf"
+ },
+ {
+  "id": 89433,
+  "pred": "F2 & F3. F2 is artificial turf and F3 is resilient basketball flooring (T.B.D.).",
+  "label": true,
+  "ambiguous": false,
+  "note": "pdf"
+ },
+ {
+  "id": 89434,
+  "pred": "C2, which is \"Simple Saver insulation with liner, color: white\", with deep-leg deflection track and slip track header anchored to the underside of structure (2\" min. deflection).",
+  "label": true,
+  "ambiguous": false,
+  "note": "pdf"
+ },
+ {
+  "id": 89435,
+  "pred": "W2 (3/4\" prefinished stained/sealed plywood; finish grade B, flame spread class B), per the A-801 finish schedule for room 118 Fitness Center",
+  "label": true,
+  "ambiguous": false,
+  "note": "pdf"
+ },
+ {
+  "id": 89436,
+  "pred": "Room 128 FIELDHOUSE, 29690 SF (the largest area in the finish room schedule)",
+  "label": true,
+  "ambiguous": false,
+  "note": "pdf"
+ },
+ {
+  "id": 89439,
+  "pred": "The text layer doesn't give counts for enlarged plan 6B. It shows only its title \"RESTROOM WITH SHOWER\" and scale 1/2\" = 1'-0\". Fixture counts would have to be read from the drawn plan itself.",
+  "label": false,
+  "ambiguous": false,
+  "note": "pdf"
+ },
+ {
+  "id": 89449,
+  "pred": "20 MIN. (unit door U01, 3'-0\" x 7'-0\", fire rating 20 MIN.)",
+  "label": true,
+  "ambiguous": false,
+  "note": "pdf"
+ },
+ {
+  "id": 89450,
+  "pred": "HM (hollow metal), for frame type A on unit door U01.",
+  "label": true,
+  "ambiguous": false,
+  "note": "pdf"
+ },
+ {
+  "id": 89459,
+  "pred": "The sheet text has no window width or height. The \"WINDOW SCHEDULE - SIMPLIFIED\" heading appears at the top, but no window rows follow it. The only window-related note gives an open area of 8.5SF per window, not dimensions.",
+  "label": false,
+  "ambiguous": false,
+  "note": "pdf"
  }
 ]
