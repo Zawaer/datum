@@ -71,6 +71,10 @@ def judge(question: str, gold, pred) -> dict:
     prompt = f"QUESTION:\n{question}\n\nREFERENCE:\n{_clip(gold)}\n\nPREDICTION:\n{_clip(pred)}"
     res = ask(prompt, SYSTEM, MODEL, tag="judge")
     r = _parse(res.get("text", ""))
+    if r is None:  # one retry on an unparseable reply
+        res2 = ask(prompt, SYSTEM, MODEL, tag="judge")
+        res = {**res2, "cost_usd": res.get("cost_usd", 0.0) + res2.get("cost_usd", 0.0)}
+        r = _parse(res.get("text", ""))
     if r is None:
         return {"correct": False, "score": 0.0, "reason": f"judge error: {res.get('error') or res.get('text', '')[:200]}",
                 "cost_usd": res["cost_usd"], "error": True}
@@ -91,8 +95,16 @@ def _parse(text: str):
             continue
         if isinstance(c, dict) and "correct" in c:
             d = c
-    if d is None:
-        return None
+    if d is None:  # truncated / malformed JSON: read the fields with regexes
+        c = re.search(r'"correct"\s*:\s*"?(true|false)', text, re.I)
+        if not c:
+            return None
+        sc = re.search(r'"score"\s*:\s*([0-9.]+)', text)
+        rs = re.search(r'"reason"\s*:\s*"([^"]*)', text)
+        d = {"correct": c.group(1).lower() == "true", "score": sc.group(1) if sc else None,
+             "reason": rs.group(1) if rs else ""}
+        if d["score"] is None:
+            d.pop("score")
     try:
         score = float(d.get("score", 1.0 if d.get("correct") else 0.0))
     except (TypeError, ValueError):
