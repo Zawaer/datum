@@ -281,7 +281,20 @@ def _fit_page_transform(dxf_texts, page):
             xs.append(x); us.append(((x0 + x1) / 2) / W)
             ys.append(y); vs.append(((y0 + y1) / 2) / H)
     if len(xs) < 3:
-        return None, None
+        # few room numbers (one-room plans): scale from the title block ("1:100") and the offset from
+        # whatever single-word texts appear once in both files
+        m = re.search(r"\b1\s*:\s*(\d{2,4})\b", " ".join(w[4] for w in words))
+        if not m:
+            return None, None
+        k = 1000.0 / int(m.group(1)) * 72 / 25.4  # pt per metre
+        ax, ay = k / W, -k / H
+        offs = [(((x0 + x1) / 2) / W - ax * x, ((y0 + y1) / 2) / H - ay * y)
+                for t, x, y in dxf_texts if " " not in t and len(pdf_pos.get(t, [])) == 1
+                for x0, y0, x1, y1 in pdf_pos[t]]
+        if not offs:
+            return None, None
+        bx, by = (float(np.median([o[i] for o in offs])) for i in (0, 1))
+        return (ax, bx, ay, by), 0.002  # nominal (checked on dev overlays: sits on the drawing)
     xs, us, ys, vs = map(np.asarray, (xs, us, ys, vs))
     ax, bx = np.polyfit(xs, us, 1)
     ay, by = np.polyfit(ys, vs, 1)
