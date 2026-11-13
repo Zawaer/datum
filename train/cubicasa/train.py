@@ -32,6 +32,11 @@ def main():
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--name", default="cc")
     ap.add_argument("--resume", action="store_true", help="resume runs/<name>/weights/last.pt")
+    ap.add_argument("--cos-lr", action="store_true")
+    ap.add_argument("--save-period", type=int, default=-1)
+    ap.add_argument("--close-mosaic", type=int, default=10)
+    ap.add_argument("--cache", default="", help="'ram' or 'disk' to cache decoded images")
+    ap.add_argument("--patience", type=int, default=20)
     a = ap.parse_args()
     root = Path(__file__).resolve().parents[2]
     data = str(Path(a.data).resolve())
@@ -43,10 +48,11 @@ def main():
         return
     m = YOLO(a.model if Path(a.model).exists() else a.model)
     m.train(data=data, imgsz=a.imgsz, epochs=a.epochs, batch=a.batch, workers=a.workers,
-            project=str(work / "runs"), name=a.name, exist_ok=True, cache=False,
+            project=str(work / "runs"), name=a.name, exist_ok=True, cache=a.cache or False,
+            cos_lr=a.cos_lr, save_period=a.save_period,
             # plans come in any orientation (some upside down, text rotated): flip both ways
-            fliplr=0.5, flipud=0.5, degrees=0.0, mosaic=1.0, close_mosaic=10, scale=0.5,
-            max_det=600, patience=20, plots=True, amp=True)
+            fliplr=0.5, flipud=0.5, degrees=0.0, mosaic=1.0, close_mosaic=a.close_mosaic, scale=0.5,
+            max_det=600, patience=a.patience, plots=True, amp=True)
 
 
 if __name__ == "__main__":
