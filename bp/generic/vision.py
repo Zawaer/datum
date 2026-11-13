@@ -147,7 +147,7 @@ def ground(img, target, backend="qwen", label=None):
     return _boxes_claude(r["text"], w, h), r["cost_usd"], 0.0, r["text"]
 
 
-def count(img, target, backend="qwen", tile=1280, min_side=896, label=None, region=None):
+def count(img, target, backend="qwen", tile=1280, min_side=896, label=None, region=None, max_area=0.5):
     """Tiled grounded count over a page image (or a normalised sub-region of it).
     Returns dict with boxes normalised to the full page, and stats."""
     from PIL import Image
@@ -178,7 +178,7 @@ def count(img, target, backend="qwen", tile=1280, min_side=896, label=None, regi
                 n += 1
         per_tile.append(n)
     # drop page-sized boxes (the model boxing the whole drawing instead of an instance)
-    boxes = [b for b in boxes if (b[2] - b[0]) * (b[3] - b[1]) < 0.5]
+    boxes = [b for b in boxes if (b[2] - b[0]) * (b[3] - b[1]) < max_area]
     boxes = dedupe(boxes)
     if region is not None:
         rw, rh = region[2] - region[0], region[3] - region[1]

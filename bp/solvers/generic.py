@@ -47,10 +47,12 @@ Rules:
 - op "sum": one item per number added up (e.g. each room's area), value = that number as read; answer = sum.
 - op "read": the answer is read directly (a name, a dimension, a code, one number): one item citing where
   it was read, value = the text read. Copy dimensions and codes exactly as printed.
+- Keep "answer" short, in the drawing's own words (e.g. "C3 - acoustic tile", "2' - 6 1/2\"",
+  "4 doors, 120 SF"): no full sentences, no commentary.
 - Be exhaustive: check every row of the relevant table, not just the first ones.
 - If the question is about graphical symbols that are drawn, not written (e.g. counting toilets or
   windows drawn on a plan), reply {{"mode": "vision", "target": "<short English name of one instance to
-  box, e.g. 'toilet (water closet) symbol in plan view'>", "region_ids": [<ids of the title / labels of
+  box, e.g. 'toilet (water closet) symbol in plan view'>", "size": "small" | "large", "region_ids": [<ids of the title / labels of
   the view the question is about, if any>]}}.
 - If the text does not contain the answer, reply {{"mode": "none", "explanation": "..."}}.
 """
@@ -59,7 +61,9 @@ TARGET_PROMPT = """A user asks about a drawing (floor plan, construction drawing
 To answer, a vision model will draw a box around every instance of the thing being counted.
 Reply with JSON only: {{"target": "<short English description of ONE instance as it looks on a drawing,
 with the usual plan symbol or room label, e.g. 'toilet bowl (WC) symbol', 'window opening in an exterior
-wall', 'room labelled MH (bedroom)'>", "label": "<one or two words>"}}"""
+wall', 'room labelled MH (bedroom)'>", "label": "<one or two words>",
+"size": "small" if one instance is a small symbol or label on the sheet, "large" if it is a whole room, view,
+plan, storey or building}}"""
 
 CONF = {"high": 0.85, "medium": 0.6, "low": 0.3}
 
@@ -206,7 +210,15 @@ class GenericSolver:
                 "explanation": str(d.get("explanation") or "")[:200]}
 
     # ------------------------------------------------------------------------------ vision path
-    def _vision_count(self, q, path, page, target, label, region=None):
+    def _vision_count(self, q, path, page, target, label, region=None, size="small"):
+        if size == "large":  # whole views / rooms / storeys: never cut them into tiles
+            img = T.render(path, page, max_side=1600)
+            if img is None:
+                return None
+            a = V.count(img, target, self.vision_backend, tile=1600, label=label, region=region, max_area=0.97)
+            b = V.count(img.resize((img.width * 2 // 3, img.height * 2 // 3)), target, self.vision_backend,
+                        tile=1600, min_side=0, label=label, region=region, max_area=0.97)
+            return self._count_result(q, page, target, label, a, b)
         img = T.render(path, page, max_side=4096 if region is None else 6144)
         if img is None:
             return None
@@ -215,6 +227,9 @@ class GenericSolver:
         a = V.count(img, target, self.vision_backend, tile=1280, label=label, region=region)
         b = V.count(img, target, self.vision_backend, tile=1280, min_side=1400, label=label, region=region) \
             if side < 1400 else V.count(img, target, self.vision_backend, tile=960, label=label, region=region)
+        return self._count_result(q, page, target, label, a, b)
+
+    def _count_result(self, q, page, target, label, a, b):
         agree = V.match_f1(a["boxes"], b["boxes"])
         same = len(a["boxes"]) == len(b["boxes"])
         conf = round(0.15 + 0.55 * agree + 0.2 * same, 3)
@@ -252,7 +267,7 @@ class GenericSolver:
             qtype = guess_type(q["question"])
             q = {**q, "type": qtype}
         cost = gpu = 0.0
-        method, target, label, page, region = None, None, None, 0, None
+        method, target, label, page, region, size = None, None, None, 0, None, "small"
         out = None
         if ext not in T.RASTER:
             d, c, g = self._text(q, path)
@@ -264,7 +279,7 @@ class GenericSolver:
                 if out:
                     out["raw"] = d.get("_raw")
             elif d and d.get("mode") == "vision":
-                target = d.get("target")
+                target, size = d.get("target"), d.get("size", "small")
                 ids = [i for i in d.get("region_ids") or [] if i in d["_segs"]]
                 page = d["_segs"][ids[0]].page if ids else 0
                 if ids:  # a view title sits under the bottom-left of its view: look above and right of it
@@ -277,8 +292,8 @@ class GenericSolver:
                     t, c, g = self._target(q["question"])
                     cost += c
                     gpu += g
-                    target, label = t.get("target"), t.get("label")
-                out = self._vision_count(q, path, page, target, label, region)
+                    target, label, size = t.get("target"), t.get("label"), t.get("size", "small")
+                out = self._vision_count(q, path, page, target, label, region, size)
                 method = f"generic-ground-{self.vision_backend}"
             else:
                 out = self._vision_read(q, path, page)
