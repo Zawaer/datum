@@ -5,6 +5,7 @@ SOLVERS = {
     "router": "bp.router:Router",
     "prior": "bp.solvers.prior:PriorSolver",
     "claude": "bp.solvers.claude_vlm:ClaudeSolver",
+    "gemini": "bp.solvers.gemini_vlm:GeminiSolver",
     "swiss": "bp.solvers.swiss:SwissSolver",
     "ifc": "bp.solvers.ifc:IfcSolver",
     "cubicasa": "bp.solvers.cubicasa:CubicasaSolver",
