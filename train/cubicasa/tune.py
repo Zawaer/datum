@@ -27,8 +27,8 @@ def main():
     m = YOLO(a.weights)
     imgs = sorted((Path(a.data) / "images" / "val").glob("*.png"))
     preds, gold = {}, {}
-    for i in range(0, len(imgs), 16):
-        batch = imgs[i:i + 16]
+    for i in range(0, len(imgs), 4):
+        batch = imgs[i:i + 4]
         for p, r in zip(batch, m.predict([str(x) for x in batch], imgsz=a.imgsz, conf=0.05, iou=0.5,
                                          verbose=False, max_det=600)):
             preds[p.stem] = list(zip([r.names[int(c)] for c in r.boxes.cls.tolist()], r.boxes.conf.tolist()))
