@@ -456,16 +456,180 @@ def _fix_upload_evidence(res: dict, q: dict, client_path: str):
             e["file"] = view
 
 
+# ---------------------------------------------------------------- honest confidence, "why" trace, frontier answers
+
+from app.calibration import BINS as CAL_BINS, build_frontier, family as cal_family  # noqa: E402
+
+_CAL_FILE = APP / "calibration.json"
+CALIB = json.loads(_CAL_FILE.read_text()) if _CAL_FILE.exists() else {"families": {}, "min_n": 200}
+_frontier = {"key": None, "data": {}}
+_frontier_lock = threading.Lock()
+
+
+def frontier_table() -> dict:
+    """Per-question frontier answers: live from runs/ when the full baseline runs are here (runs still being
+    written are picked up as they grow), else the committed app/frontier.json (public bundle)."""
+    files = sorted(RUNS.glob("baseline_*_full400*.jsonl"))
+    key = tuple((f.name, f.stat().st_mtime) for f in files)
+    with _frontier_lock:
+        if _frontier["key"] != key:
+            data = build_frontier(RUNS) if files else {}
+            if not data and (APP / "frontier.json").exists():
+                data = json.loads((APP / "frontier.json").read_text())
+            _frontier.update(key=key, data=data)
+        return _frontier["data"]
+
+
+def calibration_for(res: dict) -> dict | None:
+    """What this confidence has meant on the held-out test split, for answers made the same way."""
+    if res.get("answer") is None:
+        return None
+    f = cal_family(res.get("method"))
+    fam = CALIB["families"].get(f) if f else None
+    if not fam:
+        return {"measured": False}
+    c = float(res.get("confidence") or 0)
+    lo = next(b for b in CAL_BINS if c >= b)
+    hi = next((b for b in reversed(CAL_BINS) if b > lo), 1.0)
+    b = fam["bins"].get(str(lo))
+    if b and b["n"] >= CALIB.get("min_n", 200):
+        n, right, scope = b["n"], b["right"], "bin"
+    else:
+        n, right, scope = fam["n"] - fam.get("abstained", 0), fam["right"], "family"
+    return {"measured": True, "family": f, "label": fam["label"], "scope": scope, "lo": lo, "hi": hi,
+            "n": n, "right": right, "family_n": fam["n"], "family_right": fam["right"], "split": CALIB.get("split")}
+
+
+ROUTE_WHY = {
+    "swiss": "Swiss Dwellings plans come with the CAD file (DXF) they were drawn from, so the router sends the "
+             "question to the CAD-layer solver: exact geometry, no model call",
+    "ifc": "the drawing is a plan of an IFC (BIM) model, so the router queries the model itself: every element "
+           "and quantity is read, not guessed",
+    "ifctext": "a free-text question about an IFC model: a validated rule answers where one exists, otherwise a "
+               "small LLM answers from a fact sheet extracted from the model and must cite the fact ids it used",
+    "cubicasa": "a raster floor plan with no CAD behind it, so the router sends it to the plan-symbol detector "
+                "we trained on the CubiCasa training split (runs locally, no model call)",
+    "generic": "no specialist solver covers this file, so the general drawing reader takes it: the PDF text "
+               "layer first, then a vision model that must box what it counts",
+}
+UPLOAD_KIND = {"ifc": "an IFC model", "dxf": "a DXF drawing", "pdf-vector": "a vector PDF",
+               "pdf-raster": "a scanned PDF", "raster": "an image"}
+
+
+def _short(v: float) -> str:
+    return f"{v:.0f}" if abs(v - round(v)) < 1e-9 else f"{v:.2f}"
+
+
+def trace_for(res: dict, q: dict) -> dict:
+    """The "why this answer" panel: route and why, what was read, the arithmetic, cost and time."""
+    ev = res.get("evidence") or []
+    route = [r for r in str(res.get("route") or "-").split(" -> ") if r and r != "-"]
+    why = []
+    for i, r in enumerate(route):
+        w = ROUTE_WHY.get(r, f"solver '{r}'")
+        if i == 0 and q.get("source") == "upload":
+            w = f"your upload is {UPLOAD_KIND.get(q.get('kind'), 'a file')}, so " + w.split(", so ", 1)[-1]
+        if i > 0:
+            w = "the first solver passed, so " + w.split(", so ", 1)[-1]
+        why.append({"solver": r, "why": w})
+    read: list[str] = []
+    m = str(res.get("method") or "")
+    files = collections.Counter(Path(e["file"]).name for e in ev if e.get("file"))
+    kinds = collections.Counter(e.get("kind") for e in ev)
+    if m.startswith("swiss"):
+        read.append(f"CAD twin of {Path(q.get('path', '')).name}: " + (res.get("explanation") or ""))
+    elif m.startswith("ifc") and not m.startswith("ifctext"):
+        ifc = next((e["file"] for e in ev if e.get("kind") == "ifc"), None)
+        if ifc:
+            read.append(f"IFC model {Path(ifc).name}")
+        cls = collections.Counter(re.match(r"(Ifc\w+)", e.get("label") or "").group(1) for e in ev
+                                  if e.get("kind") == "ifc" and re.match(r"Ifc\w+", e.get("label") or ""))
+        if cls:
+            read.append("elements: " + ", ".join(f"{n} × {c}" for c, n in cls.most_common()))
+        st = re.search(r"storey '([^']+)'", res.get("explanation") or "")
+        if st:
+            read.append(f"storey: {st.group(1)}")
+        srcs = m.split("-")[-1] if m.startswith(("ifc-sum", "ifc-area")) else ""
+        if srcs:
+            read.append("quantities: " + " + ".join({"qto": "the model's own quantity sets (Qto_*)",
+                                                       "geometry": "measured from the element geometry",
+                                                       "prop": "element properties"}.get(x, x)
+                                                      for x in srcs.split("+")))
+    elif m.startswith("ifctext") or m.startswith("ifc-text"):
+        cited = res.get("facts_cited") or [re.match(r"\[(f\d+)\]", e.get("label") or "").group(1) for e in ev
+                                           if re.match(r"\[(f\d+)\]", e.get("label") or "")]
+        if cited:
+            read.append("cited facts: " + ", ".join(dict.fromkeys(cited)))
+        read.append(res.get("explanation") or "")
+    elif m.startswith("cubicasa"):
+        try:
+            from bp.cubicasa.classes import COUNTS
+            from bp.cubicasa.questions import target
+
+            t = target(q.get("question") or "")
+            cs = router._solvers.get("cubicasa")
+            th = getattr(cs, "thresh", {}) if cs is not None and not isinstance(cs, Exception) else {}
+            if t:
+                read.append("detector classes: " + ", ".join(
+                    f"{c.replace('_', ' ')} (kept above score {th[c]:.2f})" if c in th else c.replace("_", " ")
+                    for c in COUNTS.get(t, [])))
+        except Exception:  # noqa: BLE001
+            pass
+        sc = [e["score"] for e in ev if e.get("score") is not None]
+        if sc:
+            read.append(f"{len(sc)} boxes kept, detector scores {min(sc):.2f}–{max(sc):.2f}")
+        if m.endswith("+prior"):
+            read.append("weak detections: the count also weighs how common each count is for this question")
+    else:
+        if files:
+            read.append("read: " + ", ".join(files))
+        if kinds:
+            read.append("evidence: " + ", ".join(f"{n} {k}" for k, n in kinds.items()))
+    # the arithmetic: the evidence values that add up to the answer
+    arith = None
+    a = res.get("answer")
+    if isinstance(a, (int, float)) and not isinstance(a, bool) and ev:
+        groups = [[e for e in ev if e.get("kind") in ("box", "polygon")], [e for e in ev if e.get("kind") == "ifc"]]
+        best = None
+        for g in groups:
+            vals = [float(e["value"]) if e.get("value") is not None else 1.0 for e in g]
+            if vals and (best is None or abs(sum(vals) - a) < abs(sum(best) - a)):
+                best = vals
+        if best:
+            tot = sum(best)
+            ok = abs(tot - a) <= max(0.011, 0.001 * abs(a))
+            if all(v == 1 for v in best):
+                expr = f"{len(best)} items, 1 each"
+            else:
+                shown = [_short(v) for v in best[:10]]
+                expr = " + ".join(shown) + (f" + … ({len(best) - 10} more)" if len(best) > 10 else "")
+            arith = {"expr": expr, "total": round(tot, 3), "n": len(best), "matches": ok}
+    paid = float(res.get("cost_usd") or 0) > 0
+    llm = m.startswith(("ifctext", "generic")) or "llm" in m
+    return {"route": why, "read": [r for r in read if r], "arith": arith, "method": m,
+            "model_call": "paid model call" if paid else ("local model, no paid call" if llm or m.startswith("cubicasa")
+                                                         else "no model call")}
+
+
+def frontier_for(ids: list) -> list:
+    tab = frontier_table()
+    for i in ids:
+        if i is not None and str(i) in tab:
+            return tab[str(i)]
+    return []
+
+
 @app.post("/api/ask")
 def ask(req: Ask, request: Request):
     _rate_limit(request)
     if req.path.startswith("uploads/"):
-        q, known = _upload_question(req), None
+        q, known, same = _upload_question(req), None, []
     else:
         qs = BY_PATH.get(req.path)
         if not qs:
             raise HTTPException(404, "unknown drawing")
-        known = next((x for x in qs if x["question"].strip() == req.question.strip()), None)
+        same = [x for x in qs if x["question"].strip() == req.question.strip()]
+        known = same[0] if same else None
         q = dict(known) if known else {**qs[0], "question": req.question, "type": guess_type(req.question),
                                         "answer": None, "id": None}
     t0 = time.time()
@@ -513,9 +677,100 @@ def ask(req: Ask, request: Request):
         _fix_upload_evidence(res, q, req.path)
     res.pop("raw", None)
     try:
+        res["question_id"] = known["id"] if known else None
+        res["calibration"] = calibration_for(res)
+        res["trace"] = trace_for(res, q)
+        res["frontier"] = frontier_for([x["id"] for x in same]) if known else []
+    except Exception:  # noqa: BLE001  the extras never break an answer
+        traceback.print_exc()
+    try:
         return JSONResponse(json.loads(json.dumps(res, default=str)))
     except Exception as e:  # noqa: BLE001
         return _abstain(f"could not serialise the answer: {e}", method="error")
+
+
+# ---------------------------------------------------------------- corrections become training data
+
+CORRECTIONS = Path("cache/corrections.jsonl")
+FEEDBACK_N, FEEDBACK_S = 60, 600  # per visitor, always on (independent of BP_RATE_LIMIT)
+_fb_hits: dict[str, collections.deque] = collections.defaultdict(collections.deque)
+_fb_lock = threading.Lock()
+
+
+class Feedback(BaseModel):
+    path: str
+    question: str
+    question_id: int | None = None
+    type: str | None = None
+    method: str | None = None
+    original_answer: float | str | None = None
+    corrected_answer: float | None = None
+    removed: list[dict] = []
+    added: list[dict] = []
+    session: str | None = None
+    tour: bool = False
+
+
+def _clean_item(e: dict) -> dict:
+    """Keep only geometry and labels: what a retraining job needs, nothing about the visitor."""
+    out = {}
+    if isinstance(e.get("kind"), str):
+        out["kind"] = e["kind"][:16]
+    if isinstance(e.get("label"), str):
+        out["label"] = e["label"][:160]
+    if isinstance(e.get("value"), (int, float)):
+        out["value"] = float(e["value"])
+    if isinstance(e.get("score"), (int, float)):
+        out["score"] = float(e["score"])
+    if isinstance(e.get("page"), int):
+        out["page"] = e["page"]
+    b = e.get("bbox")
+    if isinstance(b, list) and len(b) == 4 and all(isinstance(x, (int, float)) for x in b):
+        out["bbox"] = [round(float(x), 5) for x in b]
+    pts = e.get("points")
+    if isinstance(pts, list) and len(pts) <= 400:
+        out["points"] = [[round(float(x), 5) for x in pt[:2]] for pt in pts
+                         if isinstance(pt, list) and all(isinstance(x, (int, float)) for x in pt[:2])]
+    g = e.get("guids")
+    if isinstance(g, list):
+        out["guids"] = [str(x)[:40] for x in g[:50]]
+    return out
+
+
+@app.post("/api/feedback")
+def feedback(fb: Feedback, request: Request):
+    """A visitor's correction (items dropped / added on the drawing) -> one JSON line in cache/corrections.jsonl,
+    to be reviewed and folded into the next training run. No IP, no upload file name, no free-form notes."""
+    ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() or \
+        (request.client.host if request.client else "?")
+    now = time.time()
+    with _fb_lock:
+        dq = _fb_hits[ip]
+        while dq and dq[0] < now - FEEDBACK_S:
+            dq.popleft()
+        if len(dq) >= FEEDBACK_N:
+            raise HTTPException(429, "too many corrections from this visitor; please try again later")
+        dq.append(now)
+    if fb.path.startswith("uploads/"):
+        path = "/".join(fb.path.split("/")[:2])  # uploads/<content hash>: the file name may be personal
+    elif fb.path in BY_PATH:
+        path = fb.path
+    else:
+        raise HTTPException(404, "unknown drawing")
+    if len(fb.removed) + len(fb.added) > 500:
+        raise HTTPException(413, "too many items")
+    row = {"ts": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+           "path": path, "question_id": fb.question_id, "question": fb.question[:500],
+           "type": (fb.type or "")[:16], "method": (fb.method or "")[:60],
+           "original_answer": fb.original_answer if not isinstance(fb.original_answer, str)
+           else fb.original_answer[:500],
+           "corrected_answer": fb.corrected_answer,
+           "removed": [_clean_item(e) for e in fb.removed], "added": [_clean_item(e) for e in fb.added],
+           "session": re.sub(r"[^A-Za-z0-9]", "", fb.session or "")[:16] or None, "tour": bool(fb.tour)}
+    CORRECTIONS.parent.mkdir(parents=True, exist_ok=True)
+    with _fb_lock, open(CORRECTIONS, "a") as f:
+        f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------- tour

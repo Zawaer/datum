@@ -1,0 +1,124 @@
+{
+ "run": "router_full_test_v4.jsonl",
+ "split": "test",
+ "min_n": 200,
+ "bins": [
+  0.99,
+  0.95,
+  0.9,
+  0.8,
+  0.6,
+  0.4,
+  0.0
+ ],
+ "families": {
+  "cubicasa": {
+   "label": "plan-symbol detector (CubiCasa raster plans)",
+   "n": 16496,
+   "right": 13566,
+   "abstained": 0,
+   "bins": {
+    "0.99": {
+     "n": 1636,
+     "right": 1632
+    },
+    "0.95": {
+     "n": 3032,
+     "right": 2954
+    },
+    "0.9": {
+     "n": 1516,
+     "right": 1470
+    },
+    "0.8": {
+     "n": 1954,
+     "right": 1852
+    },
+    "0.6": {
+     "n": 3882,
+     "right": 3478
+    },
+    "0.4": {
+     "n": 1938,
+     "right": 1318
+    },
+    "0.0": {
+     "n": 2538,
+     "right": 862
+    }
+   }
+  },
+  "ifc-llm": {
+   "label": "LLM on an IFC fact sheet",
+   "n": 91,
+   "right": 35,
+   "abstained": 0,
+   "bins": {
+    "0.6": {
+     "n": 90,
+     "right": 35
+    },
+    "0.0": {
+     "n": 1,
+     "right": 0
+    }
+   }
+  },
+  "ifc-rule": {
+   "label": "rule-based IFC report",
+   "n": 19,
+   "right": 5,
+   "abstained": 0,
+   "bins": {
+    "0.6": {
+     "n": 4,
+     "right": 2
+    },
+    "0.4": {
+     "n": 15,
+     "right": 3
+    }
+   }
+  },
+  "ifc-geo": {
+   "label": "IFC model query (counts and quantities)",
+   "n": 600,
+   "right": 600,
+   "abstained": 0,
+   "bins": {
+    "0.95": {
+     "n": 546,
+     "right": 546
+    },
+    "0.9": {
+     "n": 54,
+     "right": 54
+    }
+   }
+  },
+  "swiss": {
+   "label": "CAD-layer geometry (Swiss DXF twins)",
+   "n": 8214,
+   "right": 8210,
+   "abstained": 0,
+   "bins": {
+    "0.95": {
+     "n": 8018,
+     "right": 8014
+    },
+    "0.9": {
+     "n": 154,
+     "right": 154
+    },
+    "0.8": {
+     "n": 32,
+     "right": 32
+    },
+    "0.6": {
+     "n": 10,
+     "right": 10
+    }
+   }
+  }
+ }
+}

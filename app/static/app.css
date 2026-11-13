@@ -90,7 +90,7 @@ main { flex: 1; display: grid; grid-template-columns: 270px 1fr 410px; min-heigh
 
 /* side panel */
 #side { border-left: 1px solid var(--line); overflow: auto; background: var(--panel); padding: 14px; display: flex; flex-direction: column; gap: 14px; }
-.ask { display: flex; gap: 6px; order: 0; }
+.ask { display: flex; gap: 6px; order: 0; position: sticky; top: -14px; z-index: 3; background: var(--panel); margin: -14px -14px 0; padding: 14px 14px 8px; }
 .qs { order: 1; } #intro { order: 2; } #answer { order: 3; } #evwrap { order: 4; }
 .intro { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border: 1px dashed #2e4262; border-radius: 14px; color: #b9c5d6; font-size: 13px;
   background: linear-gradient(160deg, rgba(62,155,255,.07), transparent 60%); }
@@ -187,6 +187,7 @@ svg .appear { animation: pop .3s ease-out; transform-box: fill-box; transform-or
   main { display: flex; flex-direction: column; overflow: auto; }
   #viewer { height: 50vh; height: 50svh; min-height: 280px; flex: none; }
   #side { border-left: 0; overflow: visible; padding: 12px; gap: 12px; }
+  .ask { position: static; margin: 0; padding: 0; }
   #intro { order: 1; } #answer { order: 1; } #evwrap { order: 2; } .qs { order: 3; }
   .intro .keys { display: none; }
   .chips { max-height: none; -webkit-mask-image: none; mask-image: none; padding-bottom: 0; }
@@ -203,3 +204,39 @@ svg .appear { animation: pop .3s ease-out; transform-box: fill-box; transform-or
   .big { font-size: 44px; }
   .tools3d { top: 50px; }
 }
+
+/* honest confidence: what this confidence has meant on held-out questions */
+.calib { margin-top: 8px; padding: 7px 10px 8px; border-radius: 9px; background: var(--panel); border: 1px solid var(--line); font-size: 12.5px; display: flex; flex-direction: column; gap: 2px; }
+.calib b { font-size: 13px; }
+.calib span { color: #b9c5d6; }
+.calib .cbar { height: 4px; background: var(--panel3); border-radius: 2px; overflow: hidden; margin-bottom: 4px; }
+.calib .cbar i { display: block; height: 100%; background: currentColor; border-radius: 2px; }
+.calib.hi { color: #49d98b; } .calib.mid { color: #8fd36a; } .calib.lo { color: var(--warn); } .calib.bad { color: var(--bad); }
+.calib.unk b, .calib.none b { color: var(--warn); }
+.calib.none, .calib.unk { border-left: 3px solid var(--warn); }
+/* frontier models, same question */
+.vs { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; font-size: 12.5px; }
+.vshead { padding: 6px 10px; background: var(--panel3); font-weight: 600; font-size: 12.5px; }
+.vs table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.vs td { padding: 4px 8px; border-top: 1px solid var(--line); vertical-align: middle; }
+.vs td small { display: block; color: var(--mut); font-size: 10.5px; line-height: 1.2; }
+.vs td.num { text-align: right; white-space: nowrap; }
+.vs tr.us td { background: rgba(47,191,113,.08); }
+.vsnote { padding: 5px 10px 6px; color: var(--mut); font-size: 11px; border-top: 1px solid var(--line); }
+.okt { color: var(--ok); font-weight: 700; } .badt { color: var(--bad); font-weight: 700; } .mut { color: var(--mut); }
+/* why this answer */
+.trace { margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); font-size: 12.5px; }
+.trace summary { cursor: pointer; padding: 7px 10px; font-weight: 600; color: var(--text); list-style: none; }
+.trace summary::-webkit-details-marker { display: none; }
+.trace summary::before { content: '▸'; display: inline-block; width: 14px; color: var(--acc); transition: transform .15s; }
+.trace[open] summary::before { transform: rotate(90deg); }
+.trace summary::after { content: 'route · what it read · arithmetic · cost'; color: var(--mut); font-weight: 400; font-size: 11.5px; margin-left: 8px; }
+.trace[open] summary::after { content: ''; }
+.tsec { padding: 4px 12px 8px; color: #b9c5d6; }
+.tsec h4 { margin: 2px 0 3px; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--mut); }
+.tsec ul { margin: 0; padding-left: 16px; }
+.tsec .pill { margin-right: 4px; }
+.tsec .mono, .tsec code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; overflow-wrap: anywhere; }
+.tsec .mono b { color: var(--text); }
+.fbnote { display: block; color: var(--ok); font-size: 11.5px; margin-top: 2px; }
+.fbnote:empty { display: none; }

@@ -324,6 +324,10 @@ async function ask() {
     else pendingDraw = go;
   }
   renderEvidence();
+  if (!PHONE.matches && seq === askSeq) {  // bring the answer card up under the question box (desktop side panel)
+    const side = $('#side');
+    side.scrollTo({top: Math.max(0, a.getBoundingClientRect().top - side.getBoundingClientRect().top + side.scrollTop - $('.ask').offsetHeight - 26), behavior: 'smooth'});
+  }
 }
 $('#go').onclick = ask; $('#q').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) ask(); });
 
@@ -391,6 +395,69 @@ function howOf(r) {
   return {cls: 'llm', t: 'Answered by an AI model', how: 'a model read the drawing; treat it as a lead and check the evidence'};
 }
 
+// ------------------------------------------------------------ honest confidence, "why" trace, frontier side-by-side
+const nf = n => Number(n).toLocaleString('en-US');
+function pctOf(right, n) {  // never round up to 100 % unless every one was right
+  if (right === n) return '100';
+  const p = Math.floor(1000 * right / n) / 10;
+  return p >= 99.9 ? (Math.floor(10000 * right / n) / 100).toFixed(2) : p.toFixed(1);
+}
+function calibHTML(r) {
+  if (r.answer == null) {
+    const m = String(r.method || ''), e = String(r.explanation || '');
+    const why = r.budget_exhausted ? 'the daily budget for paid model calls is used up'
+      : m === 'timeout' ? 'the solver ran out of time; it stops rather than guess'
+      : /error/.test(m) ? 'the solver failed on this input; it reports that rather than a number'
+      : /not understood|not recognised|no room label|not found/.test(e) ? 'the question is outside what the solver can check on this drawing'
+      : /-na$|-none$/.test(m) || /no .* values|not in the/.test(e) ? 'the file does not contain what the question asks for'
+      : 'the evidence was not good enough';
+    return `<div class="calib none"><b>Why no answer</b><span>${esc(why)}. A wrong number on a drawing costs more than an honest “not sure”, so we abstain.</span></div>`;
+  }
+  const c = r.calibration;
+  if (!c) return '';
+  const conf = Math.round(100 * (r.confidence ?? 0));
+  if (!c.measured) return `<div class="calib unk"><b>No track record yet</b><span>answers made this way were not part of our held-out test, so the confidence (${conf} %) is the model's own guess: check the evidence before relying on it.</span></div>`;
+  const p = c.right / c.n, cls = p >= 0.95 ? 'hi' : p >= 0.85 ? 'mid' : p >= 0.6 ? 'lo' : 'bad';
+  const word = p >= 0.95 ? 'Very likely right' : p >= 0.85 ? 'Usually right' : p >= 0.6 ? 'Often right: check the evidence' : 'Likely wrong: check the evidence';
+  const band = c.scope === 'bin' ? `, confidence ${Math.round(c.lo * 100)}–${Math.round(c.hi * 100)} %` : '';
+  const tally = c.right === c.n ? `all ${nf(c.n)}` : `${nf(c.right)} of ${nf(c.n)}`;
+  return `<div class="calib ${cls}" title="Calibration from the full held-out test split (${nf(c.family_n)} questions answered this way, ${pctOf(c.family_right, c.family_n)} % right overall)">
+    <div class="cbar"><i style="width:${(100 * p).toFixed(1)}%"></i></div>
+    <b>${word} · ${pctOf(c.right, c.n)} %</b>
+    <span>${tally} answers like this were right on held-out test questions (${esc(c.label)}${band}; this one: ${conf} %)</span></div>`;
+}
+let traceOpen = false;
+function traceHTML(r) {
+  const t = r.trace; if (!t) return '';
+  const u = unitOf(r.type);
+  const sec = (h, body) => body ? `<div class="tsec"><h4>${h}</h4>${body}</div>` : '';
+  const route = (t.route || []).map(x => `<div><span class="pill">${esc(ROUTE[x.solver] || x.solver)}</span> ${esc(x.why)}</div>`).join('');
+  const read = (t.read || []).map(x => `<li>${esc(x)}</li>`).join('');
+  const a = t.arith;
+  const arith = a ? `<div class="mono">${esc(a.expr)} = <b>${fmt(a.total, r.type)}${u ? ' ' + u : ''}</b></div>
+    <div class="${a.matches ? 'okt' : 'mut'}">${a.matches ? `✓ the ${a.n} items listed under Evidence add up to the answer exactly` : 'the answer is not a plain sum of the listed items (it also weighs how likely each count is)'}</div>` : '';
+  const note = r.explanation ? `<div>${esc(r.explanation)}</div>` : '';
+  const cost = `<div>${money(r.cost_usd || 0)} · ${latency(r.latency_s)} · ${esc(t.model_call)}${t.method ? ` · <code>${esc(t.method)}</code>` : ''}</div>`;
+  return `<details class="trace" ${traceOpen ? 'open' : ''}><summary>Why this answer</summary>
+    ${sec('1 · Route', route)}${sec('2 · What it read', read ? `<ul>${read}</ul>` : note)}${sec('3 · Arithmetic', arith)}${sec('4 · Cost and time', cost)}</details>`;
+}
+function predTxt(f, t) {
+  if (f.pred == null || f.pred === '') return '<i>no answer</i>';
+  const n = Number(f.pred);
+  if (t !== 'text' && Number.isFinite(n)) return fmt(n, t);
+  const s = String(f.pred); return esc(s.length > 40 ? s.slice(0, 38) + '…' : s);
+}
+function frontierHTML(r, oursOk) {
+  const fr = r.frontier || []; if (!fr.length || r.answer == null) return '';
+  const mark = ok => ok === true ? '<span class="okt">✓</span>' : ok === false ? '<span class="badt">✗</span>' : '<span class="mut" title="free-text answer not judged">?</span>';
+  const ours = typeof r.answer === 'number' ? fmt(r.answer, r.type) : esc(String(r.answer).slice(0, 38));
+  const rows = fr.map(f => `<tr><td>${esc(f.model)}<small>${esc(f.setting)}</small></td><td class="num">${predTxt(f, r.type)}</td><td>${mark(f.correct)}</td><td class="num">${money(f.cost_usd || 0)}</td><td class="num">${f.latency_s ? f.latency_s.toFixed(1) + ' s' : ''}</td></tr>`).join('');
+  const wrong = fr.filter(f => f.correct === false).length;
+  return `<div class="vs"><div class="vshead">Same question, asked to frontier models${wrong ? ` · <span class="badt">${wrong} of ${fr.length} wrong</span>` : ''}</div>
+    <table><tr class="us"><td>Blueprints that talk<small>evidence on the drawing</small></td><td class="num"><b>${ours}</b></td><td>${mark(oursOk)}</td><td class="num"><b>${money(r.cost_usd || 0)}</b></td><td class="num">${latency(r.latency_s)}</td></tr>${rows}</table>
+    <div class="vsnote">From our baseline run on a 400-question sample of the same held-out test split; the gold answer is ${fmt(r.gold, r.type)}${r.type !== 'count' && r.type !== 'text' ? ' ' + unitOf(r.type) : ''}.</div></div>`;
+}
+
 function renderAnswer(shownSoFar) {
   if (!res) return;
   const a = $('#answer'); const t = res.type;
@@ -399,12 +466,13 @@ function renderAnswer(shownSoFar) {
   if (counting) val = items.slice(0, shownSoFar).reduce((s, e) => s + (e.value ?? 1), 0);
   const conf = res.confidence ?? 0;
   const confCls = conf >= 0.8 ? 'ok' : conf >= 0.5 ? 'warn' : 'bad';
-  let gold = '';
-  if (res.gold != null && res.answer != null && !counting && typeof res.gold === 'number') {
+  let gold = '', oursOk = null;
+  if (res.gold != null && res.answer != null && typeof res.gold === 'number') {
     const g = +res.gold, p = +res.answer;
-    const ok = t === 'count' ? Math.round(p) === Math.round(g) : Math.abs(p - g) <= 0.02 * Math.abs(g);
-    gold = `<span class="pill ${ok ? 'ok' : 'bad'}">${ok ? '✓ matches' : '✗ differs from'} the dataset answer ${fmt(g, t)}</span>`;
+    oursOk = t === 'count' ? Math.round(p) === Math.round(g) : Math.abs(p - g) <= 0.02 * Math.abs(g);
+    if (!counting) gold = `<span class="pill ${oursOk ? 'ok' : 'bad'}">${oursOk ? '✓ matches' : '✗ differs from'} the dataset answer ${fmt(g, t)}</span>`;
   }
+  const hasVs = (res.frontier || []).length && res.answer != null;
   const abst = res.answer == null;
   const num = typeof res.answer === 'number';
   const route = res.route && res.route !== '-' ? `<span class="pill">${esc(res.route.split(' -> ').filter(x => x !== '-').map(x => ROUTE[x] || x).join(' → '))}</span>` : '';
@@ -414,16 +482,20 @@ function renderAnswer(shownSoFar) {
     <div class="big ${abst ? 'abstain' : ''} ${counting ? 'counting' : ''}">${abst ? 'Not sure, so no guess' : num ? fmt(val, t) : ''} <small>${abst ? '' : unitOf(t)}</small></div>
     ${typeof res.answer === 'string' ? `<div class="textans">${esc(res.answer)}</div>` : ''}
     ${(() => { const h = howOf(res); return `<div class="how ${h.cls}"><b>${h.cls === 'geo' ? '✓' : h.cls === 'vis' ? '◎' : h.cls === 'llm' ? '✦' : '–'} ${esc(h.t)}</b><span>${esc(h.how)}</span></div>`; })()}
-    <div class="expl">${esc(res.explanation || '')}</div>
-    <div class="row" style="margin-top:10px">${abst ? '' : `<span class="pill ${confCls}">confidence ${(conf * 100).toFixed(0)}%</span>`}
+    ${calibHTML(res)}
+    ${abst || !res.trace ? `<div class="expl">${esc(res.explanation || '')}</div>` : ''}
+    <div class="row" style="margin-top:10px">${abst || res.calibration ? '' : `<span class="pill ${confCls}">confidence ${(conf * 100).toFixed(0)}%</span>`}
       ${route}${gold}</div>
     <div class="corr" id="corr"></div>
-    <div class="costcmp">
+    ${hasVs ? frontierHTML(res, oursOk) : ''}
+    ${traceHTML(res)}
+    <div class="costcmp" ${hasVs ? 'hidden' : ''}>
       <span class="lab">this answer</span><span><span class="mbar" style="display:block"><i style="width:${Math.max(0.5, 100 * (res.cost_usd || 0) / Math.max(res.baseline_cost_usd || 1e-9, res.cost_usd || 0))}%"></i></span></span>
       <span class="v"><b>${money(res.cost_usd || 0)}</b> · ${latency(res.latency_s)}</span>
       <span class="lab">frontier VLM</span><span><span class="mbar" style="display:block"><i class="base" style="width:100%"></i></span></span>
       <span class="v">~${money(res.baseline_cost_usd || 0)} · ~${baseS.toFixed(0)} s</span>
     </div>`;
+  const d = a.querySelector('details.trace'); if (d) d.ontoggle = () => { traceOpen = d.open; };
   if (!counting) recompute();
 }
 
@@ -574,7 +646,40 @@ function recompute() {
   const changed = items.some(e => !e.on || e.added);
   const v = items.filter(e => e.on).reduce((s, e) => s + (e.value ?? 1), 0);
   const el = $('#corr'); if (!el) return;
-  el.innerHTML = changed ? `✎ corrected by you: <b>${fmt(v, res.type)} ${unitOf(res.type)}</b> (the solver said ${fmt(res.answer, res.type)})` : '';
+  el.innerHTML = changed ? `✎ corrected by you: <b>${fmt(v, res.type)} ${unitOf(res.type)}</b> (the solver said ${fmt(res.answer, res.type)})`
+    + `<span class="fbnote" id="fbnote">${fb.res === res && fb.state ? fbText(fb.state) : ''}</span>` : '';
+  queueFeedback(changed, v);
+}
+
+// ------------------------------------------------------------ corrections become training data
+// every correction (items dropped / added) is sent once it settles; the server appends it to a JSONL file the
+// next training run reviews. Undoing all changes sends a revert, so the last line per answer is the truth.
+const FB_SESSION = Math.random().toString(36).slice(2, 12);
+const fb = {timer: null, sent: '', res: null, state: ''};
+const fbText = st => st === 'saved' ? '✓ saved as feedback for the next training run' : st === 'sending' ? 'saving as feedback…' : st === 'error' ? 'feedback not saved' : '';
+function setFb(st) { fb.state = st; const n = $('#fbnote'); if (n) n.textContent = fbText(st); }
+function queueFeedback(changed, v) {
+  if (!res || res.answer == null) return;
+  if (fb.res !== res) { fb.res = res; fb.sent = ''; fb.state = ''; }
+  const removed = items.filter(e => !e.on && !e.added), added = items.filter(e => e.on && e.added);
+  const sig = JSON.stringify([removed.map(e => items.indexOf(e)), added.map(e => e.bbox)]);
+  if (!changed && !fb.sent) return;  // nothing changed and nothing to revert
+  if (sig === fb.sent) return;
+  clearTimeout(fb.timer);
+  const r = res;
+  fb.timer = setTimeout(async () => {
+    if (r !== res) return;
+    setFb('sending');
+    const strip = e => ({kind: e.kind, label: e.label, value: e.value, score: e.score, page: e.page, bbox: e.bbox, points: e.points, guids: e.guids});
+    try {
+      const resp = await fetch('/api/feedback', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
+        path: cur.path, question: r.question, question_id: r.question_id ?? null, type: r.type, method: r.method,
+        original_answer: r.answer, corrected_answer: changed ? v : r.answer,
+        removed: removed.map(strip), added: added.map(strip), session: FB_SESSION, tour: !!tour})});
+      if (r !== res) return;
+      fb.sent = sig; setFb(resp.ok ? (changed ? 'saved' : '') : 'error');
+    } catch { if (r === res) setFb('error'); }
+  }, 1200);
 }
 
 // ------------------------------------------------------------ demo tour
