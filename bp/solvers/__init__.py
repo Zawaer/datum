@@ -6,6 +6,7 @@ SOLVERS = {
     "prior": "bp.solvers.prior:PriorSolver",
     "claude": "bp.solvers.claude_vlm:ClaudeSolver",
     "gemini": "bp.solvers.gemini_vlm:GeminiSolver",
+    "nemotron": "bp.solvers.nemotron_vlm:NemotronSolver",
     "swiss": "bp.solvers.swiss:SwissSolver",
     "ifc": "bp.solvers.ifc:IfcSolver",
     "cubicasa": "bp.solvers.cubicasa:CubicasaSolver",
