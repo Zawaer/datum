@@ -24,12 +24,15 @@ from pathlib import Path
 import numpy as np
 
 CACHE_DIR = Path(os.environ.get("BP_CACHE", "cache")) / "ifc"
-CACHE_VERSION = 5
+CACHE_VERSION = 6
 
 # classes whose geometry we evaluate (cost: a few seconds per model)
 GEO_CLASSES = ["IfcSpace", "IfcWall", "IfcWallStandardCase", "IfcSlab", "IfcColumn", "IfcBeam",
                "IfcDoor", "IfcWindow", "IfcCovering", "IfcCurtainWall", "IfcRoof", "IfcStair", "IfcRailing",
-               "IfcFooting", "IfcPlate", "IfcMember", "IfcRamp"]
+               "IfcFooting", "IfcPlate", "IfcMember", "IfcRamp", "IfcFurnishingElement", "IfcFurniture",
+               "IfcSystemFurnitureElement", "IfcFlowTerminal", "IfcSanitaryTerminal", "IfcTransportElement",
+               "IfcWallStandardCase", "IfcSlabStandardCase", "IfcSlabElementedCase", "IfcWallElementedCase",
+               "IfcDoorStandardCase", "IfcWindowStandardCase", "IfcColumnStandardCase", "IfcBeamStandardCase"]
 
 SKIP_CLASSES = {"IfcOpeningElement", "IfcVirtualElement", "IfcDistributionPort", "IfcAnnotation", "IfcGrid",
                 "IfcSite", "IfcBuilding", "IfcBuildingStorey", "IfcProject"}
@@ -156,7 +159,16 @@ def _geometry(path: str, guids: set, unit_scale: float, threads: int):
         s.set("use-world-coords", False)
     except Exception:  # noqa: BLE001
         pass
-    elems = [e for c in GEO_CLASSES for e in f.by_type(c, include_subtypes=False) if e.GlobalId in guids]
+    elems, seen = [], set()
+    for c in dict.fromkeys(GEO_CLASSES):
+        try:
+            xs = f.by_type(c, include_subtypes=False)
+        except RuntimeError:  # class not in this schema (e.g. IfcFurniture in IFC2X3)
+            continue
+        for e in xs:
+            if e.GlobalId in guids and e.id() not in seen:
+                seen.add(e.id())
+                elems.append(e)
     out = {}
     if not elems:
         return out

@@ -612,11 +612,10 @@ def g_wall_length(m, q, rel):
     for scope, flag in (("Exterior", True), ("Interior", False)):
         if (scope == "Exterior" and want_ext) or (scope == "Interior" and want_int) or not (want_ext or want_int):
             sel = [e for e in els if is_external(e) is flag]
-            vals = [M.measure(e, "length")[0] for e in sel]
+            vals = [e["qto"].get("Length") for e in sel]  # quantity sets only, as IFC-Bench does
             vals = [v for v in vals if v]
             if not sel or not vals:
-                parts.append(f"{scope} wall length data is not available in this model.")
-                continue
+                return out("Wall length data is not available in this model.", 0.5, "wall-length")
             tot = sum(vals)
             res += sel
             parts.append(f"Total {scope} wall length is {r1(tot)} m.")
@@ -1010,11 +1009,118 @@ def g_facade(m, q, rel):
                f"{len(cw)} curtain walls).", 0.3, "facade", ev(rel, ext + cw, lambda e: None))
 
 
+def find_space(m, text):
+    """Space named in free text: by number (e.g. 'room 01.014', 'A203') or by long name ('staff room')."""
+    t = text.lower()
+    st = find_storey(m, text) if re.search(r"floor|level|storey|etg|geschoss", t) else None
+    cands = spaces(m, st) or spaces(m)
+    best, bl = None, 0
+    for e in cands:
+        for n in (e.get("name"), e.get("long_name")):
+            n = (n or "").strip().lower()
+            if len(n) >= 3 and re.search(rf"(?<!\w){re.escape(n)}(?!\w)", t) and len(n) > bl:
+                best, bl = e, len(n)
+    if best is None:
+        # partial: words of a long name, e.g. 'staff room' ~ 'Personalrom' fails, 'Open-plan office' ~ 'Open-plan office 1'
+        for e in cands:
+            ln = (e.get("long_name") or "").lower()
+            core = re.sub(r"\s*\d+$", "", ln)
+            if len(core) >= 4 and core in t and len(core) > bl:
+                best, bl = e, len(core)
+    return best
+
+
+def _in_space(m, sp, classes):
+    els = []
+    for c in classes:
+        els += of(m, c)
+    return [e for e in els if _inside(e, sp) and (e["storey"] == sp["storey"] or not e["storey"])]
+
+
+def g_things_in_room(m, q, rel):
+    sp = find_space(m, q["question"])
+    if sp is None:
+        return None
+    t = q["question"].lower()
+    if "sanitary" in t:
+        els = [e for e in M.sanitary(m) if _inside(e, sp) and e["storey"] == sp["storey"]]
+        lines = [f"Room {sp.get('name')} found:", f"   - Function: {sp.get('long_name') or '-'}",
+                 f"   - Area: {r1(area(sp))} sq m", f"   - Level: {storey_name(m, sp['storey'])}", "",
+                 "   Available sanitary equipment:"]
+        for k, n in collections.Counter(_san_kind(e).rstrip("s") for e in els).most_common():
+            lines.append(f"     - {k} ({n} item{'s' if n > 1 else ''})")
+        return out("\n".join(lines), 0.4, "room-sanitary", ev(rel, [sp] + els, lambda e: 1))
+    els = _in_space(m, sp, ["IfcFurnishingElement"])
+    lines = [f"{sp.get('long_name') or sp.get('name')} ({sp.get('name')}, {storey_name(m, sp['storey'])}):",
+             f"   - Total furniture items: {len(els)}", "", "   Furniture breakdown:"]
+    for k, n in collections.Counter(tname(e) for e in els).most_common():
+        lines.append(f"   - {k}: {n} item(s)")
+    return out("\n".join(lines), 0.4, "room-furniture", ev(rel, [sp] + els, lambda e: 1))
+
+
+_ROOM_KW = [("restroom", r"\bwc\b|toilet|restroom|lavatory|bad\b|dusj|wc/"), ("toilet", r"\bwc\b|toilet|restroom|wc/"),
+            ("bathroom", r"bath|bad\b|dusj|shower"), ("bedroom", r"bed|schlaf|sove|makuu|magamis"),
+            ("individual office", r"individual office|einzelb(?:ü|u)ro"),
+            ("office", r"office|b(?:ü|u)ro|kontor|toimisto"), ("meeting", r"meeting|besprechung|m(?:ø|o)te"),
+            ("kitchen", r"kitchen|k(?:ü|u)che|kj(?:ø|o)kken|keittiö"), ("storage", r"storage|lager|depot|abstell"),
+            ("corridor", r"corridor|flur|korridor|gang")]
+
+
+def g_room_kind(m, q, rel):
+    t = q["question"].lower()
+    kind = next(((k, rx) for k, rx in _ROOM_KW if k in t), None)
+    if kind is None:
+        return None
+    k, rx = kind
+    st = find_storey(m, q["question"]) if re.search(r"floor|level|storey", t) and "each floor" not in t else None
+    ss = [e for e in spaces(m, st) if re.search(rx, f"{e.get('long_name') or ''} {e.get('name') or ''}", re.I)]
+    if k == "office" and "individual" not in t:
+        ss = [e for e in ss if not re.search(r"elevat|shaft|stair", e.get("long_name") or "", re.I)]
+    tot = sum(area(e) for e in ss)
+    title = k.capitalize() + ("s" if not k.endswith("s") else "")
+    if "each floor" in t or "per floor" in t or "by floor" in t:
+        lines = [f"{title} by Floor:", ""]
+        for s_ in m["storeys"]:
+            g = [e for e in ss if e["storey"] == s_["guid"]]
+            if g:
+                lines += [f"   {s_['name']}:", f"   - {title}: {len(g)}", f"   - Total area: {sum(area(e) for e in g):.2f} sq m", ""]
+        lines.append(f"   Total {k}s in building: {len(ss)}")
+        return out("\n".join(lines), 0.4, "room-kind", ev(rel, ss, lambda e: round(area(e), 2)))
+    where = f" on {st['name']}" if st else ""
+    lines = [f"{title}{where}:", f"   - Total {k} spaces: {len(ss)}", f"   - Total {k} area: {tot:.2f} sq m", ""]
+    if "type" in t:
+        g = collections.defaultdict(list)
+        for e in ss:
+            g[re.sub(r"\s*\d+$", "", e.get("long_name") or e.get("name") or "")].append(e)
+        for name, es in sorted(g.items(), key=lambda kv: -len(kv[1])):
+            lines.append(f"   - {name}s: {len(es)}")
+            for e in es:
+                lines.append(f"     • {e.get('long_name') or e.get('name')} ({storey_name(m, e['storey'])}): {area(e):.2f} sq m")
+            lines.append("")
+    else:
+        lines.append(f"   {title} spaces:")
+        for e in ss:
+            lines.append(f"   - {e.get('long_name') or e.get('name')}: {area(e):.2f} sq m")
+    return out("\n".join(lines).rstrip(), 0.4, "room-kind", ev(rel, ss, lambda e: round(area(e), 2)))
+
+
+_NA_TOPICS = (r"warranty|solar heat gain|glazing|thermal bridge|air.?tightness|live load|skirting|energy efficiency|"
+              r"maintenance|voltage|capacit|embodied carbon|recycl|lifespan|life span|emergency|escape route|"
+              r"accessib|doorknob|vapou?r barrier|electrical loads?")
+
+
+def g_na(m, q, rel):
+    return out(NA, 0.3, "na")
+
+
 # ---------------------------------------------------------------- router
 def _rules():
     T = type_breakdown
     return [
         (r"\b[0-9A-Za-z_$]{22}\b", g_door_by_guid),
+        (_NA_TOPICS, g_na),
+        (r"(?:furniture|sanitary).* in (?:the )?(?:room )?\S", g_things_in_room),
+        (r"restroom|toilet .* on|office (?:spaces|rooms)|bedrooms? on|meeting rooms", g_room_kind),
         (r"software|application|modell?ing standard|ifc standard|ifc schema", g_software),
         (r"project information|building'?s type|type of building|building name|site location|where is it situated|"
          r"type and its function", g_building_info),
