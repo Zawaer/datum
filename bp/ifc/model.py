@@ -11,7 +11,8 @@ Measure definitions (checked against the dev-split gold answers of ifc_models):
                        where both exist; e.g. Esplanades has no quantity sets).
   * wall length      - quantity Length (wall axis length), else extent along the wall's local X axis.
   * wall side area   - quantity NetSideArea, else geometric side area (largest side, net of openings).
-  * net volume       - quantity NetVolume, else GrossVolume, else geometric volume of the Body.
+  * net volume       - quantity NetVolume, else GrossVolume, else geometric volume of the Body; the solid's
+                       volume also wins when it is >3x the quantity (broken quantities in old exports).
 """
 from __future__ import annotations
 
@@ -173,6 +174,10 @@ def measure(e, what: str, gross: bool = False):
         return None, None
     if what == "volume":
         v = _q(e, *(("GrossVolume", "NetVolume") if gross else ("NetVolume", "GrossVolume", "Volume")))
+        gv = g.get("volume") or 0
+        if v is not None and gv > 0.5 and gv > 3 * v:
+            # broken quantity (seen in old ArchiCAD exports: NetVolume ~1/14 of the solid); trust the solid
+            return gv, "geometry"
         if v is not None:
             return v, "qto"
         if g.get("volume"):

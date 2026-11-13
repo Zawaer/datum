@@ -374,6 +374,13 @@ def g_ceiling_heights(m, q, rel):
     ss = [e for e in spaces(m) if _height(e)]
     if not ss:
         return out(NA, 0.3, "heights")
+    if not re.search(r"which|top|rooms|spaces|highest|lowest|tallest", q["question"], re.I):
+        lines = ["Ceiling Heights by Level:"]
+        for s_ in m["storeys"]:
+            hs = [_height(e) for e in ss if e["storey"] == s_["guid"]]
+            if hs:
+                lines.append(f"    - {s_['name']}: {collections.Counter(round(h, 2) for h in hs).most_common(1)[0][0]:.2f} m")
+        return out("\n".join(lines), 0.4, "heights", ev(rel, ss))
     low = re.search(r"lowest|smallest|minimum", q["question"], re.I)
     ss.sort(key=lambda e: _height(e), reverse=not low)
     hs = {round(_height(e), 2) for e in ss}
@@ -423,7 +430,8 @@ def type_breakdown(m, q, rel, cls, scope=None):
         if scope and not [e for e in of(m, cls) if is_external(e) is not None]:
             return out(f"Exterior/interior classification (IsExternal) is not available for {lab.lower()}s in this "
                        f"model.", 0.4, "types")
-        return out(f"No {pre}{lab} elements found in the model.\n   Total {pre}{lab}s: 0", 0.6, "types")
+        extra = {"IfcBeam": " This may indicate a flat slab construction system or wall-bearing structure."}.get(cls, "")
+        return out(f"No {pre}{lab.lower()} elements found in the model.{extra}", 0.6, "types")
     c = collections.Counter(tname(e) for e in els)
     lines = [f"Total {pre}{lab}s: {len(els)}", "", f"   {pre}{lab} Types and Quantities:"]
     for k, n in c.most_common():
