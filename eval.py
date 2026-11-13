@@ -84,6 +84,7 @@ def main():
     ap.add_argument("--type", action="append", help="filter: question type (repeatable)")
     ap.add_argument("--ext", action="append", help="filter: file extension (repeatable)")
     ap.add_argument("--sample", type=int, help="stratified deterministic sample of N questions")
+    ap.add_argument("--ids-from", help="only questions whose id appears in this runs/*.jsonl (same sample as another run)")
     ap.add_argument("--jobs", type=int, default=1)
     ap.add_argument("--name", help="run name (default: solver-split-timestamp)")
     ap.add_argument("--judge", action="store_true",
@@ -99,6 +100,9 @@ def main():
         qs = [q for q in qs if q["type"] in args.type]
     if args.ext:
         qs = [q for q in qs if q["ext"] in args.ext]
+    if args.ids_from:
+        keep = {json.loads(l)["id"] for l in open(args.ids_from)}
+        qs = [q for q in qs if q["id"] in keep]
     if args.sample:
         qs = stratified_sample(qs, args.sample)
     if not qs:

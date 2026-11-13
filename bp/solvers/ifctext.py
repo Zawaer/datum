@@ -127,7 +127,7 @@ class IfcTextSolver:
         f = CACHE / f"{key[:2]}/{key}.json"
         if f.exists():
             res = json.loads(f.read_text())
-            res["cost_usd_cached"], res["cost_usd"] = res["cost_usd"], 0.0
+            res["cached"] = True  # report the real per-question cost even when replayed from cache
         else:
             res = ask(prompt, system, self.model, tag=f"ifctext-{self.mode}")
             if not res.get("error"):
