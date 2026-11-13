@@ -67,7 +67,10 @@ def parse_json(text: str):
     if not text:
         return None
     t = re.sub(r"```(?:json)?", "", text)
-    for opener, closer in (("{", "}"), ("[", "]")):
+    pairs = [("{", "}"), ("[", "]")]
+    if 0 <= t.find("[") < (t.find("{") if "{" in t else len(t)):
+        pairs.reverse()  # a top-level list comes first
+    for opener, closer in pairs:
         i = t.find(opener)
         while i >= 0:
             depth, instr, esc = 0, False, False

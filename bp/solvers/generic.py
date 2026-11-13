@@ -210,6 +210,23 @@ class GenericSolver:
                 "explanation": str(d.get("explanation") or "")[:200]}
 
     # ------------------------------------------------------------------------------ vision path
+    SCALE_RX = re.compile(r"\d\s*/?\s*\d*\s*\"\s*=\s*1\s*'|\bscale\b|\b1\s*:\s*\d{1,4}\b", re.I)
+
+    def _view_region(self, segs, ids, page):
+        """Region of the view whose title segments are `ids`. A view title sits under the bottom-left
+        of its view; the view ends where the neighbouring views' titles / scale notes begin."""
+        tb = T._union([segs[i].bbox for i in ids if segs[i].page == page])
+        x0, y0, x1, y1 = max(0.0, tb[0] - 0.03), max(0.0, tb[1] - 0.45), min(1.0, tb[0] + 0.4), min(1.0, tb[3] + 0.02)
+        others = [s for s in segs.values() if s.page == page and s.id not in ids and self.SCALE_RX.search(s.text)]
+        for s in others:
+            if s.bbox[1] < tb[1] - 0.02 and s.bbox[3] > y0 and s.bbox[0] < x1 and s.bbox[2] > x0 \
+                    and abs(s.bbox[0] - tb[0]) < 0.1:  # the title of the view above
+                y0 = max(y0, s.bbox[3] + 0.005)
+            if abs(s.bbox[1] - tb[1]) < 0.03 and tb[0] + 0.05 < s.bbox[0] < x1:  # the title of the view to the right
+                x1 = s.bbox[0] - 0.01
+        return (x0, y0, x1, y1)
+
+
     def _vision_count(self, q, path, page, target, label, region=None, size="small"):
         if size == "large":  # whole views / rooms / storeys: never cut them into tiles
             img = T.render(path, page, max_side=1600)
@@ -282,10 +299,8 @@ class GenericSolver:
                 target, size = d.get("target"), d.get("size", "small")
                 ids = [i for i in d.get("region_ids") or [] if i in d["_segs"]]
                 page = d["_segs"][ids[0]].page if ids else 0
-                if ids:  # a view title sits under the bottom-left of its view: look above and right of it
-                    tb = T._union([d["_segs"][i].bbox for i in ids if d["_segs"][i].page == page])
-                    region = (max(0.0, tb[0] - 0.03), max(0.0, tb[1] - 0.45),
-                              min(1.0, tb[0] + 0.4), min(1.0, tb[3] + 0.02))
+                if ids:
+                    region = self._view_region(d["_segs"], ids, page)
         if out is None:
             if qtype == "count":
                 if target is None:
