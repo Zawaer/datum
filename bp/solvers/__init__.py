@@ -1,11 +1,12 @@
-"""Solver registry. A solver is a callable q -> dict with keys:
-answer (None = abstain), confidence (0..1), evidence (list), cost_usd, method.
-"""
+"""Solver registry. Contract and evidence format: docs/EVIDENCE.md."""
 import importlib
 
 SOLVERS = {
     "prior": "bp.solvers.prior:PriorSolver",
     "claude": "bp.solvers.claude_vlm:ClaudeSolver",
+    "swiss": "bp.solvers.swiss:SwissSolver",
+    "ifc": "bp.solvers.ifc:IfcSolver",
+    "cubicasa": "bp.solvers.cubicasa:CubicasaSolver",
 }
 
 
