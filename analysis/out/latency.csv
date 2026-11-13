@@ -8,7 +8,7 @@ router_full_test_v4,IFC geometry / quantities · slowest per drawing,24,0.068,0.
 router_full_test_v4,IFC text (rules) · slowest per drawing,4,0.417,0.7307,0.73367,0.41325,0.734
 router_full_test_v4,Swiss DXF geometry · slowest per drawing,228,0.04,0.0743,0.12971,0.042443,0.519
 baseline_sonnet_full400,"Claude Sonnet, direct",400,14.964,27.3536,58.74627,17.15185,71.103
-baseline_haiku_full400,"Claude Haiku, direct",400,29.194,60.7942,119.09709,34.944007,140.403
+baseline_haiku_full400,"Claude Haiku, direct",400,29.165,60.7942,119.09709,34.853562,140.403
 baseline_gemini_full400,gemini-3.1-pro-preview,400,18.7285,149.0992,213.04753,47.670482,385.108
-baseline_sonnetfair_full400,"Claude Sonnet, direct",400,11.9095,45.3241,96.6675,18.98111,164.945
+baseline_sonnetfair_full400,"Claude Sonnet, direct",400,12.779,45.3241,96.6675,20.161008,164.945
 generic_cubicasa_300_haiku,Generic VLM pipeline (Haiku),300,28.2855,80.7843,378.70978,48.391407,654.911

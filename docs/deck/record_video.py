@@ -1,14 +1,16 @@
-"""Record the 2-minute video track (1920x1080) to match the script in docs/video.md.
+"""Visual track helpers for the demo video (1920x1080). Used by docs/deck/make_video.py.
 
-    .venv/bin/python docs/deck/record_video.py [--url http://localhost:3123]
+    .venv/bin/python docs/deck/record_video.py [--url http://localhost:3123] [--steps 5]
 
-1. Renders the deck slides used as cards (docs/deck/deck.html?slide=N) to PNG.
-2. Records demo tour steps 1-5 (app/tour.json) in one take, logging when each step starts and finishes.
-3. Cuts each scene and fits it to its slot in SCENES (freeze the last frame if short, speed up if long), so
-   the video is exactly 120 s and every scene starts where the voice-over expects it.
-4. Writes runs/video/blueprints-2min.mp4, the captions (.srt) and blueprints-2min-captions.mp4 (video scaled
-   down, captions in a band underneath, so neither the drawing credits nor the tour captions are covered).
-Needs the demo server, playwright + chromium in the venv, and ffmpeg (with libass) on PATH.
+Run on its own, it only records one take of the demo tour (app/tour.json, steps 1..N) into runs/video/work/,
+logging when each step starts and finishes (marks.json). make_video.py then cuts that take to the voice-over.
+
+- render_pages(): screenshots HTML pages (deck slides, video cards) to PNG
+- record_take(): warms the server caches, then records tour steps 1..N in one take
+- still_clip() / step_clip(): turn a PNG or one recorded step into a clip of exactly the given length
+  (a recorded step that is too long is sped up, one that is too short plays up to 1.4x slower and then
+  holds its last frame)
+Needs the demo server, playwright + chromium in the venv, and ffmpeg on PATH.
 """
 from __future__ import annotations
 
@@ -19,28 +21,11 @@ import subprocess
 import time
 from pathlib import Path
 
-from playwright.async_api import async_playwright
-
-HERE = Path(__file__).resolve().parent
 OUT = Path("runs/video")
 WORK = OUT / "work"
 ARGS = ["--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist"]
 HOLD_MS = 1800
-
-# (kind, ref, seconds, voice-over) -- kept in sync with docs/video.md; the durations add up to 120 s.
-SCENES = [
-    ("slide", 1, 8, "Blueprints That Talk. Ask a construction drawing or a BIM model anything, and see exactly where the answer came from."),
-    ("slide", 2, 14, "Quantity takeoff is still done by hand. Ask a frontier model and you get confident answers: 94.73 square metres instead of 108.3, or zero windows instead of 110."),
-    ("slide", 3, 10, "We measured it on our held-out test split. Claude Sonnet gets 63 percent right, and most measurements wrong, at 13 dollars per thousand questions."),
-    ("slide", 4, 8, "So we don't guess. A router sends each question to an exact solver, and every solver returns its proof."),
-    ("step", 0, 18, "A Swiss apartment plan: how many doors? We read them straight from the CAD layers and number every one on the drawing. Twenty, matching the dataset. No model call, zero cost."),
-    ("step", 1, 14, "Ask in German for the net living area of apartment A. Every room is outlined with its own square metres, and the list adds up to the answer."),
-    ("step", 2, 10, "Disagree? Untick an item, or click one we missed. The total updates on the spot: the evidence is the answer."),
-    ("step", 3, 12, "A Finnish plan, asked in Finnish: a small detector, trained only on open annotations, boxes every door it counts."),
-    ("step", 4, 14, "Plans rendered from a BIM model are answered from the model itself. The doors are IFC elements: switch to 3D and the same doors light up."),
-    ("slide", 7, 7, "On 25,420 held-out questions: 87 percent correct, against 63 for the frontier model, at zero dollars."),
-    ("slide", 10, 5, "Exact, verifiable, cheap. Blueprints That Talk."),
-]
+FPS = 30
 
 
 def ff(*a):
@@ -53,6 +38,20 @@ def probe_dur(p: Path) -> float:
     return float(r.stdout.strip())
 
 
+async def render_pages(pages: list[tuple[str, Path]]):
+    """pages: (url, png path). Waits for fonts so text renders final."""
+    from playwright.async_api import async_playwright
+    async with async_playwright() as p:
+        b = await p.chromium.launch(args=ARGS)
+        pg = await b.new_page(viewport={"width": 1920, "height": 1080})
+        for url, png in pages:
+            await pg.goto(url)
+            await pg.wait_for_load_state("networkidle")
+            await pg.evaluate("document.fonts.ready")
+            await pg.screenshot(path=str(png))
+        await b.close()
+
+
 async def wait_step(pg, i, timeout_s=300):
     for _ in range(timeout_s * 10):
         if await pg.evaluate("window.__tourStepDone") == i:
@@ -61,23 +60,18 @@ async def wait_step(pg, i, timeout_s=300):
     print(f"step {i + 1}: timed out")
 
 
-async def record(url: str):
+async def record_take(url: str, n_steps: int):
+    from playwright.async_api import async_playwright
     WORK.mkdir(parents=True, exist_ok=True)
+    for old in WORK.glob("*.webm"):
+        old.unlink()
     async with async_playwright() as p:
         b = await p.chromium.launch(args=ARGS)
-        # cards
-        pg = await b.new_page(viewport={"width": 1920, "height": 1080})
-        for _, n, *_ in [s for s in SCENES if s[0] == "slide"]:
-            await pg.goto((HERE / "deck.html").as_uri() + f"?slide={n}")
-            await pg.wait_for_load_state("networkidle")
-            await pg.evaluate("document.fonts.ready")
-            await pg.screenshot(path=str(WORK / f"slide-{n}.png"))
-        await pg.close()
         # warm the server caches so the take has no cold starts
         warm = await b.new_page()
         await warm.goto(url + "/")
         steps = await warm.evaluate("fetch('/api/tour').then(r => r.json())")
-        for s in steps[:5]:
+        for s in steps[:n_steps]:
             await warm.evaluate("""s => Promise.all([
                 fetch('/api/questions?path=' + encodeURIComponent(s.path)).then(r => r.json()).then(i =>
                   i.view ? fetch('/api/render?path=' + encodeURIComponent(i.view)) : null),
@@ -85,7 +79,6 @@ async def record(url: str):
                   body: JSON.stringify({path: s.path, question: s.question})}),
                 s.source && s.source.startsWith('ifc') ? fetch('/api/mesh?path=' + encodeURIComponent(s.path)) : null])""", s)
         await warm.close()
-        # one take of tour steps 1-5
         ctx = await b.new_context(viewport={"width": 1920, "height": 1080}, record_video_dir=str(WORK),
                                   record_video_size={"width": 1920, "height": 1080})
         pg = await ctx.new_page()
@@ -93,7 +86,6 @@ async def record(url: str):
         await pg.goto(url + "/")
         await pg.wait_for_timeout(2000)
         marks = []
-        n_steps = max(s[1] for s in SCENES if s[0] == "step") + 1
         for i in range(n_steps):
             start = time.time() - t0
             await (pg.evaluate("window.bpTour.start(true)") if i == 0 else pg.evaluate("window.bpTour.next()"))
@@ -104,62 +96,39 @@ async def record(url: str):
         raw = Path(await pg.video.path())
         await ctx.close()
         await b.close()
-    (WORK / "marks.json").write_text(json.dumps(marks))
+    (WORK / "marks.json").write_text(json.dumps({"raw": str(raw), "marks": marks}))
     return raw, marks
 
 
-def build(raw: Path, marks):
-    clips = []
-    for k, (kind, ref, dur, _) in enumerate(SCENES):
-        c = WORK / f"scene-{k:02d}.mp4"
-        if kind == "slide":
-            ff("-loop", 1, "-t", dur, "-i", WORK / f"slide-{ref}.png", "-vf", "fps=30,format=yuv420p",
-               "-c:v", "libx264", "-preset", "medium", "-crf", 20, c)
-        else:
-            a, e = marks[ref]
-            seg = WORK / f"seg-{k:02d}.mp4"
-            ff("-ss", f"{a:.2f}", "-to", f"{e:.2f}", "-i", raw, "-an", "-vf", "fps=30", "-c:v", "libx264",
-               "-preset", "medium", "-crf", 20, seg)
-            have = probe_dur(seg)
-            if have >= dur:
-                vf = f"setpts={dur / have:.5f}*PTS,fps=30"
-            else:  # play up to 1.4x slower, then hold the finished frame
-                slow = min(dur / have, 1.4)
-                vf = f"setpts={slow:.4f}*PTS,tpad=stop_mode=clone:stop_duration={dur - have * slow + 0.5:.2f},fps=30"
-            ff("-i", seg, "-vf", vf + ",format=yuv420p", "-t", dur, "-c:v", "libx264", "-preset", "medium",
-               "-crf", 20, c)
-            print(f"scene {k + 1}: recorded {have:.1f} s -> {dur} s")
-        clips.append(c)
-    lst = WORK / "list.txt"
-    lst.write_text("".join(f"file '{c.resolve()}'\n" for c in clips))
-    out = OUT / "blueprints-2min.mp4"
-    ff("-f", "concat", "-safe", 0, "-i", lst, "-c:v", "libx264", "-preset", "medium", "-crf", 21,
-       "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-t", 120, out)
-    # captions
-    srt, t = [], 0.0
-    for k, (_, _, dur, text) in enumerate(SCENES):
-        def ts(x):
-            return f"{int(x // 3600):02d}:{int(x % 3600 // 60):02d}:{int(x % 60):02d},{int(round(x % 1 * 1000)):03d}"
-        srt.append(f"{k + 1}\n{ts(t + 0.2)} --> {ts(t + dur - 0.2)}\n{text}\n")
-        t += dur
-    sp = OUT / "blueprints-2min.srt"
-    sp.write_text("\n".join(srt))
-    cap = OUT / "blueprints-2min-captions.mp4"
-    style = "FontName=DejaVu Sans,FontSize=13,PrimaryColour=&H00FFFFFF,Alignment=2,MarginV=8,MarginL=40,MarginR=40"
-    ff("-i", out, "-vf", f"scale=1632:918,pad=1920:1080:144:0:color=0x0b1220,subtitles={sp}:force_style='{style}'",
-       "-c:v", "libx264", "-preset", "medium", "-crf", 21, "-pix_fmt", "yuv420p", "-movflags", "+faststart", cap)
-    for p in (out, cap):
-        print(f"{p}: {probe_dur(p):.2f} s, {p.stat().st_size // 1024 // 1024} MB")
+def last_take():
+    m = json.loads((WORK / "marks.json").read_text())
+    return Path(m["raw"]), m["marks"]
+
+
+def still_clip(png: Path, dur: float, out: Path):
+    ff("-loop", 1, "-t", f"{dur:.3f}", "-i", png, "-vf", f"fps={FPS},format=yuv420p",
+       "-c:v", "libx264", "-preset", "medium", "-crf", 18, out)
+
+
+def step_clip(raw: Path, mark, dur: float, out: Path):
+    a, e = mark
+    seg = out.with_suffix(".seg.mp4")
+    ff("-ss", f"{a:.2f}", "-to", f"{e:.2f}", "-i", raw, "-an", "-vf", f"fps={FPS}", "-c:v", "libx264",
+       "-preset", "medium", "-crf", 18, seg)
+    have = probe_dur(seg)
+    if have >= dur:
+        vf = f"setpts={dur / have:.5f}*PTS,fps={FPS}"
+    else:  # play up to 1.4x slower, then hold the finished frame
+        slow = min(dur / have, 1.4)
+        vf = f"setpts={slow:.4f}*PTS,tpad=stop_mode=clone:stop_duration={dur - have * slow + 0.5:.2f},fps={FPS}"
+    ff("-i", seg, "-vf", vf + ",format=yuv420p", "-t", f"{dur:.3f}", "-c:v", "libx264", "-preset", "medium",
+       "-crf", 18, out)
+    return have
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default="http://localhost:3123")
-    ap.add_argument("--rebuild", action="store_true", help="reuse the last take (runs/video/work) and only re-cut")
+    ap.add_argument("--steps", type=int, default=5)
     a = ap.parse_args()
-    assert sum(s[2] for s in SCENES) == 120, "scene durations must add up to 120 s"
-    if a.rebuild:
-        raw = max(WORK.glob("*.webm"), key=lambda p: p.stat().st_mtime)
-        build(raw, json.loads((WORK / "marks.json").read_text()))
-    else:
-        build(*asyncio.run(record(a.url.rstrip("/"))))
+    asyncio.run(record_take(a.url.rstrip("/"), a.steps))

@@ -6,7 +6,7 @@ drawn on the drawing.** Our Junction 2026 entry for Stoa's *Make Blueprints Talk
 On **all 25,420 questions of a held-out test split** we are right **88.2 %** of the time
 [95 % CI 87.8–88.6], for **$0.014 per 1,000 questions** in API fees and 0.03 s per question.
 The fair frontier comparison, **Claude Sonnet 5.5 given the drawing *and* its sibling CAD / IFC files** (the
-same inputs our solvers read), gets **69.0 %** [60.1–77.6] at **$25.56 per 1,000**. That is +19 points at
+same inputs our solvers read), gets **69.8 %** [60.9–78.4] at **$25.76 per 1,000**. That is +18 points at
 about 1/1,800 of the cost. The evaluation was **audited independently** by a second AI lab's coding agent
 (Codex, OpenAI), and every finding was re-checked: no leakage between dev and test, no test data in
 training, tuning or calibration, no gold lookups at inference, and the headline recount reproduces.
@@ -32,7 +32,7 @@ tolerance: counts exact, areas / lengths / volumes within 2 %. An abstention cou
 | system | accuracy [95 % CI] | API $ / 1,000 questions | s / question |
 |---|---:|---:|---:|
 | **Blueprints That Talk** (all 25,420 questions) | **88.2 %** [87.8–88.6] | **$0.014** | **0.03** |
-| Claude Sonnet 5.5 + sibling CAD / IFC files¹ (fair comparison) | 69.0 % [60.1–77.6] | $25.56 | 15.6 |
+| Claude Sonnet 5.5 + sibling CAD / IFC files¹ (fair comparison) | 69.8 % [60.9–78.4] | $25.76 | 15.6 |
 | Claude Sonnet 5.5, drawing only¹ | 63.2 % [54.4–71.8] | $13.06 | 12.9 |
 | Claude Haiku 5.5, drawing only¹ | 60.6 % [51.5–69.3] | $1.21 | 28.6 |
 | Gemini 3.1 Pro, drawing only¹ | 64.2 % [55.9–72.3] | $52.47 | 31.4 |
@@ -47,8 +47,8 @@ that it misses. Per-source tables for every system: [docs/RESULTS.md](docs/RESUL
 
 ¹ **Frontier numbers come from a 400-question sample of the test split, stratified by source × type**
 (~54 per cell), **re-weighted to the true test-split mix**, CI from a stratified bootstrap. Cost is the API list
-price of the tokens used, re-weighted the same way. 38 of the 400 Sonnet-with-files rows (all IFC) hit a
-usage limit and count as wrong; excluding them gives 69.7 %, the comparison does not change. Gemini cannot
+price of the tokens used, re-weighted the same way. Calls that failed on a usage limit were re-run, so every baseline row is a real
+answer. Gemini cannot
 take a raw `.ifc` file inline, so the 61 sampled questions that come as an `.ifc` file (IFC-Bench text and some
 IFC counts) abstain and count as wrong, by design; they are 0.5 % of the test mix after re-weighting.
 

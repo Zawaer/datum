@@ -18,7 +18,7 @@ _(177 characters)_
 
 ## Short version (~600 chars, for quick paste)
 
-Blueprints That Talk answers questions about construction drawings and BIM models, in any language, and draws the proof: counted doors numbered on the plan, rooms outlined with their m², walls lit up in 3D, adding up to the answer. A router picks the cheapest exact method: CAD geometry, IfcOpenShell, a small detector. On all 25,420 held-out test questions: 88.2 % at $0.014 per 1,000, vs 69.0 % for Claude Sonnet 5.5 given the same files at $25.56. Each answer has a calibrated confidence, and below it we say "not sure" instead of guessing. The evaluation was independently audited: no leakage, recount reproduces.
+Blueprints That Talk answers questions about construction drawings and BIM models, in any language, and draws the proof: counted doors numbered on the plan, rooms outlined with their m², walls lit up in 3D, adding up to the answer. A router picks the cheapest exact method: CAD geometry, IfcOpenShell, a small detector. On all 25,420 held-out test questions: 88.2 % at $0.014 per 1,000, vs 69.8 % for Claude Sonnet 5.5 given the same files at $25.76. Each answer has a calibrated confidence, and below it we say "not sure" instead of guessing. The evaluation was independently audited: no leakage, recount reproduces.
 
 _(617 characters)_
 
@@ -37,7 +37,7 @@ Held-out test split of the full dataset, split by drawing (every format and lang
 | | accuracy [95 % CI] | $ / 1,000 q | s / q |
 |---|---|---|---|
 | **Ours, all 25,420 questions** | **88.2 %** [87.8–88.6] | **$0.014** | **0.03** |
-| Claude Sonnet 5.5 + sibling CAD/IFC files* | 69.0 % [60.1–77.6] | $25.56 | 16 |
+| Claude Sonnet 5.5 + sibling CAD/IFC files* | 69.8 % [60.9–78.4] | $25.76 | 16 |
 | Claude Sonnet 5.5, drawing only* | 63.2 % | $13.06 | 13 |
 | Claude Haiku 5.5, drawing only* | 60.6 % | $1.21 | 29 |
 | Gemini 3.1 Pro, drawing only* | 64.2 % | $52.47 | 31 |
