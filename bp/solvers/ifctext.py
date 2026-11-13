@@ -1,11 +1,11 @@
 """Free-text answers about IFC models from a citable fact sheet + a cheap LLM (haiku).
 
 Variants (`ifctext@<mode>[-<model>]`):
-  combo (default)  the rule-based report (bp.ifc.bench) is given to the model as a DRAFT next to the fact
+  combo            the rule-based report (bp.ifc.bench) is given to the model as a DRAFT next to the fact
                    sheet; the model replies KEEP (draft returned verbatim, rule evidence) or writes a better
                    answer from the facts.
   llm              fact sheet only, no draft.
-  route            rules where the rule generator is confident and on-topic; else combo.
+  route (default)  rule report for the generators that beat the LLM on dev (TRUSTED_RULES), else llm.
 The model cites fact ids (f12, ...); each id maps back to the GlobalIds it was computed from, which become
 `ifc` evidence items. Answers are cached on disk (cache/ifctext/), so re-runs are free.
 Opening_design PDFs (text questions): bp.ifctext.pdftext builds the sheet from vector text instead.
@@ -41,7 +41,9 @@ headers or bold, no caveats unless essential.
 - Before saying something is not available, look again: type names, instance names, space names and \
 properties often hold the answer (a material, function, size or level is often part of a name).
 - If the sheet does not contain the information, reply "This information is not available in the BIM model." \
-optionally followed by one sentence on what related data the model does contain.
+If a reasonable estimate can still be derived from the facts (e.g. an area from sizes and counts) or from \
+standard practice for this kind of building, add "However, a rough estimate:" and give it briefly, marked as an \
+estimate.
 - Finish with one last line "FACTS: f3, f17, ..." listing the ids of the fact lines your answer is based on \
 (or "FACTS: none")."""
 
@@ -72,7 +74,7 @@ def parse_reply(text: str):
 
 class IfcTextSolver:
     def __init__(self, variant=None, budget: int = 14000):
-        parts = (variant or "combo").split("-")
+        parts = (variant or "route").split("-")
         self.mode = parts[0]
         self.model = parts[1] if len(parts) > 1 else "haiku"
         self.budget = budget
@@ -115,7 +117,7 @@ class IfcTextSolver:
         facts, used = render(blocks, q["question"], self.budget, focus={st["name"]} if st else None)
         guids = {fid: g for b in blocks for fid, g in b["guids"].items()}
         lines = {fid: t for b in blocks for fid, t in b["lines"] if fid}
-        use_draft = self.mode in ("combo", "route")
+        use_draft = self.mode == "combo"
         prompt = f"FACT SHEET ({Path(rel).name}):\n{facts}\n\n"
         if use_draft:
             prompt += f"DRAFT:\n{draft['answer']}\n\n"
@@ -151,9 +153,11 @@ class IfcTextSolver:
 
 
 def _trust_rules(draft: dict) -> bool:
-    """Rule reports that dev-split judging found reliable (see bp/ifctext/README-free notes in the report)."""
+    """Route to the rule report for the generators that beat the LLM on the dev split by >= 2 questions."""
     return draft.get("method") in TRUSTED_RULES
 
 
-# filled from the dev-split per-method judge accuracy of the rule solver (rules >= 70 % correct, n >= 5)
-TRUSTED_RULES: set = set()
+# dev split (710), judge-correct rules vs llm (n): mep-kind 7 vs 2 (32), software 12 vs 10 (13), largest-room
+# 6 vs 4 (7), coverings 5 vs 3 (6), room-furniture 2 vs 0 (3). Everything else goes to the LLM.
+TRUSTED_RULES = {"ifc-text-mep-kind", "ifc-text-software", "ifc-text-largest-room", "ifc-text-coverings",
+                 "ifc-text-room-furniture"}

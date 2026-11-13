@@ -45,6 +45,9 @@ TOPICS = [
     (r"proxy|element|object|component|misc", {"other"}),
 ]
 
+MAX_TYPES = 150  # type lines per class
+HARD_CAP = 40000  # the best-matching blocks may grow the sheet up to this many characters
+
 MEP_BASES = ["IfcDistributionElement", "IfcFlowSegment", "IfcFlowFitting", "IfcFlowTerminal", "IfcFlowController",
              "IfcEnergyConversionDevice", "IfcFlowMovingDevice", "IfcFlowStorageDevice", "IfcFlowTreatmentDevice",
              "IfcDistributionControlElement"]
@@ -189,7 +192,7 @@ def build(m: dict) -> list[dict]:
         groups = collections.defaultdict(list)
         for e in els:
             groups[B.tname(e)].append(e)
-        for k, g in sorted(groups.items(), key=lambda kv: -len(kv[1]))[:40]:
+        for k, g in sorted(groups.items(), key=lambda kv: -len(kv[1]))[:MAX_TYPES]:
             parts = [f"{cls} type '{k}': {len(g)}"]
             tc = {e.get('type_name') for e in g if e.get('type_name') and e.get('type_name') != k}
             if tc and len(tc) <= 3:
@@ -232,7 +235,7 @@ def build(m: dict) -> list[dict]:
                 if d:
                     parts.append("section " + _fmt_counter(d, 3))
             for key, lab in (("IsExternal", "external"), ("LoadBearing", "load-bearing")):
-                v = collections.Counter(_boolprop(e, key) for e in g)
+                v = collections.Counter((B.is_external(e) if key == "IsExternal" else _boolprop(e, key)) for e in g)
                 v.pop(None, None)
                 if v:
                     parts.append(f"{lab} " + _fmt_counter(collections.Counter({str(a): n for a, n in v.items()}), 3))
@@ -254,8 +257,8 @@ def build(m: dict) -> list[dict]:
             if sy:
                 parts.append("systems " + _fmt_counter(sy, 3))
             S.line(b, "; ".join(parts), [e["guid"] for e in g])
-        if len(groups) > 40:
-            S.line(b, f"... {len(groups) - 40} more {cls} types")
+        if len(groups) > MAX_TYPES:
+            S.line(b, f"... {len(groups) - MAX_TYPES} more {cls} types")
 
     # ---- spaces
     b = S.block("spaces", "SPACES BY LEVEL (number | name | net floor area | height | other)", ["spaces"])
@@ -354,6 +357,7 @@ def render(blocks: list[dict], question: str, budget: int = 14000, focus=None) -
         return s
 
     ranked = sorted(blocks, key=lambda b: -rel(b))
+    top = max((rel(b) for b in blocks if b["key"] not in ALWAYS), default=0)
     used, out, size = [], [], 0
     for b in ranked:
         r = rel(b)
@@ -361,7 +365,7 @@ def render(blocks: list[dict], question: str, budget: int = 14000, focus=None) -
             break
         lines = [f"[{fid}] {t}" if fid else t for fid, t in _focus(b["lines"], focus)]
         text = f"## {b['title']}\n" + "\n".join(lines)
-        room = budget - size
+        room = (max(budget, HARD_CAP) if top > 0 and r == top else budget) - size
         if len(text) > room:
             if r < 10 or room < 600:
                 continue
