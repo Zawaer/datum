@@ -49,9 +49,9 @@ SCENES = [
     {"kind": "slide", "ref": 2, "lines": [
         ("Quantity takeoff is still done by hand, and AI gets it wrong with total confidence:",
          "Quantity takeoff is still done by hand, and A.I. gets it wrong, with total confidence:"),
-        ("94.73 m² instead of 108.3, even with the CAD file attached; 599 m² of wall instead of 354.",
-         "ninety-four point seven square metres instead of a hundred and eight, even with the CAD file attached. "
-         "Five hundred and ninety-nine square metres of wall, instead of three hundred and fifty-four."),
+        ("94.73 m² instead of 108.3 for one apartment, even with its CAD file attached.",
+         "ninety-four point seven square metres instead of a hundred and eight for one apartment, "
+         "even with its CAD file attached."),
     ]},
     {"kind": "card", "ref": "frontier", "lines": [
         ("We measured frontier models on our held-out test split. Claude Sonnet 5.5, reading the drawing, gets 63 % right.",
