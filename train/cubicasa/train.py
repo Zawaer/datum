@@ -31,12 +31,16 @@ def main():
     ap.add_argument("--batch", type=int, default=8)
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--name", default="cc")
+    ap.add_argument("--resume", action="store_true", help="resume runs/<name>/weights/last.pt")
     a = ap.parse_args()
     root = Path(__file__).resolve().parents[2]
     data = str(Path(a.data).resolve())
     work = root / "cache" / "cubicasa"
     work.mkdir(parents=True, exist_ok=True)
     os.chdir(work)  # ultralytics drops helper downloads (AMP check weights) in the cwd
+    if a.resume:
+        YOLO(str(work / "runs" / a.name / "weights" / "last.pt")).train(resume=True)
+        return
     m = YOLO(a.model if Path(a.model).exists() else a.model)
     m.train(data=data, imgsz=a.imgsz, epochs=a.epochs, batch=a.batch, workers=a.workers,
             project=str(work / "runs"), name=a.name, exist_ok=True, cache=False,
