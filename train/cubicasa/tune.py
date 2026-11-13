@@ -1,7 +1,9 @@
-"""Pick a per-class score threshold that maximises exact-count accuracy on the YOLO validation drawings
-(dev split only), and write it next to the weights as thresholds.json.
+"""Pick, per class, the inference size and score threshold that maximise exact-count accuracy on the
+YOLO validation drawings (dev split only), and write them next to the weights as thresholds.json.
 
-    .venv/bin/python train/cubicasa/tune.py --weights cache/cubicasa/runs/cc/weights/best.pt --imgsz 1024
+    .venv/bin/python train/cubicasa/tune.py --weights cache/cubicasa/runs/cc/weights/best.pt --imgsz 1024 1280
+
+thresholds.json: {"_imgsz": default size, "_cls_imgsz": {class: size}, class: threshold, ...}
 """
 import argparse
 import collections
@@ -15,37 +17,49 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from bp.cubicasa.classes import NAMES  # noqa: E402
 
 
+def predict_all(m, imgs, imgsz):
+    preds = {}
+    for i in range(0, len(imgs), 4):
+        batch = imgs[i:i + 4]
+        for p, r in zip(batch, m.predict([str(x) for x in batch], imgsz=imgsz, conf=0.05, iou=0.5,
+                                         verbose=False, max_det=600)):
+            preds[p.stem] = list(zip([r.names[int(c)] for c in r.boxes.cls.tolist()], r.boxes.conf.tolist()))
+    return preds
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--weights", required=True)
     ap.add_argument("--data", default="cache/yolo_cc")
-    ap.add_argument("--imgsz", type=int, default=1024)
+    ap.add_argument("--imgsz", type=int, nargs="+", default=[1024])
     ap.add_argument("--out", help="thresholds.json path (default: next to weights)")
     a = ap.parse_args()
     from ultralytics import YOLO
 
     m = YOLO(a.weights)
     imgs = sorted((Path(a.data) / "images" / "val").glob("*.png"))
-    preds, gold = {}, {}
-    for i in range(0, len(imgs), 4):
-        batch = imgs[i:i + 4]
-        for p, r in zip(batch, m.predict([str(x) for x in batch], imgsz=a.imgsz, conf=0.05, iou=0.5,
-                                         verbose=False, max_det=600)):
-            preds[p.stem] = list(zip([r.names[int(c)] for c in r.boxes.cls.tolist()], r.boxes.conf.tolist()))
+    gold = {}
     for p in imgs:
         lab = (Path(a.data) / "labels" / "val" / f"{p.stem}.txt").read_text().split("\n")
         gold[p.stem] = collections.Counter(NAMES[int(x.split()[0])] for x in lab if x.strip())
-    th = {"_imgsz": a.imgsz}
+    preds = {sz: predict_all(m, imgs, sz) for sz in a.imgsz}
+
+    def acc(pr, c, t):
+        return float(np.mean([sum(1 for n, s in pr[k] if n == c and s >= t) == gold[k][c] for k in pr]))
+
+    th = {"_imgsz": a.imgsz[0], "_cls_imgsz": {}}
     report = []
     for c in NAMES:
-        best = (-1, 0.5)
-        for t in np.arange(0.1, 0.91, 0.025):
-            acc = np.mean([sum(1 for n, s in preds[k] if n == c and s >= t) == gold[k][c] for k in preds])
-            if acc > best[0] + 1e-9:
-                best = (acc, float(round(t, 3)))
+        best = (-1, 0.5, a.imgsz[0])
+        per = []
+        for sz in a.imgsz:
+            b = max(((acc(preds[sz], c, t), -abs(t - 0.4), float(round(t, 3))) for t in np.arange(0.1, 0.91, 0.025)))
+            per.append(f"{sz}:{b[0]:.1%}")
+            if b[0] > best[0] + 1e-9:
+                best = (b[0], b[2], sz)
         th[c] = best[1]
-        acc05 = np.mean([sum(1 for n, s in preds[k] if n == c and s >= 0.5) == gold[k][c] for k in preds])
-        report.append(f"{c:12s} th={best[1]:.3f} exact-count acc={best[0]:.1%} (at 0.5: {acc05:.1%}) "
+        th["_cls_imgsz"][c] = best[2]
+        report.append(f"{c:12s} imgsz={best[2]} th={best[1]:.3f} exact-count acc={best[0]:.1%} [{' '.join(per)}] "
                       f"n_obj={sum(g[c] for g in gold.values())}")
     out = Path(a.out) if a.out else Path(a.weights).with_name("thresholds.json")
     out.write_text(json.dumps(th, indent=1))

@@ -8,6 +8,7 @@ evidence box. Inference sees only the PNG: no annotation lookup.
 
 variant: optional weights path (default $CUBICASA_WEIGHTS or cache/cubicasa/weights/best.pt).
 """
+import collections
 import json
 import math
 import os
@@ -19,7 +20,6 @@ from bp.cubicasa.questions import LABEL, target
 from bp.data import data_root
 
 DEFAULT_WEIGHTS = "cache/cubicasa/weights/best.pt"
-DEFAULT_THRESH = "cache/cubicasa/weights/thresholds.json"
 
 
 def _inside(b, r, pad=0.01):
@@ -32,10 +32,11 @@ class CubicasaSolver:
         self.weights = weights or variant or os.environ.get("CUBICASA_WEIGHTS") or DEFAULT_WEIGHTS
         tf = Path(self.weights).with_name("thresholds.json")
         self.thresh = json.loads(tf.read_text()) if tf.exists() else {}
-        self.imgsz = int(self.thresh.pop("_imgsz", 1024)) if self.thresh else 1024
+        self.imgsz = int(self.thresh.pop("_imgsz", 1024))
+        self.cls_imgsz = self.thresh.pop("_cls_imgsz", {})
         self._model = None
         self._lock = threading.Lock()
-        self._cache = {}
+        self._cache = collections.OrderedDict()
 
     # -- detection -------------------------------------------------------------------------------
     def _load(self):
@@ -45,23 +46,32 @@ class CubicasaSolver:
             self._model = YOLO(self.weights)
         return self._model
 
-    def detect(self, path: str):
-        """All detections (conf >= 0.05) for one image: list of (cls_name, conf, [x0,y0,x1,y1] norm)."""
-        if path in self._cache:
-            return self._cache[path]
-        with self._lock:
-            if path in self._cache:
-                return self._cache[path]
+    def detect(self, path: str, imgsz: int | None = None):
+        """All detections (conf >= 0.05) for one image at one inference size:
+        list of (cls_name, conf, [x0, y0, x1, y1] normalised), sorted top-to-bottom."""
+        imgsz = imgsz or self.imgsz
+        key = (path, imgsz)
+        with self._lock:  # the model is not thread-safe; one predict at a time
+            if key in self._cache:
+                self._cache.move_to_end(key)
+                return self._cache[key]
             m = self._load()
             img = str(data_root() / path) if not Path(path).is_absolute() else path
-            r = m.predict(img, imgsz=self.imgsz, conf=0.05, iou=0.5, verbose=False, max_det=600)[0]
-            names = r.names
-            out = []
-            for b, c, s in zip(r.boxes.xyxyn.tolist(), r.boxes.cls.tolist(), r.boxes.conf.tolist()):
-                out.append((names[int(c)], float(s), [round(v, 5) for v in b]))
+            r = m.predict(img, imgsz=imgsz, conf=0.05, iou=0.5, verbose=False, max_det=600)[0]
+            out = [(r.names[int(c)], float(s), [round(v, 5) for v in b])
+                   for b, c, s in zip(r.boxes.xyxyn.tolist(), r.boxes.cls.tolist(), r.boxes.conf.tolist())]
             out.sort(key=lambda d: (d[2][1], d[2][0]))
-            self._cache[path] = out
+            self._cache[key] = out
+            if len(self._cache) > 4096:
+                self._cache.popitem(last=False)
             return out
+
+    def detections(self, path: str, classes):
+        """Detections of the given classes, each class taken at its tuned inference size."""
+        out = []
+        for c in classes:
+            out += [d for d in self.detect(path, int(self.cls_imgsz.get(c, self.imgsz))) if d[0] == c]
+        return sorted(out, key=lambda d: (d[2][1], d[2][0]))
 
     def th(self, cls: str) -> float:
         return float(self.thresh.get(cls, 0.4))
@@ -73,7 +83,7 @@ class CubicasaSolver:
             return {"answer": None, "confidence": 0.0, "evidence": [], "cost_usd": 0.0,
                     "method": "cubicasa-yolo", "explanation": "question template not recognised"}
         classes = COUNTS[t]
-        dets = [d for d in self.detect(q["path"]) if d[0] in classes]
+        dets = self.detections(q["path"], classes)
         kept = [d for d in dets if d[1] >= self.th(d[0])]
         if t == "sauna":  # a sauna = a sauna room, or a stove not inside a detected sauna room
             rooms = [d[2] for d in kept if d[0] == "sauna_room"]
