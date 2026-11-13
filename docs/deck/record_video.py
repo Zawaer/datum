@@ -123,8 +123,9 @@ def build(raw: Path, marks):
             have = probe_dur(seg)
             if have >= dur:
                 vf = f"setpts={dur / have:.5f}*PTS,fps=30"
-            else:
-                vf = f"tpad=stop_mode=clone:stop_duration={dur - have + 0.5:.2f},fps=30"
+            else:  # play up to 1.4x slower, then hold the finished frame
+                slow = min(dur / have, 1.4)
+                vf = f"setpts={slow:.4f}*PTS,tpad=stop_mode=clone:stop_duration={dur - have * slow + 0.5:.2f},fps=30"
             ff("-i", seg, "-vf", vf + ",format=yuv420p", "-t", dur, "-c:v", "libx264", "-preset", "medium",
                "-crf", 20, c)
             print(f"scene {k + 1}: recorded {have:.1f} s -> {dur} s")
