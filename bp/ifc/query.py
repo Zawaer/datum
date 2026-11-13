@@ -19,24 +19,24 @@ from bp.templates import _Q, slots as _slots
 CLASSES = {
     "space": (["IfcSpace"], r"rooms?|spaces?|rum(?:met|mene|mets)?|rom(?:met|mene)?|ruum\w*|r(?:a|ä)um\w*|zimmer\w*|"
               r"huone\w*|tilo\w*|tila\b|tilaa?\b|pi[eè]ces?|locaux|local\b|salles?|ruimte\w*|kamers?|habitaci\w*|espacios?|"
-              r"stanz\w*|vani?\b|pomieszcze\w*|m[ií]stnost\w*|helyis[eé]g\w*|telpa\w*|patalp\w*"),
+              r"stanz\w*|vano\b|vani\b|locales|pomieszcze\w*|m[ií]stnost\w*|helyis[eé]g\w*|telpa\w*|patalp\w*"),
     "door": (["IfcDoor"], r"doors?|d(?:ø|o|ö)r(?:e|en|ene|ar|arna|r)?\b|uks\w*|ust\b|uste\w*|t(?:ü|u)r\w*|ov(?:i|ea|ia|en|et)\b|"
              r"portes?\b|deur\w*|puertas?|porta\b|porte\b|drzwi|dve[rř]\w*|ajt\w*|durvis|durys"),
     "window": (["IfcWindow"], r"windows?|vindu\w*|f(?:ö|o)nst\w*|ak(?:en|na|ent|nad|naid|ende)\b|fenster\w*|ikkun\w*|"
-               r"fen(?:ê|e)tres?|ramen\b|raam\b|ventanas?|finestr\w*|okn\w*|ablak\w*|log\w*s\b|langai\w*"),
+               r"fen(?:ê|e)tres?|ramen\b|raam\b|ventanas?|finestr\w*|okn\w*|okien|ferestre\w*|ablak\w*|log\w*s\b|langai\w*"),
     "wall": (["IfcWall"], r"walls?|v(?:æ|a|ä)gg?(?:e|en|ene|ar|arna)?\b|sein(?:a|ad|u|ade|te|ä|iä|ien|ät)?\b|w(?:ä|a)nd\w*|"
-             r"murs?\b|muren?\b|muur\w*|pared\w*|par(?:e|ê)de?s?\b|muri?\b|[sś]cian\w*|st[eě]n\w*|fal(?:ak|at|ai)?\b|sien\w*"),
+             r"murs?\b|muros?\b|muren?\b|pere(?:ț|t|ţ)i\w*|perete\w*|muur\w*|pared\w*|par(?:e|ê)de?s?\b|muri?\b|[sś]cian\w*|st[eě]n\w*|fal(?:ak|at|ai)?\b|sien\w*"),
     "column": (["IfcColumn"], r"columns?|s(?:ø|o)jle\w*|post(?:i|id|e|ide)?\b|st(?:ü|u)tz\w*|s(?:ä|a)ul\w*|pilar\w*|"
-               r"poteaux?|colonnes?|kolom\w*|columnas?|pelar\w*|kolumn\w*|sloup\w*|oszlop\w*"),
+               r"poteaux?|colonnes?|kolom\w*|columnas?|pelar\w*|kolumn\w*|sloup\w*|oszlop\w*|st(?:â|a)lp\w*"),
     "beam": (["IfcBeam"], r"beams?|bj(?:æ|a)lk\w*|tala\b|tal(?:ad|u|asid|ade)\b|tr(?:ä|a)ger\w*|balk\w*|palk\w*|poutres?|"
-             r"vigas?\b|travi?\b|belk\w*|nosn\w*|gerend\w*|sij\w*"),
+             r"vigas?\b|travi?\b|belk\w*|belek|grinzi\w*|grind(?:a|ă)\w*|nosn\w*|gerend\w*|sij\w*"),
     "stair": (["IfcStair"], r"stairs?|staircases?|trap(?:pe|per|perne|pa|por|porna|pen)?\b|trepp?\w*|treppe\w*|portai\w*|porras|"
-              r"escaliers?|escaleras?|scal[ae]\b|schod\w*|l(?:é|e)pcs\w*|k(?:ā|a)pn\w*|laipt\w*"),
+              r"escaliers?|escaleras?|scal[ae]\b|schod\w*|l(?:é|e)pcs\w*|k(?:ā|a)pn\w*|laipt\w*|sc(?:ă|a)ri\w*|scar(?:a|ă)\w*"),
     "slab": (["IfcSlab"], r"slabs?|d(?:æ|a)k(?:ket|kene)?\b|plad(?:e|er|en|erne)\b|plaa?d\w*|vahelae\w*|decke\w*|deck\b|"
-             r"bodenplatt\w*|platten?\b|laat\w*|dalles?|vloer\w*|losas?|solai\w*|bjälklag\w*|stropy?\b|p(?:ł|l)yt\w*|f(?:ö|o)d(?:é|e)m\w*"),
+             r"bodenplatt\w*|platten?\b|laat\w*|dalles?|vloer(?!oppervlak)\w*|losas?|solai\w*|bjälklag\w*|stropy?\b|p(?:ł|l)yt\w*|f(?:ö|o)d(?:é|e)m\w*"),
     "railing": (["IfcRailing"], r"railings?|r(?:æ|a)kv(?:æ|a)rk\w*|piir\w*|gel(?:ä|a)nder\w*|kaide\w*|garde-corps|balustrad\w*|"
                 r"leuning\w*|barandill\w*|r(?:ä|a)cke\w*"),
-    "sanitary": (["IfcSanitaryTerminal"], r"sanitary|sanit(?:æ|a|ä)r\w*|saniteet\w*|sanitaire\w*|sanitario\w*|wc\b|toilets?|"
+    "sanitary": (["IfcSanitaryTerminal"], r"sanitary|sanitaire?\w*|sanitarn\w*|sanit(?:æ|a|ä)r\w*|saniteet\w*|sanitaire\w*|sanitario\w*|wc\b|toilets?|"
                  r"toilet(?:ter|ten)?\b|tualet\w*|wc-?\w*"),
     "furniture": (["IfcFurnishingElement"], r"furniture|furnishings?|m(?:ø|ö|o)bel\w*|m(?:ö|o)bler\w*|mööbli\w*|huonekal\w*|"
                   r"meubles?|meubilair|muebles?|mobili|meble"),
@@ -51,7 +51,7 @@ CLASSES = {
     "opening": (["IfcOpeningElement"], r"openings?|(?:å|a)bning\w*|ava\w*|(?:ö|o)ffnung\w*|aukko\w*"),
     "pipe": (["IfcPipeSegment"], r"pipes?|r(?:ø|ö|o)r\b|toru\w*|rohr\w*|putki\w*|putke\w*|tuyaux?"),
     "duct": (["IfcDuctSegment"], r"ducts?|kanal\w*|kanaal\w*|kanav\w*|gaines?"),
-    "light": (["IfcLightFixture"], r"light\s*fixtures?|luminaires?|lamp(?:s|e|er|id|en)?\b|valaisi\w*|leuchte\w*|valgust\w*"),
+    "light": (["IfcLightFixture"], r"light\s*fixtures?|luminaires?|lamp(?:s|e|er|id|en)?\b|valaisi\w*|leuchte\w*|valgust\w*|iluminat\w*|verlichting\w*|leuchten\w*"),
     "proxy": (["IfcBuildingElementProxy"], r"proxy|proxies"),
     "building_storey": (["IfcBuildingStorey"], r"storeys?|stor(?:ies|y)|floors|levels?|etage\w*|korrus(?:t|te|eid)\b|"
                         r"geschoss\w*|kerro\w*|niveaux?|verdieping\w*|plantas\b|piani\b"),
