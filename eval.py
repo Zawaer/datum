@@ -86,6 +86,8 @@ def main():
     ap.add_argument("--sample", type=int, help="stratified deterministic sample of N questions")
     ap.add_argument("--jobs", type=int, default=1)
     ap.add_argument("--name", help="run name (default: solver-split-timestamp)")
+    ap.add_argument("--judge", action="store_true",
+                    help="score text/other answers with the LLM judge (bp/judge.py) instead of the token-F1 proxy")
     args = ap.parse_args()
 
     qs = load_questions()
@@ -115,7 +117,7 @@ def main():
             res = {"answer": None, "confidence": 0, "evidence": [], "cost_usd": 0.0, "method": "error",
                    "error": repr(e)[:300]}
         dt = time.time() - t0
-        return {
+        row = {
             "id": q["id"], "path": q["path"], "source": q["source"], "type": q["type"], "ext": q["ext"],
             "lang": lang_of(q["question"]), "question": q["question"], "gold": q["answer"],
             "pred": res.get("answer"), "correct": is_correct(q["type"], res.get("answer"), q["answer"]),
@@ -123,6 +125,12 @@ def main():
             "latency_s": round(dt, 3), "method": res.get("method"),
             "evidence": res.get("evidence", []), **{k: res[k] for k in ("error", "raw", "turns") if k in res},
         }
+        if args.judge and q["type"] in ("text", "other") and row["pred"] is not None:
+            from bp.judge import judge
+            v = judge(q["question"], q["answer"], row["pred"])
+            row.update(proxy_correct=row["correct"], correct=v["correct"], judge_score=v.get("score"),
+                       judge_reason=v.get("reason"), judge_cost_usd=v.get("cost_usd", 0.0))
+        return row
 
     rows = []
     with open(out_path, "w") as f, cf.ThreadPoolExecutor(args.jobs) as ex:
@@ -135,7 +143,9 @@ def main():
                 print(f"  {i}/{len(qs)}  acc so far {ok / i:.1%}", file=sys.stderr)
 
     summary = [f"# {name}", "", f"solver `{args.solver}`, split `{args.split}`, n={len(rows)}"
-               + (f", stratified sample {args.sample}" if args.sample else ""), "",
+               + (f", stratified sample {args.sample}" if args.sample else "")
+               + (f", text scored by LLM judge (judge cost ${sum(r.get('judge_cost_usd', 0) for r in rows):.3f},"
+                  " not in $/1k q)" if args.judge else ""), "",
                "accuracy = correct / all questions (abstain counts as wrong); precision = correct / answered.", "",
                "## By type", table(rows, lambda r: r["type"]), "",
                "## By source", table(rows, lambda r: r["source"]), "",
