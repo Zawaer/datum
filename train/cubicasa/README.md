@@ -12,14 +12,33 @@ unzip -q cache/cc5k_dl/cubicasa5k.zip -d cache/cc5k
 # 2. SVG annotations -> YOLO labels (skips every drawing in our held-out test split)
 .venv/bin/python train/cubicasa/make_yolo.py --src cache/cc5k/cubicasa5k --out cache/yolo_cc
 
-# 3. train, then pick per-class score thresholds on the validation drawings
-.venv/bin/python train/cubicasa/train.py --model yolo11s.pt --imgsz 1024 --epochs 60 --name cc
-.venv/bin/python train/cubicasa/tune.py --weights cache/cubicasa/runs/cc/weights/best.pt --imgsz 1024
+# 3. train (40 epochs at 1024 px, ~70 min), then optionally fine-tune at 1280 px from it
+.venv/bin/python train/cubicasa/train.py --model yolo11s.pt --imgsz 1024 --epochs 40 --name s1024
+.venv/bin/python train/cubicasa/train.py --model $PWD/cache/cubicasa/runs/s1024/weights/best.pt \
+    --imgsz 1280 --epochs 30 --batch 6 --name s1280ft
 
-# 4. install as the default weights the solver loads
+# 4. install, then tune on the validation drawings (dev split only):
+#    per-class inference size + threshold, then score calibration and per-template counting rule
 mkdir -p cache/cubicasa/weights
-cp cache/cubicasa/runs/cc/weights/{best.pt,thresholds.json} cache/cubicasa/weights/
+cp cache/cubicasa/runs/s1280ft/weights/best.pt cache/cubicasa/weights/
+.venv/bin/python train/cubicasa/tune.py --weights cache/cubicasa/weights/best.pt --imgsz 1024 1280
+.venv/bin/python train/cubicasa/calibrate.py --weights cache/cubicasa/weights/best.pt
+
+# 5. per-template accuracy on dev-validation questions, and on an eval.py log
+.venv/bin/python train/cubicasa/dev_eval.py --weights cache/cubicasa/weights/best.pt
+.venv/bin/python eval.py --solver cubicasa --split test --source cubicasa5k --jobs 4 --name cubicasa_test
+.venv/bin/python train/cubicasa/dev_eval.py --log runs/cubicasa_test.jsonl
 ```
+
+The solver reads `thresholds.json` and `calib.json` next to the weights. Docker's 64 MB `/dev/shm` is
+too small for torch dataloader workers; `train.py` passes batches by value instead.
+
+## Counting and confidence
+
+Detections are counted against tuned per-class thresholds, or (where it was clearly better on dev) the
+mode of a count posterior: calibrated per-detection probabilities (Poisson-binomial) + a Poisson term for
+objects the detector misses + the template's dev answer distribution (`bp/cubicasa/counting.py`). The
+reported confidence is always that posterior's probability for the answer.
 
 Or point `CUBICASA_WEIGHTS` (or the solver variant, `cubicasa@path/to/best.pt`) at a `best.pt` with a
 `thresholds.json` next to it.
