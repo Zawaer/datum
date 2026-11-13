@@ -13,7 +13,57 @@ from pathlib import Path
 
 _G = re.compile(r'<g\b[^>]*?class="(Ifc\w+)"[^>]*?data-guid="([^"]+)"[^>]*>(.*?)</g>', re.S)
 _D = re.compile(r'\bd="([^"]+)"')
-_PT = re.compile(r"(-?\d+(?:\.\d+)?(?:e-?\d+)?)[ ,](-?\d+(?:\.\d+)?(?:e-?\d+)?)")
+_TOK = re.compile(r"[MLHVCSQTAZmlhvcsqtaz]|-?\d*\.?\d+(?:[eE][-+]?\d+)?")
+_NARGS = {"M": 2, "L": 2, "T": 2, "H": 1, "V": 1, "C": 6, "S": 4, "Q": 4, "A": 7, "Z": 0}
+
+
+def parse_path(d: str) -> list[list[tuple[float, float]]]:
+    """Absolute/relative SVG path -> list of subpaths (vertex lists; arcs/curves contribute end points)."""
+    toks = _TOK.findall(d)
+    subs, cur = [], []
+    x = y = 0.0
+    cmd = None
+    i = 0
+    while i < len(toks):
+        t = toks[i]
+        if t.isalpha():
+            cmd = t
+            i += 1
+            if cmd in "Zz":
+                if cur:
+                    subs.append(cur)
+                    cur = []
+                continue
+        if cmd is None:
+            i += 1
+            continue
+        n = _NARGS[cmd.upper()]
+        args = toks[i:i + n]
+        if len(args) < n or any(a.isalpha() for a in args):
+            break
+        a = [float(v) for v in args]
+        i += n
+        rel = cmd.islower()
+        C = cmd.upper()
+        if C == "H":
+            x = a[0] + (x if rel else 0)
+        elif C == "V":
+            y = a[0] + (y if rel else 0)
+        else:
+            nx, ny = a[-2], a[-1]
+            x, y = (x + nx, y + ny) if rel else (nx, ny)
+        if C == "M":
+            if cur:
+                subs.append(cur)
+            cur = [(x, y)]
+            cmd = "l" if rel else "L"
+        else:
+            cur.append((x, y))
+    if cur:
+        subs.append(cur)
+    return subs
+
+
 _VB = re.compile(r'viewBox="([-\d.\s]+)"')
 
 
@@ -32,10 +82,8 @@ def load_svg(svg_path: str) -> dict:
     for cls, guid, body in _G.findall(s):
         polys = []
         for d in _D.findall(body):
-            for sub in re.split(r"(?=M)", d):
-                pts = [((float(x) - vx) / vw, (float(y) - vy) / vh) for x, y in _PT.findall(sub)]
-                if pts:
-                    polys.append(pts)
+            for sub in parse_path(d):
+                polys.append([((x - vx) / vw, (y - vy) / vh) for x, y in sub])
         if not polys:
             continue
         rec = out.setdefault(guid, {"cls": cls, "polys": []})
