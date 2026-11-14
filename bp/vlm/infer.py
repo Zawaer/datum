@@ -3,7 +3,8 @@
 Environment
 - BP_VLM_URL       e.g. http://gpu-host:8000/v1 : use a vLLM / OpenAI-compatible server (no local GPU needed)
 - BP_VLM_SERVED    model name on that server (default "blueprints", the LoRA name in the README's vllm command)
-- BP_VLM_API_KEY   bearer token for the server, if it wants one
+- BP_VLM_KEY       bearer token for the server, if it wants one (BP_VLM_API_KEY is read too)
+- BP_VLM_TIMEOUT   seconds per remote request (default 300; the live second opinion uses its own, shorter one)
 - BP_VLM_MODEL     base model for local inference (default: the adapter's base, else Qwen/Qwen3-VL-8B-Instruct)
 - BP_VLM_ADAPTER   LoRA adapter directory (train/vlm/train.py output) for local inference
 - BP_VLM_4BIT=1    load the local base in 4-bit (bitsandbytes), for small GPUs
@@ -113,12 +114,14 @@ class RemoteRunner:
     """OpenAI-compatible chat completions (vLLM `vllm serve ... --enable-lora --lora-modules blueprints=...`)."""
     backend = "remote"
 
-    def __init__(self, url: str | None = None, model: str | None = None):
+    def __init__(self, url: str | None = None, model: str | None = None, key: str | None = None,
+                 timeout: float | None = None):
         self.url = (url or os.environ["BP_VLM_URL"]).rstrip("/")
         if not self.url.endswith("/chat/completions"):
             self.url += "/chat/completions"
         self.model = model or os.environ.get("BP_VLM_SERVED", "blueprints")
-        self.key = os.environ.get("BP_VLM_API_KEY")
+        self.key = key or os.environ.get("BP_VLM_KEY") or os.environ.get("BP_VLM_API_KEY")
+        self.timeout = timeout or float(os.environ.get("BP_VLM_TIMEOUT", 300) or 300)
         self.max_new = int(os.environ.get("BP_VLM_MAX_NEW", 2048))
 
     def ask(self, image: Image.Image, question: str, source: str | None = None, prepared: bool = False) -> dict:
@@ -134,7 +137,7 @@ class RemoteRunner:
                                      headers={"Content-Type": "application/json",
                                               **({"Authorization": f"Bearer {self.key}"} if self.key else {})})
         t0 = time.time()
-        with urllib.request.urlopen(req, timeout=300) as r:
+        with urllib.request.urlopen(req, timeout=self.timeout) as r:
             res = json.loads(r.read())
         dt = time.time() - t0
         ch = res["choices"][0]
@@ -142,7 +145,8 @@ class RemoteRunner:
         lp = (ch.get("logprobs") or {}).get("content") or []
         toks = [(t["token"], t["logprob"]) for t in lp]
         u = res.get("usage") or {}
-        return {"text": text, "parsed": parse_output(text), "confidence": decision_confidence(toks),
+        conf = decision_confidence(toks) if toks else ch.get("confidence")  # deploy/vlm/hf_server.py sends its own
+        return {"text": text, "parsed": parse_output(text), "confidence": conf,
                 "seconds": round(dt, 2), "backend": f"remote:{self.model}", "n_in": u.get("prompt_tokens"),
                 "n_out": u.get("completion_tokens")}
 

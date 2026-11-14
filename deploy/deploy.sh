@@ -2,7 +2,8 @@
 # Deploy / redeploy the public demo:  deploy/deploy.sh <vm-ip> [--setup] [--warm]
 #   --setup  first time only: install Docker + firewall on the VM (deploy/setup_vm.sh)
 #   --warm   fill the IFC/Swiss/mesh caches afterwards (paid calls disabled while warming)
-# Reads (never prints) data/secrets/anthropic.env and data/secrets/demo_path.txt; both stay out of git.
+# Reads (never prints) data/secrets/anthropic.env, data/secrets/demo_path.txt and, if present, data/secrets/vlm.env;
+# all stay out of git.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 IP=${1:?usage: deploy/deploy.sh <vm-ip> [--setup] [--warm]}; shift
@@ -30,7 +31,9 @@ echo "== secrets + caps (chmod 600 on the VM)"
   echo "BP_DAILY_USD_CAP=${BP_DAILY_USD_CAP:-5}"
   # ask by voice: ElevenLabs speech-to-text key (+ optional BP_STT_* caps); absent -> browser speech recognition only
   [ -f data/secrets/elevenlabs.env ] && grep -E '^(ELEVENLABS_API_KEY|BP_STT_[A-Z_]+)=' data/secrets/elevenlabs.env || true
-  [ -n "${BP_VLM_URL:-}" ] && echo "BP_VLM_URL=$BP_VLM_URL"
+  # live VLM second opinion for uploads (deploy/vlm/serve.sh writes data/secrets/vlm.env); absent -> precomputed only
+  if [ -f data/secrets/vlm.env ]; then grep -E '^BP_VLM_(URL|KEY|SERVED|LIVE_TIMEOUT)=' data/secrets/vlm.env || true
+  elif [ -n "${BP_VLM_URL:-}" ]; then echo "BP_VLM_URL=$BP_VLM_URL"; fi
   true; } | ssh_ 'umask 077; cat > /opt/bp/app.env'
 printf 'SITE=%s\nPREFIX=%s\n' "$SITE" "$PREFIX" | ssh_ 'umask 077; cat > /opt/bp/site.env'
 

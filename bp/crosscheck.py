@@ -659,13 +659,14 @@ def cubicasa_second(q):
 # YOLO primary, so its mistakes correlate less than a second detector's. The GPUs are gone, so it works from
 # precomputed answers: the public demo's questions (cache/vlm/demo_secondopinion.jsonl) and every CubiCasa
 # test question (runs/vlm_r3_cubicasa_test_full.jsonl, eval.py rows). $BP_XCHECK_VLM overrides the list
-# (os.pathsep-separated). With $BP_VLM_URL set (a vLLM server, bp/solvers/vlm.py) uncached questions are asked
-# live; unset by default. No answer -> the v3 detector above stays the second opinion.
+# (os.pathsep-separated). With $BP_VLM_URL set (deploy/vlm/: a vLLM server with the same adapter) questions with
+# no precomputed answer, and raster residential-plan uploads, are asked live (bp/vlm/live.py: 20 s limit, cached
+# in memory); unset by default. No answer -> the v3 detector above stays the second opinion (uploads: none).
 VLM_METHOD = "fine-tuned VLM (Qwen3-VL-8B LoRA)"
 _REPO = Path(__file__).resolve().parents[1]
 VLM_FILES = [Path(p) for p in os.environ.get("BP_XCHECK_VLM", "").split(os.pathsep) if p] or [
     _REPO / "cache/vlm/demo_secondopinion.jsonl", _REPO / "runs/vlm_r3_cubicasa_test_full.jsonl"]
-_vlm_index, _vlm_lock, _vlm_live = None, threading.Lock(), None
+_vlm_index, _vlm_lock = None, threading.Lock()
 
 
 def _vlm_load():
@@ -706,20 +707,34 @@ def _vlm_load():
         return idx
 
 
+def _vlm_image(q):
+    """(image file to send, path the evidence should name) for a live ask, or (None, None)."""
+    path = q.get("path") or ""
+    if q.get("source") == "upload":  # app/server.py passes the absolute file; the browser knows uploads/<key>/<name>
+        p = Path(path)
+        for root in (Path("cache/uploads").resolve(), _REPO / "cache/uploads"):
+            if p.is_relative_to(root):
+                return p, "uploads/" + str(p.relative_to(root))
+        return p, path
+    p = data_root() / path
+    if p.suffix.lower() == ".pdf" and p.with_suffix(".png").exists():
+        return p.with_suffix(".png"), str(Path(path).with_suffix(".png"))
+    return p, path
+
+
 def vlm_answer(q):
-    """Precomputed (or, with $BP_VLM_URL, live) VLM answer for a CubiCasa question, else None."""
-    global _vlm_live
+    """Precomputed VLM answer for a CubiCasa question (always first); else, with $BP_VLM_URL set, a live one
+    from the served model (bp/vlm/live.py: 20 s limit, in-memory cache; None if the server is down)."""
     idx = _vlm_load()
     rec = idx.get((q.get("path"), q.get("question")))
     if rec is None and q.get("id") is not None:
         rec = idx.get((q.get("path"), q["id"]))
     if rec is None and os.environ.get("BP_VLM_URL"):
-        if _vlm_live is None:
-            from bp.solvers.vlm import VlmSolver
+        from bp.vlm.live import live_second_opinion
 
-            _vlm_live = VlmSolver()
-        r = _vlm_live(q)
-        if r.get("answer") is not None:
+        img, file = _vlm_image(q)
+        r = live_second_opinion(img, q.get("question") or "", source="cubicasa5k", file=file) if img else None
+        if r is not None and r.get("answer") is not None:
             rec = {"answer": r["answer"], "confidence": r.get("confidence"), "evidence": r.get("evidence") or []}
     if rec is None:
         return None
@@ -744,12 +759,25 @@ def _precompute_cc(paths):
 # --------------------------------------------------------------------------------------------------
 # dispatcher
 
-SECOND = {"swiss_dwellings": swiss_second, "ifc_models": ifc_second, "cubicasa5k": cubicasa_second}
+def _no_second(q):
+    return None
+
+
+def _vlm_upload_ok(q) -> bool:
+    """An uploaded single-page raster plan that looks residential (the CubiCasa route's condition in
+    bp/router.py), asked to count, with a VLM server configured."""
+    return bool(os.environ.get("BP_VLM_URL")) and q.get("kind") == "raster" and bool(q.get("residential_plan")) \
+        and q.get("type") == "count"
+
+
+SECOND = {"swiss_dwellings": swiss_second, "ifc_models": ifc_second, "cubicasa5k": cubicasa_second,
+          "upload-raster": _no_second}  # uploads: the live VLM below or nothing
 INDEPENDENCE = {
     "swiss_dwellings": "medium-high: the PDF itself (text layer + vector paths), never the DXF the primary reads; "
                        "both are renderings of the same dataset geometry",
     "ifc_models": "medium: the SVG twin of the plan sheet (elements by GUID, footprints); rendered from the "
                   "same IFC, so it catches query / storey / filter mistakes, not modelling errors",
+    "upload-raster": "",
     "cubicasa5k": "low: a separately trained detector (YOLO11s v3 vs the primary's YOLO11m v4) on the same "
                   "public annotations; errors can be correlated",
 }
@@ -783,6 +811,8 @@ def crosscheck(q, primary) -> dict:
     the v3 detector's reading, when available, is attached under "others" (shown, not voted)."""
     try:
         src = q.get("source")
+        if src == "upload" and _vlm_upload_ok(q):  # a judge's own plan: only the live VLM can give a second reading
+            src = "upload-raster"
         fn = SECOND.get(src)
         if fn is None or q.get("type") not in ("count", "area"):
             return _single("no second method for this kind of question")
@@ -790,8 +820,8 @@ def crosscheck(q, primary) -> dict:
         others = []
         sec = _second(fn, q)
         indep = INDEPENDENCE[src]
-        if src == "cubicasa5k" and q.get("type") == "count":
-            vlm = _second(vlm_answer, q)
+        if src in ("cubicasa5k", "upload-raster") and q.get("type") == "count":
+            vlm = vlm_answer(q)  # its own caches; not _second, which would also remember "server down"
             if vlm is not None and vlm.get("answer") is not None:
                 if sec is not None and sec.get("answer") is not None:
                     others = [{**sec, "independence": indep, "agree": agrees("count", pa, sec["answer"])}]

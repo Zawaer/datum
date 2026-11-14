@@ -55,26 +55,32 @@ class VlmSolver:
             r = self.runner.ask(img, q["question"], source=q.get("source"))
         except Exception as e:  # noqa: BLE001  e.g. server down: let the router fall back
             return {**base, "explanation": f"VLM call failed: {type(e).__name__}: {str(e)[:120]}"}
-        p = r["parsed"]
-        items = p["items"]
-        n = len(items)
-        conf = r["confidence"] if r["confidence"] is not None else 0.5
-        notes = []
-        if not p["ok"]:
-            conf *= 0.5
-            notes.append("reply was not clean JSON")
-        if p.get("n_raw", n) > n:  # the model looped on the same box(es): its count is unreliable
-            conf *= 0.2
-            notes.append(f"repetition loop ({p['n_raw'] - n} repeated boxes dropped)")
-        if p["count"] is not None and p["count"] != n:
-            conf *= 0.5
-            notes.append(f"model said count {p['count']} but listed {n} boxes")
-        ev = [{"kind": "box", "file": file, "page": 0, "bbox": [round(v, 5) for v in b],
-               "label": f"{lab or 'item'} {i}", "value": 1} for i, (lab, b) in enumerate(items, 1)]
-        kinds = sorted({lab for lab, _ in items if lab})
-        expl = f"{n} item{'' if n == 1 else 's'} found by the VLM" + (f" ({', '.join(kinds[:4])})" if kinds else "")
-        if notes:
-            expl += " [" + "; ".join(notes) + "]"
+        out = answer_from_reply(r, file)
         cost = r["seconds"] * self.usd_per_hour / 3600 if self.runner.backend == "remote" else 0.0
-        return {**base, "answer": n, "confidence": round(min(1.0, conf), 3), "evidence": ev, "explanation": expl,
-                "cost_usd": round(cost, 6), "seconds": r["seconds"], "raw": r["text"][-1500:]}
+        return {**base, **out, "cost_usd": round(cost, 6), "seconds": r["seconds"], "raw": r["text"][-1500:]}
+
+
+def answer_from_reply(r: dict, file: str) -> dict:
+    """Runner reply (bp.vlm.infer: text / parsed / confidence) -> {"answer", "confidence", "evidence", "explanation"}.
+    Shared by the solver and the live second opinion (bp/vlm/live.py), so both read the model the same way."""
+    p = r["parsed"]
+    items = p["items"]
+    n = len(items)
+    conf = r["confidence"] if r["confidence"] is not None else 0.5
+    notes = []
+    if not p["ok"]:
+        conf *= 0.5
+        notes.append("reply was not clean JSON")
+    if p.get("n_raw", n) > n:  # the model looped on the same box(es): its count is unreliable
+        conf *= 0.2
+        notes.append(f"repetition loop ({p['n_raw'] - n} repeated boxes dropped)")
+    if p["count"] is not None and p["count"] != n:
+        conf *= 0.5
+        notes.append(f"model said count {p['count']} but listed {n} boxes")
+    ev = [{"kind": "box", "file": file, "page": 0, "bbox": [round(v, 5) for v in b],
+           "label": f"{lab or 'item'} {i}", "value": 1} for i, (lab, b) in enumerate(items, 1)]
+    kinds = sorted({lab for lab, _ in items if lab})
+    expl = f"{n} item{'' if n == 1 else 's'} found by the VLM" + (f" ({', '.join(kinds[:4])})" if kinds else "")
+    if notes:
+        expl += " [" + "; ".join(notes) + "]"
+    return {"answer": n, "confidence": round(min(1.0, conf), 3), "evidence": ev, "explanation": expl}
