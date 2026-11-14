@@ -61,11 +61,42 @@ def test_intent():
 def test_answer_evidence():
     meta = {"image": str(FIX), "path": str(FIX), "w": 1100, "h": 1000, "page": 0}
     meta["openings"] = {"doors": [{"bbox": [0.1, 0.1, 0.2, 0.2], "leaves": 2, "kind": "swing"}],
-                        "windows": [{"bbox": [0.0, 0.3, 0.02, 0.4]}], "internal_glazing": [], "low_res": False}
+                        "windows": [{"bbox": [0.0, 0.3, 0.02, 0.4]}], "internal_glazing": [{"bbox": [0.5, 0.5, 0.52, 0.6]}], "low_res": False}
     r = O.answer(str(FIX), "Counts of doors and windows", meta)
-    assert r["answer"] == "1 doors and 1 windows"
-    assert [e["label"] for e in r["evidence"]] == ["door 1 (double)", "window 1"]
+    assert r["answer"] == "1 doors and 1 exterior windows (+1 internal glazed panels)"
+    assert [e["label"] for e in r["evidence"]] == ["door 1 (double)", "window 1",
+                                                  "internal glazed panel 1 (not in the window count)"]
     assert all(0 <= v <= 1 for e in r["evidence"] for v in e["bbox"])
     assert O.answer(str(FIX), "What is the hall area?", meta) is None
     meta["openings"]["low_res"] = True
     assert O.answer(str(FIX), "How many doors?", meta) is None
+
+
+def test_low_res_answer_uses_detector_and_flags_disagreement():
+    y = {"doors": [{"bbox": [0.1, 0.1, 0.12, 0.12]}] * 10, "windows": [{"bbox": [0, 0, 0.01, 0.01]}] * 4}
+    hk_ok = {"doors": [{}] * 9, "windows": [{}] * 4, "tiles": 9, "cost_usd": 0.01}
+    hk_bad = {"doors": [{}] * 3, "windows": [{}] * 4, "tiles": 9, "cost_usd": 0.01}
+    a = O._answer_yolo("doors", y, hk_ok)
+    b = O._answer_yolo("doors", y, hk_bad)
+    assert a["answer"] == 10 and b["answer"] == 10
+    assert a["confidence"] > b["confidence"] and "DISAGREES" in b["explanation"]
+    assert a["low_res"] and len(a["evidence"]) == 10
+
+
+def test_schedule_marks_parse(monkeypatch):
+    class Pg:
+        def __init__(self, t):
+            self.t = t
+
+        def get_text(self):
+            return self.t
+
+    txt = "\n".join(["ROOM FINISH SCHEDULE", "101", "CONTROL ROOM", "CUT AND COVER DOOR SCHEDULE", "DOOR NO.",
+                     "101A", "F", "915", "2100", "101A", "F", "915", "2100", "102", "F", "915", "2100",
+                     "PUMPHOUSE DOOR SCHEDULE", "106", "3' - 0\"", "7' - 0\""])
+    import types
+    fake = types.SimpleNamespace(open=lambda p: [Pg("PLAN"), Pg(txt)])
+    monkeypatch.setitem(__import__("sys").modules, "pymupdf", fake)
+    sch = O.schedule_doors("x.pdf")
+    assert sch["page"] == 1
+    assert sch["schedules"] == [{"101A": 2, "102": 1}, {"106": 1}]

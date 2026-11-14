@@ -8,18 +8,23 @@ Doors  : the swing arc. Ink is split into thick walls (morphological opening) an
          thin connected component of door size is searched (RANSAC) for circle arcs; an arc counts as a door swing
          when it spans ~60-120 degrees, its centre (the hinge) sits on a wall end and a straight leaf runs from the
          hinge out to one arc end. Two swings whose hinges are r1 + r2 apart and that close towards each other are one
-         double door. Sliding and folding doors have no arc and are not found (said so in the answer).
+         double door. Folding doors and leaves drawn ajar (no arc) are found as straight leaf strokes; sliding doors are not.
 Windows: a glazing strip in a thick wall: two or more thin parallel lines, about a wall thickness apart, running
          between two solid wall piers whose thickness matches the strip. Strips on the building's outside face are
          windows; strips between two rooms are reported separately as internal glazing.
-Scale  : printed scale via arch.scale(meta) when available, else the median door-swing radius taken as 0.9 m.
-Rasters are worked at ~110 px/m (vector PDF pages are re-rendered; rasters upsampled up to 2x). Rasters needing
-more (2000-3000 px screenshots/JPGs: swings become sub-pixel dots) are flagged low_res and answer() abstains.
+Scale  : a PDF page's printed ratio (1:200, 1/4" = 1'-0") and paper size, else arch.scale(meta), else the median
+         door-swing radius taken as 0.9 m. Rasters are worked at ~110 px/m (vector PDF pages are re-rendered).
+Fallback (answer() never trusts an implausible swing reading): low-res rasters (needing > 2x upsampling), sheets where
+         the swings come out far short of the CubiCasa detector or below ~1 door per 200 m2 of building bbox, use the
+         detector's boxes (resampled to 40 px/m), cross-checked by a Claude Haiku count on 3x3 tiles (~$0.01):
+         confidence 0.5 when they agree within 15 %, 0.25 (and said so) when not.
+Schedule: on a vector PDF with a DOOR SCHEDULE page, the schedule marks printed on this sheet are an independent door
+         count; agreement raises confidence, disagreement switches the answer to the schedule count (and says so).
 
-Measured on the DfE special school plan level 00 (14000 px, 1:200 on A2) against a hand count (tests/fixtures/openings/eval_gold.json):
-doors 122 found / 122 correct / 128 in the hand count (P 1.00, R 0.95), windows 67 / 67 / 68 (P 1.00, R 0.99);
-without the printed scale (estimated) doors 124 found, ~122 correct. Not handled: double-line (unfilled) walls with
-grey swings (DAF dormitory: abstains at its 23 px/m), sliding doors, 180-degree swings.
+Measured (tests/fixtures/openings/eval_gold.json): DfE school level 00, 14000 px: doors 122 found / 122 correct / 128
+by hand (P 1.00, R 0.95), exterior windows 67 / 67 / 68, plus 11 internal glazed panels reported separately.
+2000 px school screenshot via the detector: 120-126 doors (hand 128, P ~0.8), 75 windows. DAF dormitory (double-line
+walls, grey swings): no method within 10 % of a rough structural count (~130 hinged doors), answers say so.
 """
 from __future__ import annotations
 
@@ -642,8 +647,36 @@ def intent(question: str) -> str | None:
     return "doors_windows" if d and w else "doors" if d else "windows" if w else None
 
 
+def _pdf_scale(meta):
+    """px per metre on meta["image"] for a PDF page: printed ratio (1:200, 1 : 50, 1/4" = 1'-0") from the page text
+    and the page's physical size. None when the page has no ratio or more than one different ratio."""
+    path = str(meta.get("path") or "")
+    if not path.lower().endswith(".pdf"):
+        return None
+    t = f"{meta.get('scale') or ''}\n{meta.get('text') or ''}"
+    ratios = {int(m) for m in re.findall(r"\b1\s*:\s*(\d{2,4})\b", t)}
+    for a, b in re.findall(r"(\d+)/(\d+)\"\s*=\s*1'\s*-?\s*0\"", t):
+        ratios.add(round(12 * int(b) / int(a)))
+    for a in re.findall(r"\b(\d)\"\s*=\s*1'\s*-?\s*0\"", t):
+        ratios.add(round(12 / int(a)))
+    ratios = {r for r in ratios if 10 <= r <= 2000}
+    if len(ratios) != 1:
+        return None
+    try:
+        import pymupdf
+
+        pg = pymupdf.open(path)[int(meta.get("page") or 0)]
+    except Exception:  # noqa: BLE001
+        return None
+    paper_m = max(pg.rect.width, pg.rect.height) / 72 * 0.0254
+    return max(meta["w"], meta["h"]) / paper_m / ratios.pop()
+
+
 def _scale(meta):
-    """px per metre on meta["image"], from arch's scale reader when it has one."""
+    """px per metre on meta["image"]: the PDF page's printed ratio, else arch's scale reader."""
+    s = _pdf_scale(meta)
+    if s:
+        return s
     try:
         from bp.sheets import arch
 
@@ -706,12 +739,168 @@ def analyse_meta(meta) -> dict:
                "px_per_m": (wppm or r.get("px_per_m_estimated") or 0) / f or None,
                "scale_from": "printed scale" if wppm else "median door swing = 0.9 m" if r.get("px_per_m_estimated") else None,
                "solid_walls": None}
+        try:  # the symbol detector always runs (free, ~5 s): fallback for low-res rasters and a sanity check
+            res["yolo"] = yolo_openings(meta["image"], ppm)
+        except Exception as e:  # noqa: BLE001
+            log.warning("openings: detector fallback failed: %s", e)
+        # swing reading implausibly short of the detector (unfilled double-line walls, grey swings): treat as low-res
+        yd = len((res.get("yolo") or {}).get("doors") or [])
+        res["cv_ok"] = not res["low_res"] and not (yd >= 10 and len(res["doors"]) < 0.6 * yd) \
+            and not (len(res["doors"]) < 3 and yd > len(res["doors"]))  # 1-2 swings on a scan: not a reading
+        # plausibility: a floor plan has at least ~1 door per 100 m2 of building (bbox area, needs a scale)
+        if res["cv_ok"] and res.get("px_per_m"):
+            try:
+                ext = building_bbox(_gray(meta["image"]))
+            except Exception:  # noqa: BLE001
+                ext = None
+            if ext:
+                area = (ext[2] - ext[0]) * meta["w"] * (ext[3] - ext[1]) * meta["h"] / res["px_per_m"] ** 2
+                res["footprint_bbox_m2"] = round(area)
+                if len(res["doors"]) < area / 100 * 0.5:  # bbox overstates an L / T footprint: allow half
+                    res["cv_ok"] = False
+        if not res["cv_ok"] and os.environ.get("BP_OPENINGS_HAIKU", "1") == "1":
+            try:
+                res["haiku"] = haiku_openings(meta["image"])
+            except Exception as e:  # noqa: BLE001
+                log.warning("openings: vision tiles failed: %s", e)
         try:
             cf.write_text(json.dumps(res))
         except OSError:
             pass
     meta["openings"] = res
     return res
+
+
+# CubiCasa YOLO fallback for low-res rasters. Measured on the 2000 px school screenshot (resampled to 40 px/m,
+# door >= 0.3, window >= 0.55, boxes inside the building): doors 126 found vs 128 by hand (P 0.81, R 0.80: misses
+# and false boxes nearly cancel), windows ~76 vs 68 (P ~0.88, R 0.99). 53 / 70 px/m were worse for doors.
+YOLO_PX_PER_M = 40.0
+YOLO_THR = {"door": 0.3, "window": 0.55}
+YOLO_PRECISION = {"door": 0.81, "window": 0.88}
+
+
+def building_bbox(gray) -> list[float] | None:
+    """Normalised bbox of the drawn building on a raster of any resolution: the big blobs of solid wall or colour fill
+    (anything well off white, opened so that 1-px lines, text and the sheet frame drop out)."""
+    import cv2
+
+    g = _gray(gray)
+    s = 1500 / max(g.shape)
+    if s < 1:
+        g = cv2.resize(g, (round(g.shape[1] * s), round(g.shape[0] * s)), interpolation=cv2.INTER_AREA)
+    m = cv2.morphologyEx((g < 235).astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    m = cv2.dilate(m, np.ones((15, 15), np.uint8))  # join the wings / modules of one building
+    n, lab, st, _ = cv2.connectedComponentsWithStats(m, 8)
+    if n < 2:
+        return None
+    H, W = m.shape
+    # a building blob is big both ways (a notes / disclaimer paragraph is wide but short)
+    ok = [i for i in range(1, n) if st[i, 2] >= 0.1 * W and st[i, 3] >= 0.1 * H]
+    if not ok:
+        return None
+    big = max(st[i, cv2.CC_STAT_AREA] for i in ok)
+    keep = [i for i in ok if st[i, cv2.CC_STAT_AREA] >= 0.25 * big]
+    x0 = min(st[i, 0] for i in keep) / W
+    y0 = min(st[i, 1] for i in keep) / H
+    x1 = max(st[i, 0] + st[i, 2] for i in keep) / W
+    y1 = max(st[i, 1] + st[i, 3] for i in keep) / H
+    return [x0, y0, x1, y1]
+
+
+def yolo_openings(image, px_per_m=None) -> dict:
+    """{"doors": [...], "windows": [...]} (normalised boxes, score) from the CubiCasa detector on the raster resampled
+    to YOLO_PX_PER_M (without a scale: to 4800 px on the long side), limited to the building's bbox."""
+    import tempfile
+
+    from PIL import Image
+
+    from bp.cubicasa.infer import load, predict
+
+    Image.MAX_IMAGE_PIXELS = None
+    im = image if hasattr(image, "convert") else Image.open(str(image))
+    im = im.convert("RGB")
+    W, H = im.size
+    f = YOLO_PX_PER_M / px_per_m if px_per_m else 4800 / max(W, H)  # no scale: ~40 px/m on an A2/D sheet
+    f = max(0.25, min(f, 10000 / max(W, H)))
+    big = im.resize((round(W * f), round(H * f)), Image.LANCZOS)
+    global _YOLO
+    if _YOLO is None:
+        _YOLO = load("cache/cubicasa/weights/best.pt")
+    with tempfile.NamedTemporaryFile(suffix=".png") as tf:
+        big.save(tf.name)
+        dets = predict(_YOLO, tf.name, "t1024", conf=0.15)
+    ext = building_bbox(np.asarray(im.convert("L")))
+    out = {"doors": [], "windows": [], "factor": f, "px_per_m": px_per_m, "extent": ext}
+    for cls, sc, b in dets:
+        if cls not in YOLO_THR or sc < YOLO_THR[cls]:
+            continue
+        cx, cy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+        if ext and not (ext[0] - 0.01 <= cx <= ext[2] + 0.01 and ext[1] - 0.01 <= cy <= ext[3] + 0.01):
+            continue
+        out[cls + "s"].append({"bbox": [float(v) for v in b], "score": round(float(sc), 3)})
+    for k in ("doors", "windows"):
+        out[k].sort(key=lambda d: (round(d["bbox"][1] * 40), d["bbox"][0]))
+    return out
+
+
+_YOLO = None
+
+HAIKU_PROMPT = """This is one tile ({w}x{h} px) of an architectural floor plan. Mark every DOOR and every WINDOW in it.
+Door: a door leaf with its swing arc (quarter circle), a folding/bifold door, or a sliding door; a double door
+(two leaves in one opening) is ONE door; a wardrobe/closet door counts as a door. Window: a glazed panel in an outside
+wall (thin parallel lines or a small rectangle interrupting the wall); several panels side by side between solid
+piers count separately. Ignore furniture, stairs, text and anything cut off at the tile edge by more than half.
+JSON only: {{"doors": [[x0,y0,x1,y1], ...], "windows": [[x0,y0,x1,y1], ...]}} in this tile's pixels."""
+
+
+def haiku_openings(image, ext=None, grid=3, model="haiku", max_side=1400) -> dict:
+    """Doors / windows read by Claude vision on a grid x grid split of the building bbox (tiles do not overlap, so
+    each box belongs to exactly one tile: no duplicates). Cached per image + tile. ~$0.002-0.004 per tile."""
+    from PIL import Image
+
+    from bp.generic import llm
+
+    Image.MAX_IMAGE_PIXELS = None
+    im = image if hasattr(image, "convert") else Image.open(str(image))
+    im = im.convert("RGB")
+    W, H = im.size
+    ext = ext or building_bbox(np.asarray(im.convert("L"))) or [0, 0, 1, 1]
+    X0, Y0, X1, Y1 = ext[0] * W, ext[1] * H, ext[2] * W, ext[3] * H
+    h = hashlib.sha1(np.asarray(im.resize((64, 64))).tobytes()).hexdigest()[:12]
+    cache = Path("cache/openings")
+    cache.mkdir(parents=True, exist_ok=True)
+    out = {"doors": [], "windows": [], "cost_usd": 0.0, "tiles": grid * grid}
+    for gy in range(grid):
+        for gx in range(grid):
+            tx0, tx1 = X0 + (X1 - X0) * gx / grid, X0 + (X1 - X0) * (gx + 1) / grid
+            ty0, ty1 = Y0 + (Y1 - Y0) * gy / grid, Y0 + (Y1 - Y0) * (gy + 1) / grid
+            tile = im.crop((int(tx0), int(ty0), int(tx1), int(ty1)))
+            s = min(3.0, max_side / max(tile.size))  # small tiles are upscaled: swings must be visible
+            if abs(s - 1) > 0.05:
+                tile = tile.resize((round(tile.width * s), round(tile.height * s)), Image.LANCZOS)
+            cf = cache / f"{h}_{grid}_{gx}{gy}_{model}_{tile.width}.json"
+            if cf.exists():
+                d = json.loads(cf.read_text())
+            else:
+                r = llm.ask(HAIKU_PROMPT.format(w=tile.width, h=tile.height), [tile], model=model,
+                            tag="openings-tiles", timeout=120)
+                d = llm.parse_json(r["text"]) or {}
+                d = d if isinstance(d, dict) else {}
+                d["cost_usd"] = r.get("cost_usd", 0.0)
+                if r.get("text"):
+                    cf.write_text(json.dumps(d))
+                out["cost_usd"] += d["cost_usd"]
+            for k in ("doors", "windows"):
+                for b in d.get(k) or []:
+                    if not (isinstance(b, list) and len(b) == 4):
+                        continue
+                    try:
+                        bx = [float(v) for v in b]
+                    except (TypeError, ValueError):
+                        continue
+                    gb = [(tx0 + bx[0] / s) / W, (ty0 + bx[1] / s) / H, (tx0 + bx[2] / s) / W, (ty0 + bx[3] / s) / H]
+                    out[k].append({"bbox": gb})
+    return out
 
 
 def _ev(b, label):
@@ -723,8 +912,11 @@ def answer(path, question, meta):
     if it is None:
         return None
     r = analyse_meta(meta)
-    if r["low_res"]:
-        return None  # swings are sub-pixel dots at this resolution: let the generic / detector path answer
+    if not r.get("cv_ok", not r["low_res"]):
+        out = _answer_yolo(it, r.get("yolo"), r.get("haiku"))
+        if out is not None:
+            _add_schedule_check(out, meta, it)
+        return out
     ev, parts, conf = [], [], []
     if it in ("doors", "doors_windows"):
         ds = r["doors"]
@@ -745,19 +937,147 @@ def answer(path, question, meta):
         for i, w in enumerate(ws, 1):
             ev.append(_ev(w["bbox"], f"window {i}"))
         ig = len(r["internal_glazing"])
-        parts.append(f"{len(ws)} windows (each glazed panel between wall piers in an outside wall"
-                     + (f"; {ig} internal glazed panels / screens not counted" if ig else "") + ")")
+        for i, g in enumerate(r["internal_glazing"], 1):
+            e = _ev(g["bbox"], f"internal glazed panel {i} (not in the window count)")
+            e["value"] = None
+            ev.append(e)
+        parts.append(f"{len(ws)} exterior windows (each glazed panel between wall piers in an outside wall)"
+                     + (f" + {ig} internal glazed panels / screens ({len(ws) + ig} glazed panels in all)" if ig else ""))
         conf.append(0.8 if ws else 0.3)
+    ig = len(r["internal_glazing"])
+    wtxt = f"{len(r['windows'])} exterior windows" + (f" (+{ig} internal glazed panels)" if ig else "")
     if it == "doors_windows":
-        ans = f"{len(r['doors'])} doors and {len(r['windows'])} windows"
+        ans = f"{len(r['doors'])} doors and {wtxt}"
     elif it == "doors":
         ans = len(r["doors"])
     else:
-        ans = len(r["windows"])
+        ans = len(r["windows"]) if not ig else wtxt
     expl = ("Found " + "; ".join(parts) + ". Every counted item is a numbered box: check the marked ones. "
             "Doors are read from their swing arcs (plus folding / ajar leaves); sliding doors and openings "
             "without a door symbol are not counted.")
-    return {"answer": ans, "confidence": round(min(conf), 2), "method": f"{METHOD}-cv", "cost_usd": 0.0,
+    out = {"answer": ans, "confidence": round(min(conf), 2), "method": f"{METHOD}-cv", "cost_usd": 0.0,
+           "explanation": expl, "evidence": ev,
+           "counts": {"doors": len(r["doors"]), "windows": len(r["windows"]),
+                      "internal_glazing": len(r["internal_glazing"])}}
+    _add_schedule_check(out, meta, it)
+    return out
+
+
+def _agree(a, b, tol=0.15):
+    return max(a, b) > 0 and abs(a - b) / max(a, b) <= tol
+
+
+def _answer_yolo(it, y, hk=None):
+    """Swings not readable: the detector's boxes, cross-checked against a Claude vision count on tiles. Agreement
+    (within 15 %) gives confidence 0.5 (school screenshot: detector 120, vision 109, hand 128); disagreement 0.25."""
+    if not y or (it == "doors" and not y["doors"]) or (it == "windows" and not y["windows"]):
+        return None
+    ev, parts = [], []
+    if it in ("doors", "doors_windows"):
+        ev += [_ev(d["bbox"], f"door {i}") for i, d in enumerate(y["doors"], 1)]
+        parts.append(f"{len(y['doors'])} doors")
+    if it in ("windows", "doors_windows"):
+        ev += [_ev(d["bbox"], f"window {i}") for i, d in enumerate(y["windows"], 1)]
+        parts.append(f"{len(y['windows'])} windows")
+    ans = len(y["doors"]) if it == "doors" else len(y["windows"]) if it == "windows" else \
+        f"{len(y['doors'])} doors and {len(y['windows'])} windows"
+    conf, notes = 0.45, []
+    if hk:
+        for k in (["doors"] if it == "doors" else ["windows"] if it == "windows" else ["doors", "windows"]):
+            a, b = len(y[k]), len(hk[k])
+            if _agree(a, b):
+                notes.append(f"a separate vision count on {hk['tiles']} tiles agrees ({b} {k})")
+                conf = 0.5 if conf > 0.25 else conf  # any disagreement keeps it at 0.25
+            else:
+                notes.append(f"a separate vision count on {hk['tiles']} tiles DISAGREES ({b} {k}): treat this {k} "
+                             f"count as rough")
+                conf = 0.25
+    expl = ("Found " + " and ".join(parts) + " with the symbol detector (door swings could not be read directly on "
+            "this drawing, so expect a few wrong or missed boxes: about 1 in 5 for doors on our test sheet)"
+            + ("; " + "; ".join(notes) if notes else "") + ". Every counted item is a numbered box: check the marked "
+            "ones; a higher-resolution upload or the PDF gives a more exact count.")
+    return {"answer": ans, "confidence": conf, "method": f"{METHOD}-yolo", "cost_usd": (hk or {}).get("cost_usd", 0.0),
+            "low_res": True,
             "explanation": expl, "evidence": ev,
-            "counts": {"doors": len(r["doors"]), "windows": len(r["windows"]),
-                       "internal_glazing": len(r["internal_glazing"])}}
+            "counts": {"doors": len(y["doors"]), "windows": len(y["windows"]),
+                       "vision_doors": len(hk["doors"]) if hk else None,
+                       "vision_windows": len(hk["windows"]) if hk else None}}
+
+
+_TAG = re.compile(r"^[A-Z]?\d{2,4}[A-Z]?$")
+_DIM = re.compile(r"^\d+'\s*-\s*\d+")
+
+
+def _is_width(ln: str) -> bool:
+    if _DIM.match(ln):
+        return True
+    return bool(re.fullmatch(r"\d{3,4}", ln)) and 500 <= int(ln) <= 3000  # metric leaf width in mm
+
+
+def schedule_doors(pdf_path: str) -> dict | None:
+    """Door marks from the DOOR SCHEDULE(s) in a PDF: {"page": i, "schedules": [{mark: rows}, ...]} (a mark listed
+    twice = a pair of leaves). A row is a mark followed within 3 lines by a leaf width (3' - 0" or 915)."""
+    try:
+        import pymupdf
+
+        doc = pymupdf.open(pdf_path)
+    except Exception:  # noqa: BLE001
+        return None
+    for i, pg in enumerate(doc):
+        t = pg.get_text()
+        if "DOOR SCHEDULE" not in t.upper():
+            continue
+        lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
+        per, cur = [], None
+        for k, ln in enumerate(lines):
+            u = ln.upper()
+            if "SCHEDULE" in u:
+                cur = {} if "DOOR SCHEDULE" in u else None
+                if cur is not None:
+                    per.append(cur)
+                continue
+            if _is_width(ln) and k and (re.fullmatch(r"[A-Z]{1,2}|\d{3,4}", lines[k - 1])):
+                continue  # a width (or height) column value, not a mark
+            if cur is not None and _TAG.match(ln) and any(_is_width(x) for x in lines[k + 1:k + 4]):
+                cur[ln] = cur.get(ln, 0) + 1
+        per = [d for d in per if d]
+        if per:
+            return {"page": i, "schedules": per}
+    return None
+
+
+def _add_schedule_check(res, meta, it):
+    """Vector PDF with a door schedule: the schedule's marks printed on this sheet are an independent door count."""
+    if it == "windows" or not str(meta.get("path") or "").lower().endswith(".pdf"):
+        return
+    sch = meta.setdefault("_openings_schedule", schedule_doors(meta["path"]))
+    if not sch:
+        return
+    words = {w.get("text", "").strip() for w in (meta.get("words") or [])} or set(
+        (meta.get("text") or "").split())
+    best = None
+    for sd in sch["schedules"]:
+        on = [m for m in sd if m in words]
+        if on and (best is None or len(on) > len(best[0])):
+            best = (on, sd)
+    if not best:
+        return
+    on, sd = best
+    n = len(on)
+    ours = res.get("counts", {}).get("doors")
+    msg = (f"Cross-check: the door schedule (page {sch['page'] + 1}) lists {len(sd)} doors, {n} of whose marks "
+           f"({', '.join(sorted(on))}) are on this sheet")
+    if ours is not None:
+        msg += "; that agrees with the drawn count" if ours == n else \
+            f"; the drawn count ({ours}) DISAGREES with that, so the answer uses the schedule's {n} (the boxes are " \
+            f"the drawn symbols: check them)"
+    res["explanation"] += " " + msg + "."
+    res["schedule_doors"] = n
+    if ours is not None and ours != n and n >= 2:
+        if it == "doors":
+            res["answer"] = n
+        elif isinstance(res.get("answer"), str):
+            res["answer"] = re.sub(r"^\d+ doors", f"{n} doors", res["answer"])
+        res["confidence"] = max(res.get("confidence", 0), 0.7)
+    elif ours == n:
+        res["confidence"] = max(res.get("confidence", 0), 0.9)
