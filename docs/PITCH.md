@@ -16,7 +16,7 @@ Rehearse the switch: it is the only thing that can eat time.
 
 ## 1. The 3-minute talk
 
-About 450 spoken words, roughly 150 per minute. **Bold** = say it with weight. *[brackets]* = what's on screen
+About 470 spoken words: a brisk 160 per minute, so rehearse with a timer. **Bold** = say it with weight. *[brackets]* = what's on screen
 or what the driver does. Numbers are written the way you say them.
 
 ### 0:00–0:25 · Hook (live demo, tab 1)
@@ -41,17 +41,15 @@ or what the driver does. Numbers are written the way you say them.
 
 *[Switch to the deck, slide 2: two wrong frontier answers.]*
 
-> Every construction estimate starts with a takeoff.
-> Count the doors. Measure the rooms. Add up the walls.
-> Today that's done by hand, and it's slow.
-> AI could do it, but nobody trusts it.
+> Every construction estimate starts with a takeoff: count the doors, measure the rooms.
+> Today that's done by hand, and it's slow. AI could do it, but nobody trusts it.
 > Here's why. We asked Claude Sonnet for the floor area of this apartment.
 > It said ninety-four point seven three square metres. **The answer is one hundred and eight point three.**
 > It even had the CAD file.
 
 *[Slide 3: the fair baseline bars.]*
 
-> Across our test set, a frontier model given the same CAD and BIM files gets **about seventy percent** right.
+> Given the same CAD and BIM files, a frontier model gets **about seventy percent** right.
 > And the wrong answers look exactly as confident as the right ones.
 
 ### 0:55–1:25 · How (slide 4)
@@ -84,7 +82,7 @@ or what the driver does. Numbers are written the way you say them.
 
 *[Back to the door plan, answer visible.]*
 
-> Being right is half of it. The other half: **can you check it?** We built four checks.
+> Now: **can you check it?** Four ways.
 
 *[Driver unticks door #4 in the evidence list: the total drops to 19. Re-tick it.]*
 
@@ -97,8 +95,8 @@ or what the driver does. Numbers are written the way you say them.
 
 *[Switch to the Finnish scan tab, `colorful-10052.png`: five boxed doors, conflict flag.]*
 
-> Three. **A second opinion.** A different method re-derives every number. On scans, that's our own
-> fine-tuned vision model. Here it says four, so the app flags it. Five boxes: a five-second check. Five is right.
+> Three. **A second opinion.** On scans, our own fine-tuned vision model re-counts.
+> Here it says four, so the app flags it. Five boxes: a five-second check. Five is right.
 
 > Four. **Every number an LLM writes is traced** to the facts it cited, or flagged.
 
@@ -106,10 +104,9 @@ or what the driver does. Numbers are written the way you say them.
 
 *[Slide 11: path to product.]*
 
-> And we checked our own evaluation, too. A second AI agent audited it: no leakage, the recount reproduces.
-> So here's what Stoa gets.
-> A takeoff engine that's right ninety percent of the time, says so when it isn't sure,
-> and costs about a cent per thousand questions.
+> A second AI agent audited our evaluation: no leakage, the numbers reproduce.
+> So here's what Stoa gets: a takeoff engine that's right ninety percent of the time,
+> says so when it isn't sure, and costs about a cent per thousand questions.
 > **A product a professional can actually sign off on.**
 
 *[Slide 12: team, repo, "Start the 60-second tour".]*
