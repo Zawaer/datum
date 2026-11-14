@@ -290,6 +290,23 @@ body.hw > header { position: sticky; top: 0; z-index: 30; }
 .hw-foot p { margin: 0 0 8px; }
 
 /* ------------------------------------------------------------ narrow screens: graphic on top, text scrolls beneath */
+/* ------------------------------------------------------------ 5 · construction sheets (static) */
+.hw-sgrid { display: grid; grid-template-columns: minmax(280px, 520px) 1fr; gap: 56px; align-items: start; padding: 32px 0 48px; }
+.hw-stext p { margin: 0 0 16px; color: var(--mut); max-width: 520px; }
+.hw-kinds { margin: 0 0 16px; padding: 0; }
+.hw-kinds div { padding: 12px 0; border-top: 1px solid var(--line); }
+.hw-kinds div:last-child { border-bottom: 1px solid var(--line); }
+.hw-kinds dt { font-weight: 600; color: var(--ink); }
+.hw-kinds dd { margin: 2px 0 0; color: var(--mut); }
+.hw-sres { margin: 0; padding: 24px 28px; background: var(--panel2); border: 1px solid var(--line); border-radius: var(--r2); }
+.hw-sform { width: 100%; border-collapse: collapse; font-size: 14px; }
+.hw-sform th { text-align: left; font-weight: 400; color: var(--text); padding: 8px 16px 8px 0; white-space: nowrap; width: 1%; }
+.hw-sform td { padding: 8px 0; }
+.hw-sform td.hw-r { text-align: right; width: 3em; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.hw-sbar2 { height: 12px; background: var(--line); border-radius: 0 4px 4px 0; }
+.hw-sbar2 i { display: block; height: 100%; width: var(--w); background: var(--ev); border-radius: 0 4px 4px 0; }
+@media (max-width: 960px) { .hw-sgrid { grid-template-columns: 1fr; gap: 24px; } .hw-sres { padding: 16px; } }
+
 @media (max-width: 960px) {
   .hw-scrolly { grid-template-columns: 1fr; gap: 0; }
   /* the graphic stays on top (opaque) and the text cards slide up from under it */

@@ -28,6 +28,10 @@ our own CV detector (trained on a local RTX 4070), our fine-tuned 8B VLM as seco
 a small frontier LLM, only for free text. Share of the 25,420 test questions per route: CAD / IFC geometry 34.7 %,
 detector 64.9 %, Haiku 0.4 % (the 110 free-text questions).
 
+Uploaded construction sheets (floor plans, slab plans, piping plans, as vector PDFs, images or scans) go to
+sheet specialists that read the sheet's own text and lines: 40 of 41 right on Stoa's example sheets as vector
+PDFs, fewer on small images and scans ([complex construction sheets](#complex-construction-sheets)).
+
 ![Counting doors on a Swiss apartment plan: the plan tilted up into a cut-away 3D model with the 20 counted doors painted on the floor and a numbered pin on each, next to the answer 20, "Verified by geometry", and a second, independent method that agrees](docs/deck/img/feat-3d.jpg)
 <sub>Drawing: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0 (rendered by the Junction dataset authors).</sub>
 
@@ -51,6 +55,62 @@ Also: **See it in 3D** (top image) tilts a Swiss plan up into a cut-away model w
 ([how it tilts](docs/deck/img/feat-3d-rise.jpg)), and the
 **How it works** page (`/how`) walks through routing, the proof on the drawing, the four checks and the cost.
 <sub>Drawings: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0 (X-ray, heat-map, 3D, phone); CubiCasa5K, © 2019 CubiCasa, CC BY-NC-SA 4.0 (voice); Molio Demo-hus, buildingSMART Community Sample-Test-Files, CC BY 4.0 (BIM). Each image shows its credit line.</sub>
+
+## Complex construction sheets
+
+Stoa's final judging uploads unseen, complex sheets through the interface, and the brief names what to ask of
+them: floor areas, baseboard linear metres, door and window counts, slab area by type (thickness and bars), and,
+as a stretch, piping plans. Each upload is classified once from its title block (floor plan, slab plan, piping
+plan, other), and a question on it goes to a specialist in [`bp/sheets/`](bp/sheets/) that reads the sheet's own
+text and linework. A vector PDF gives the exact words and lines; a scan or a small image goes through local OCR
+(Tesseract), with Claude Haiku reading only what OCR cannot. When a specialist is unsure it says so, or hands the
+question to the generic reader.
+
+| sheet | specialist | answers |
+|---|---|---|
+| floor plan | [`arch.py`](bp/sheets/arch.py) dispatches by question | |
+| | [`openings.py`](bp/sheets/openings.py) | door and window counts: door swings and glazing strips found by classical CV, checked against the door schedule on a PDF set; on low-res images our CubiCasa detector, cross-checked by a Haiku count |
+| | [`zones.py`](bp/sheets/zones.py) | areas and counts from the sheet's schedule tables, colour-coded zones measured against the legend |
+| | [`rooms.py`](bp/sheets/rooms.py) | room areas and baseboard (skirting) metres: walls traced, rooms labelled by their names, doorway widths deducted |
+| slab plan | [`slab.py`](bp/sheets/slab.py) | slab area by type (thickness + bars), reinforcement, trench lengths, sumps, control-joint panels; metric and imperial |
+| piping plan | [`piping.py`](bp/sheets/piping.py), [`pipe_runs.py`](bp/sheets/pipe_runs.py) | tag counts by family, pipe sizes, notes, referenced sheets; run lengths by size, traced from the double-line pipes |
+
+The evidence follows the answer: table cells outlined ("from the sheet's table"), measured lines drawn with
+their length, zones filled with a legend of m² per category, tags as chips grouped by family, and a chip that
+says how the sheet was read ("Slab plan · measured at 1:50"). A replay works the answer out on the drawing in
+2 to 4 seconds: the scale reference first, then the rooms, pins, runs or cells one by one while a running total
+ticks up.
+
+**Measured on Stoa's example sheets** (41 questions on the four sheets; gold is the printed value, or our own
+measurement where the sheet does not print one, scored with a wider tolerance), uploaded through the real API in
+every form a judge might use ([`analysis/stoa_examples_eval.py`](analysis/stoa_examples_eval.py),
+[`runs/stoa_examples_final_forms.summary.md`](runs/stoa_examples_final_forms.summary.md)):
+
+| upload form | right | dormitory floor plan | school floor plan | slab plan | piping plan |
+|---|---:|---:|---:|---:|---:|
+| vector PDF page | **40/41** | 8/8 | 7/8 | 12/12 | 13/13 |
+| full-resolution PNG | 36/41 | 7/8 | 7/8 | 12/12 | 10/13 |
+| 2,000 px JPG (screenshot size) | 31/41 | 7/8 | 1/8 | 12/12 | 11/13 |
+| 2,500 px PNG | 28/41 | 7/8 | 3/8 | 7/12 | 11/13 |
+| simulated scan (150 dpi, skewed, noisy, in a PDF) | 28/41 | 6/8 | 3/8 | 8/12 | 11/13 |
+
+Before the specialists, the generic reader got 22, 18, 15, 17 and 18 of the original 34 questions on these five
+forms ([`runs/stoa_examples_baseline_forms.summary.md`](runs/stoa_examples_baseline_forms.summary.md)); the
+specialists get 33, 29, 24, 24 and 23. On 11 questions about sibling sheets from the same public drawing sets,
+never used while building, the full-resolution run gets 10. API cost for all 41 questions: $0.003 on the vector
+PDFs, $0.03 to $0.12 on the images.
+
+**Where it is weak.** Low-resolution school plans: shrunk to 2,000 px, the school sheet is too coarse for single
+rooms (walls a few pixels thick), and only 1 of its 8 questions comes out right. Such coarse sheets now answer
+only totals and the footprint, and say why. Window counts on the school plan are scored wrong on every form: we
+find 67 exterior windows (68 by our own hand count) plus 11 internal glazed panels, while the example gold,
+counted earlier, says about 101; we have not settled which count is right. Slab areas on unseen sheets: on the held-out imperial slab plan S-100A the areas
+come out 23 to 41 % low, and the answer says it is unsure. On a harder set of 40 questions written the way a
+site engineer would ask them (13 sheets, Finnish / English / German / Swedish, 5 that must be declined), a run
+at midday got 91 of 160 answers right across four upload forms
+([`runs/judge_baseline.summary.md`](runs/judge_baseline.summary.md)); the misses were per-room door counts, room-level areas and
+baseboards on the school plan, slab volumes, and a slab area asked in Finnish. The example sheets are public US government and UK OGL drawings; they are
+not stored in this repository ([docs/research/EXAMPLE-SOURCES.md](docs/research/EXAMPLE-SOURCES.md)).
 
 ## Results
 
@@ -178,6 +238,7 @@ question + drawing ──► router (by source / file kind; type from multilingu
                          ├─ IFC / plan rendered from IFC ──► IfcOpenShell tables          (bp/solvers/ifc.py)
                          ├─ raster plan (PNG/JPG) ──► YOLO11m symbol detector              (bp/solvers/cubicasa.py)
                          ├─ IFC free text ──► fact sheet with ids + cheap LLM that cites ids (bp/solvers/ifctext.py)
+                         ├─ uploaded sheet (floor / slab / piping) ──► sheet specialist     (bp/sheets/)
                          └─ anything else / uploads ──► generic grounded fallback           (bp/solvers/generic.py)
 answer ──► second method re-derives it: agree / conflict / single                  (bp/crosscheck.py)
            (PDF re-read for Swiss, SVG sheet for IFC, 2nd detector + fine-tuned VLM for raster)
@@ -249,7 +310,8 @@ unzip -q junction-dataset.zip && cd ../..       # -> data/full/junction-dataset/
 question abstains with "cubicasa solver failed: FileNotFoundError", which is 16,496 of the 25,420 test
 questions. Point `CUBICASA_WEIGHTS` at a `best.pt` if yours is elsewhere.
 
-The app has a guided demo tour (`app/tour.json`), drawing upload (PDF, PNG, JPG, DXF, IFC), and a scoreboard
+The app has a guided demo tour (`app/tour.json`), drawing upload (PDF, PNG, JPG, DXF, IFC; sheet specialists need
+`tesseract` on `PATH` for images and scans), and a scoreboard
 page that reads `runs/*.summary.md`.
 
 **API keys.** Every numeric answer (counts, areas, lengths, volumes) needs no key and no network. Only these

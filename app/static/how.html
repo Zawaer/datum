@@ -28,6 +28,7 @@
   <a href="#proof" data-chap="proof"><span>2</span> Proof<span class="hw-long"> on the drawing</span></a>
   <a href="#checks" data-chap="checks"><span>3</span> <span class="hw-long">Four </span>checks</a>
   <a href="#cost" data-chap="cost"><span>4</span> Cost</a>
+  <a href="#sheets" data-chap="sheets"><span>5</span> Sheets</a>
   <i class="hw-toc-bar" aria-hidden="true"></i>
 </nav>
 
@@ -36,7 +37,7 @@
 <section class="hw-hero" aria-labelledby="hw-title">
   <p class="hw-kicker">How it works</p>
   <h1 id="hw-title">Ask a drawing a question.<br>Get the answer <em>with its proof</em>.</h1>
-  <p class="hw-lede">What happens between your question and the answer, in four short steps.</p>
+  <p class="hw-lede">What happens between your question and the answer, in four short steps, and how it reads the construction sheets you upload.</p>
   <a class="hw-down" href="#route">Start <span aria-hidden="true">↓</span></a>
 </section>
 
@@ -285,6 +286,39 @@
   </div>
 </section>
 
+<!-- ============================================================ 5 · construction sheets (static, no scroll steps) -->
+<section class="hw-chap hw-sheets" id="sheets" aria-labelledby="h-sheets">
+  <header class="hw-chead"><span class="hw-num">05</span><h2 id="h-sheets">Construction sheets</h2></header>
+  <div class="hw-sgrid">
+    <div class="hw-stext">
+      <p>Upload a floor plan, a slab plan or a piping plan, as a PDF, an image or a scan. Datum reads the title block
+        once to tell which kind it is, then each question goes to a reader for that kind of sheet.</p>
+      <dl class="hw-kinds">
+        <div><dt>Floor plans</dt><dd>doors and windows, room areas, baseboard metres, the sheet’s own area tables and colour zones</dd></div>
+        <div><dt>Slab plans</dt><dd>slab area by type (thickness and bars), reinforcement, trenches, sumps, joint panels</dd></div>
+        <div><dt>Piping plans</dt><dd>tag counts, pipe sizes, notes, referenced sheets, run lengths by size</dd></div>
+      </dl>
+      <p>A PDF gives the exact words and lines. A scan is read by OCR on our server. The answer shows the table cells,
+        lines and zones it used, and replays how the total was worked out.</p>
+    </div>
+    <figure class="hw-sres">
+      <figcaption class="hw-ctitle">Right answers on Stoa’s four example sheets, 41 questions, by upload form</figcaption>
+      <table class="hw-sform">
+        <caption class="hw-sr">Right answers out of 41, by the form the sheet was uploaded in</caption>
+        <tbody>
+          <tr><th scope="row">Vector PDF</th><td><div class="hw-sbar2"><i style="--w:97.6%"></i></div></td><td class="hw-r">40</td></tr>
+          <tr><th scope="row">Full-resolution PNG</th><td><div class="hw-sbar2"><i style="--w:87.8%"></i></div></td><td class="hw-r">36</td></tr>
+          <tr><th scope="row">2,000&nbsp;px JPG</th><td><div class="hw-sbar2"><i style="--w:75.6%"></i></div></td><td class="hw-r">31</td></tr>
+          <tr><th scope="row">2,500&nbsp;px PNG</th><td><div class="hw-sbar2"><i style="--w:68.3%"></i></div></td><td class="hw-r">28</td></tr>
+          <tr><th scope="row">Scanned PDF</th><td><div class="hw-sbar2"><i style="--w:68.3%"></i></div></td><td class="hw-r">28</td></tr>
+        </tbody>
+      </table>
+      <p class="hw-note">Weakest: school plans shrunk to a small image (1 of 8 right at 2,000&nbsp;px), and slab areas
+        on a sheet we never tuned on (23–41&nbsp;% low, marked unsure). Coarse sheets give totals only and say why.</p>
+    </figure>
+  </div>
+</section>
+
 <section class="hw-cta" aria-labelledby="h-cta">
   <h2 id="h-cta">Now ask one yourself.</h2>
   <p>Every answer in the demo comes with these checks. The tour shows seven of them in about a minute.</p>
@@ -299,7 +333,8 @@
   <p>Numbers: README and <code>docs/RESULTS.md</code>; ours from <code>runs/router_full_test_v7</code> (all 25,420 test questions, split by
     whole drawing); frontier models on a 400-question stratified sample re-weighted to the test mix, API list price; curve from
     <code>analysis/out/selective_all_curve.csv</code>; second opinion from <code>runs/crosscheck_test.summary.md</code>, <code>runs/crosscheck_vlm_test_v7.summary.md</code>;
-    provenance from <code>docs/PROVENANCE.md</code>.</p>
+    provenance from <code>docs/PROVENANCE.md</code>; construction sheets from <code>runs/stoa_examples_final_*.summary.md</code>
+    (gold printed on the sheet, or measured by hand with a wider tolerance).</p>
   <p>Drawings: Swiss Dwellings v3.0.0, M. Standfest et al. (Archilyse AG), doi:10.5281/zenodo.7788422, CC BY 4.0. Questions: Junction 2026
     dataset by Stoa (non-commercial, per-file licences); IFC-Bench v2, © 2025 Sylvain Hellin (TUM), CC BY 4.0.</p>
 </footer>

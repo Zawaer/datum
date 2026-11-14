@@ -441,7 +441,7 @@ function init() {
   setLogDots(false);
   showQ(0, true);
   if ('IntersectionObserver' in window) observeSteps();
-  else chapters.forEach(c => { const s = $$('.hw-step', c).pop(); activate(s); });
+  else chapters.forEach(c => { const s = $$('.hw-step', c).pop(); if (s) activate(s); });
   requestAnimationFrame(() => { layoutWires(); drawDots(false); });
   progress();
 }

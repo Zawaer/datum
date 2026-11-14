@@ -6,7 +6,7 @@ the live-demo run sheet with fallbacks, and short answers to the questions judge
 
 Every number here is quoted from [README.md](../README.md) (headline and verification), the deck
 ([docs/deck/deck.html](deck/deck.html)) or [docs/UPLOADS.md](UPLOADS.md). If one of those changes, change it
-here too. Deck slide numbers refer to `docs/deck/deck.pdf` (12 slides).
+here too. Deck slide numbers refer to `docs/deck/deck.pdf` (13 slides).
 
 **Two screens, one laptop.** Tab 1: the demo, with the hook drawing already open (run sheet below). Tab 2: the
 deck PDF in full-screen presenter mode. Switch with Ctrl/Cmd+Tab or Alt+Tab. Speaker A talks, speaker B drives.
@@ -16,7 +16,7 @@ Rehearse the switch: it is the only thing that can eat time.
 
 ## 1. The 3-minute talk
 
-About 470 spoken words: a brisk 160 per minute, so rehearse with a timer. **Bold** = say it with weight. *[brackets]* = what's on screen
+About 490 spoken words: a brisk 160 per minute, so rehearse with a timer. **Bold** = say it with weight. *[brackets]* = what's on screen
 or what the driver does. Numbers are written the way you say them.
 
 ### 0:00–0:25 · Hook (live demo, tab 1)
@@ -37,7 +37,7 @@ or what the driver does. Numbers are written the way you say them.
 
 (Checked: "Kuinka monta ovea?" on this plan answers 20 through the CAD solver, with no model call and $0.)
 
-### 0:25–0:55 · Problem (slides 2 and 3)
+### 0:25–0:55 · Problem (slide 2)
 
 *[Switch to the deck, slide 2: two wrong frontier answers.]*
 
@@ -47,7 +47,7 @@ or what the driver does. Numbers are written the way you say them.
 > It said ninety-four point seven three square metres. **The answer is one hundred and eight point three.**
 > It even had the CAD file.
 
-*[Slide 3: the fair baseline bars.]*
+*[Still slide 2.]*
 
 > Given the same CAD and BIM files, a frontier model gets **about seventy percent** right.
 > And the wrong answers look exactly as confident as the right ones.
@@ -65,9 +65,9 @@ or what the driver does. Numbers are written the way you say them.
 > That's **zero point four percent** of the questions.
 > The model chooses what to measure. **Geometry does the measuring.**
 
-### 1:25–1:55 · Proof (slide 8)
+### 1:25–1:55 · Proof (slides 6 and 7)
 
-*[Slide 8: the results table. Point at the "All test questions" row, then the cost tiles.]*
+*[Slide 6: the results bars. Click to slide 7, the cost pair, at "one nineteen-hundredth".]*
 
 > We tested on drawings we never trained on.
 > **All twenty-five thousand, four hundred and twenty questions.** Every one, not a sample.
@@ -78,66 +78,74 @@ or what the driver does. Numbers are written the way you say them.
 > On CAD plans and BIM models we're at essentially one hundred percent.
 > Scanned plans are the hard part. There we get eighty-five point one, and Sonnet gets sixty-three point six.
 
-### 1:55–2:35 · Verification (live demo, tab 1; slide 9 if the demo is down)
+### 1:55–2:20 · Verification (live demo, tab 1; slide 3 if the demo is down)
 
 *[Back to the door plan, answer visible.]*
 
-> Now: **can you check it?** Four ways.
+> Now: **can you check it?**
 
 *[Driver unticks door #4 in the evidence list: the total drops to 19. Re-tick it.]*
 
-> One. **The evidence adds up.** These twenty boxes *are* the answer. Untick one, and the total follows.
+> **The evidence adds up.** These twenty boxes *are* the answer. Untick one, and the total follows.
 
 *[Point at the confidence line under the answer.]*
 
-> Two. **Confidence you can take literally.** On a scan, when it says zero point nine five or more, it's right
-> ninety-eight point seven percent of the time. When it's unsure, it says "not sure" instead of guessing.
+> **Confidence you can take literally.** On a scan, at zero point nine five or more, it's right
+> ninety-eight point seven percent of the time. When it's unsure, it says "not sure".
+> And on scans, our own fine-tuned vision model re-counts, and flags any disagreement.
 
-*[Switch to the Finnish scan tab, `colorful-10052.png`: five boxed doors, conflict flag.]*
+### 2:20–2:45 · Stoa's sheets (live demo, tab 5; slide 9 if the demo is down)
 
-> Three. **A second opinion.** On scans, our own fine-tuned vision model re-counts.
-> Here it says four, so the app flags it. Five boxes: a five-second check. Five is right.
+*[Tab 5: Stoa's example floor plan (the dormitory, vector PDF), uploaded during set-up; the sheet chip shows.
+Driver types* What is the total dormitory area of all three wings? *The replay outlines the schedule cells one by
+one and the total ticks up to 18,472 SF.]*
 
-> Four. **Every number an LLM writes is traced** to the facts it cited, or flagged.
+> Your final round uses sheets nobody has seen. Floor plans, slab plans, piping plans
+> go to specialists that read the sheet's own text and lines.
+> **Eighteen thousand four hundred and seventy-two square feet**, added up from the cells it outlined.
+> On your four example sheets: **forty of forty-one** from the PDF, thirty-one from the small screenshots.
+> Scans and low-res school plans are the weak spot, and it says so.
 
-### 2:35–3:00 · Close (slide 11, then 12)
+(Checked: this question on the dormitory PDF answers 18,472 from the sheet's schedule, `runs/stoa_examples_final_pdf.summary.md`, dorm5.)
 
-*[Slide 11: path to product.]*
+### 2:45–3:00 · Close (slide 10, then 11)
 
-> A second AI agent audited our evaluation: no leakage, the numbers reproduce.
-> So here's what Stoa gets: a takeoff engine that's right ninety percent of the time,
-> says so when it isn't sure, and costs about a cent per thousand questions.
-> **A product a professional can actually sign off on.**
+*[Slide 10: why it lasts.]*
 
-*[Slide 12: team, repo, "Start the 60-second tour".]*
+> A second AI agent audited our evaluation: the numbers reproduce.
+> A takeoff engine that is right when it answers, says so when it isn't sure,
+> and costs about a cent per thousand questions.
 
-> Datum: on a drawing, the datum is the point every measurement is taken from, and every answer here traces
-> back to the drawing. Try the tour, then ask it your own question.
+*[Slide 11: team and repo.]*
+
+> Datum: every answer traces back to the drawing. Ask it your own question.
 
 ### Timing cues
 
 | at | you should be on | if you're behind |
 |---|---|---|
 | 0:25 | slide 2 | skip "It even had the CAD file." |
-| 0:55 | slide 4 | skip slide 3's spoken line, just point at the bar |
-| 1:25 | slide 8 | drop "A language model only sees the free-text questions." (keep the 0.4 %) |
-| 1:55 | demo, door plan | do verification on slide 9 without switching |
-| 2:35 | slide 11 | go straight to the last two lines of the close |
+| 0:55 | slide 4 | skip "And the wrong answers look exactly as confident" |
+| 1:25 | slide 6 | drop "A language model only sees the free-text questions." (keep the 0.4 %) |
+| 1:55 | demo, door plan | do verification on slide 3 without switching |
+| 2:20 | demo, tab 5 | skip the replay: say the sheet lines over slide 9 |
+| 2:45 | slide 10 | go straight to the last line of the close |
 
 ---
 
 ## 2. The 90-second cut
 
-About 220 words. Same order, fewer switches: one demo moment at the start, then slides only.
+About 250 words. Same order, fewer switches: one demo moment at the start, then slides only.
 
 | time | screen | say |
 |---|---|---|
 | 0:00–0:15 | demo: door plan, mic, X-ray count, **See it in 3D** | *(into the mic)* "Kuinka monta ovea?" ... "I asked this plan, in Finnish, how many doors. **Twenty. Each one numbered, each one checkable.** No AI model call. Zero cents." |
 | 0:15–0:30 | slide 2 | "Takeoff is slow by hand, and nobody trusts AI with it. Claude Sonnet said this apartment is ninety-four square metres. It's one hundred and eight. And it sounded just as sure." |
 | 0:30–0:45 | slide 4 | "So we route every question to the cheapest method that's exact: the CAD layers, the BIM model, or a small detector we trained. Only zero point four percent of questions ever touch a language model." |
-| 0:45–1:05 | slide 8 | "On all twenty-five thousand, four hundred and twenty held-out questions, we're right **ninety point zero percent**. Sonnet, given the same files: sixty-nine point eight. Twenty points better, at **one nineteen-hundredth of the cost**." |
-| 1:05–1:20 | slide 9 | "And you can check every answer. The evidence adds up to the number. The confidence means what it says. A second method re-checks it. Every LLM number is traced." |
-| 1:20–1:30 | slide 11 | "For Stoa: a takeoff engine **a professional can sign off on**. Datum: blueprints that talk." |
+| 0:45–1:00 | slide 6 | "On all twenty-five thousand, four hundred and twenty held-out questions, we're right **ninety point zero percent**. Sonnet, given the same files: sixty-nine point eight. Twenty points better, at **one nineteen-hundredth of the cost**." |
+| 1:00–1:10 | slide 3 | "And you can check every answer. The evidence adds up to the number. The confidence means what it says. A second method re-checks it." |
+| 1:10–1:22 | slide 9 | "Uploaded sheets go to specialists that read their own text and lines. On Stoa's example sheets, forty of forty-one right from the PDF; scans are harder, and it says so." |
+| 1:22–1:30 | slide 10 | "For Stoa: a takeoff engine **a professional can sign off on**. Datum: blueprints that talk." |
 
 ---
 
@@ -153,6 +161,7 @@ About 220 words. Same order, fewer switches: one demo moment at the start, then 
 | Ask by voice | yes | no | audio goes to ElevenLabs for speech-to-text; if that fails, the page falls back to the browser's speech recognition, or type |
 | Frontier side-by-side ("Frontier models, same drawing") | yes | no | precomputed baseline answers |
 | Uploads | yes | for raster residential plans only | read by Claude Haiku when no exact reader fits |
+| Construction sheets (tab 5) | yes | no | sheet specialists on the server; OCR is local; Claude Haiku classifies the title block once per upload (~$0.001) and reads only text OCR misses; on a vector PDF most answers make no model call |
 
 **Nothing works offline.** The demo is a server (no offline cache), so without a network you fall back to the
 deck and the recorded video (below). The GPU box only matters for the second opinion on free-worded scan
@@ -174,6 +183,8 @@ the judges and your laptop share the venue Wi-Fi, they share an IP: do not rehea
    - **Tab 3, backup German area:** `<DEMO>/?tab=swiss_dwellings&path=data/swiss_dwellings/site11487_bldg17991_floor47889.pdf&q=Wie gross ist die Nettowohnfläche von Wohnung A in m² (Summe aller Räume ohne Balkone, Loggien, Terrassen und andere Aussenräume)?`
      (62.74 m², and five frontier answers, all wrong).
    - **Tab 4:** `docs/deck/deck.pdf`, full screen, on slide 2.
+   - **Tab 5, sheets:** `<DEMO>/`, then upload Stoa's example floor plan (the dormitory sheet, as the single-page
+     vector PDF) and wait for the sheet chip. Ask nothing yet: the upload warms the specialists in the background.
 3. In tab 1, press the mic once and allow microphone access, then **reload tab 1** so the ask box is empty again.
 4. Say "Kuinka monta ovea?" once in tab 1 to warm the server and check the mic hears you over the room, then
    reload. (This uses 1 of the 150 asks.)
@@ -187,8 +198,8 @@ the judges and your laptop share the venue Wi-Fi, they share an IP: do not rehea
 | 3 | 0:25 | switch to the deck, slide 2 | | |
 | 4 | 1:55 | switch back to tab 1, click **Plan** if still in 3D; in the evidence list untick **door #4** | total 20 → 19 | |
 | 5 | ~2:00 | re-tick door #4; point at the confidence line ("Very likely right") and the second-method line | back to 20 | |
-| 6 | ~2:15 | switch to tab 2 (Finnish scan) | 5 boxed doors, "second opinion says 4", check advised | if tab 2 errored: skip it, say the line over slide 9 |
-| 7 | 2:35 | switch to the deck, slide 11, then 12 | | |
+| 6 | 2:20 | switch to tab 5 (sheet); type *What is the total dormitory area of all three wings?*, Enter | the replay outlines the schedule cells, the total ticks to 18,472 SF; do not click while it plays (a click skips it) | if no answer in 8 s: switch to the deck, slide 9, and say the same lines |
+| 7 | 2:45 | switch to the deck, slide 10, then 11 | | |
 
 While anything loads, keep talking: the next line of the script never depends on the screen being ready.
 
@@ -199,12 +210,12 @@ While anything loads, keep talking: the next line of the script never depends on
 | Mic / speech-to-text | type `Kuinka monta ovea?` and press Enter. Say: "Voice works too; on this Wi-Fi I'll type." |
 | 3D is slow on the projector laptop | skip **See it in 3D**; the 2D X-ray count is the hook on its own |
 | GPU box down | nothing in the run sheet uses it. Do not ask the Finnish scan a free-worded question live |
-| Demo slow or 502 / 429 | stay in the deck: slide 5 (doors and German area, screenshots), slide 6 (Finnish scan and BIM), slide 7 (3D, X-ray, side-by-side, heat-map). Say the same lines while pointing at the screenshots |
+| Demo slow or 502 / 429 | stay in the deck: slide 3 (numbered doors), slide 5 (BIM in 3D), slide 8 (Finnish scan by voice), slide 9 (sheets by upload form). Say the same lines while pointing at the screenshots |
 | No Wi-Fi at all | phone hotspot first. Failing that: deck PDF (local) and the recorded video `runs/video/blueprints-final.mp4` (copy it to the laptop beforehand; it is on the dev box, not in git) |
 | Need a single image | `docs/deck/img/`: `feat-3d.jpg` (20 doors in 3D), `feat-xray-card.jpg` (X-ray count), `feat-ghost.jpg` (frontier side-by-side), `feat-voice.jpg` (voice), `deck-finnish-vlm.jpg` (scan + second opinion), `deck-ifc-walls.jpg` (BIM walls in 3D), `deck-correction.jpg` (untick a window) |
 | Over time | cut straight to the close: "So here's what Stoa gets..." |
 
-If the judges get hands-on time after the pitch: open slide 12's **▶ Start the 60-second tour** (7 steps; arrow
+If the judges get hands-on time after the pitch: hand them tab 5 and let them upload one of their own sheets, or open the demo's **Take the 60-second tour** (7 steps; arrow
 keys move between them, Esc leaves), then let them type their own question.
 
 ---
@@ -216,6 +227,20 @@ No: the DXF is the same drawing in another format, shipped in the dataset, not t
 symbols and room polygons from its layers, and the audit confirmed no gold lookups at inference. Claude Sonnet
 given the same DXF gets 81.5 % of the counts and 79.6 % of the areas, and our cross-check re-derives the answers
 from the PDF alone (it even caught one of our own area errors).
+
+**"Will it work on the unseen sheets in the final round?"**
+That is what the sheet specialists are for, and we measured them the way the final round works: Stoa's four
+example sheets uploaded through the app's API in five forms. 41 questions: 40 right from the vector PDF, 36 from
+the full-resolution PNG, 31 from the 2,000 px screenshots, 28 from a 2,500 px PNG and 28 from a simulated scan.
+On sibling sheets from the same public sets, never used while building, 10 of 11. Before the specialists, the
+generic reader got 22 of the original 34 on the PDFs.
+
+**"What's weak on sheets?"**
+Two things. Low-resolution school plans: at 2,000 px only 1 of the school sheet's 8 questions is right, so
+coarse sheets now answer only totals and the footprint and say why. And slab areas on a sheet we never tuned on:
+on the held-out imperial slab plan the areas come out 23 to 41 % low, and the answer says it is unsure. On a
+harder set of 40 questions worded like a site engineer would (four languages, 5 that must be declined), a run at
+midday got 91 of 160 across four upload forms; per-room door counts and slab volumes were the misses.
 
 **"How does it do on real-world scans?"**
 The Finnish plans are raster scans: 85.1 % on all 16,496 test questions, 93.4 % when it answers, against 63.6 %
@@ -249,8 +274,9 @@ Off-the-shelf: ezdxf, Shapely and IfcOpenShell for the geometry, and Claude Haik
 rewording unusual questions.
 
 **"What about privacy of uploads?"**
-CAD, IFC and dataset-scan answers are computed on our own server; an upload that no exact reader can answer is
-read by Claude Haiku, and the app says so next to the drawing (voice audio goes to ElevenLabs for transcription
+CAD, IFC and dataset-scan answers are computed on our own server. Uploaded sheets are read on the server too
+(PDF text layer or local OCR); Claude Haiku sees the title block once to classify the sheet, and tiles only where
+OCR reads nothing. An upload that no exact reader can answer is read by Claude Haiku, and the app says so next to the drawing (voice audio goes to ElevenLabs for transcription
 and is never stored). Self-hosted, the numeric answers on CAD, IFC and scans make no outside call at all.
 
 **"What about free-text questions? 38 % isn't great."**

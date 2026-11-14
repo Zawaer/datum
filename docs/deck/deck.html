@@ -121,7 +121,7 @@
     <div class="row" style="top:304px"><b>Gemini 3.1 Pro</b><i class="dot" style="left:calc(600px + (73.90 - 52) / 26 * 920px)"></i><span class="v">73.90</span></div>
     <div class="row" style="top:392px; border-bottom:1px solid var(--line)"><b>Nemotron 3.5 Super VL</b><i class="dot" style="left:calc(600px + (75.00 - 52) / 26 * 920px)"></i><span class="v">75.00</span></div>
   </div>
-  <div class="foot"><span>Swiss Dwellings v3.0.0 plan, asked in German; held-out test question. Method: slide 11</span><span>2</span></div>
+  <div class="foot"><span>Swiss Dwellings v3.0.0 plan, asked in German; held-out test question. Method: slide 12</span><span>2</span></div>
 </section>
 
 <!-- 3 · THE ANSWER, ON THE DRAWING
@@ -159,7 +159,7 @@
     <div class="t" style="left:448px; top:480px; width:720px"><b>Free text</b><span>A small language model that must cite its facts. 0.4 %.</span></div>
     <div class="t" style="left:1368px; top:280px; width:300px"><b class="ours">The answer, and the marks behind it</b></div>
   </div>
-  <div class="foot"><span>Shares of all 25,420 test questions. Method: slide 11</span><span>4</span></div>
+  <div class="foot"><span>Shares of all 25,420 test questions. Method: slide 12</span><span>4</span></div>
 </section>
 
 <!-- 5 · 3D / VERIFY
@@ -180,7 +180,7 @@
   every question in every language. 90.0 % [89.7-90.4]; a "not sure" counts as wrong. When it answers (confidence
   >= 0.5): 95.8 %, declining 12.4 %. Fair baseline: Claude Sonnet 5.5 given the drawing AND its CAD / IFC files:
   69.8 % [60.9-78.4]. Frontier rows are a 400-question stratified sample re-weighted to the test mix.
-  Also: Haiku 5.5 60.6 %, Nemotron 3.5 Super VL 49.0 %. Per-source table on slide 11. -->
+  Also: Haiku 5.5 60.6 %, Nemotron 3.5 Super VL 49.0 %. Per-source table on slide 12. -->
 <section class="slide">
   <h2>90.0 % right on 25,420 questions it had never seen.</h2>
   <div class="hbar">
@@ -189,7 +189,7 @@
     <div class="lab">Gemini 3.1 Pro,<br>drawing only</div><div class="track"><i style="width:calc(64.2 / 100 * 960px)"></i><em>64.2 %</em></div>
     <div class="lab">Claude Sonnet 5.5,<br>drawing only</div><div class="track"><i style="width:calc(63.2 / 100 * 960px)"></i><em>63.2 %</em></div>
   </div>
-  <div class="foot"><span>Held-out test split, whole drawings never used in development. Frontier: re-weighted sample. Method: slide 11</span><span>6</span></div>
+  <div class="foot"><span>Held-out test split, whole drawings never used in development. Frontier: re-weighted sample. Method: slide 12</span><span>6</span></div>
 </section>
 
 <!-- 7 · COST
@@ -203,7 +203,7 @@
     <div><div class="n ours">$0.013</div><div class="l">Datum, per 1,000 questions</div></div>
     <div><div class="n" style="color:var(--ink3)">$25.76</div><div class="l">Claude Sonnet 5.5 with the same files</div></div>
   </div>
-  <div class="foot"><span>API fees, measured; ours adds about $0.006 of local compute. 0.04 s per question vs 16 s. Method: slide 11</span><span>7</span></div>
+  <div class="foot"><span>API fees, measured; ours adds about $0.006 of local compute. 0.04 s per question vs 16 s. Method: slide 12</span><span>7</span></div>
 </section>
 
 <!-- 8 · VOICE / PHONE / SCANS
@@ -220,7 +220,29 @@
   <div class="foot"><span>Left: CubiCasa5K, © 2019 CubiCasa, Kalervo et al., SCIA 2019, CC BY-NC-SA 4.0 · Right: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0</span><span>8</span></div>
 </section>
 
-<!-- 9 · WHY IT LASTS
+<!-- 9 · COMPLEX SHEETS
+  Notes: Final judging uploads unseen, complex sheets. Each upload is classified once (floor, slab, piping plan) and
+  a question goes to a specialist that reads the sheet's own text and lines: doors and windows, room areas and
+  baseboard metres, schedule tables and colour zones, slab area by type (thickness + bars), pipe tags, sizes and run
+  lengths. The answer shows table cells, measured lines and zones, and replays how it was worked out in 2-4 s.
+  41 questions on Stoa's four example sheets, uploaded through the real API: vector PDF 40, full-res PNG 36,
+  2,000 px JPG 31, 2,500 px PNG 28, simulated scan 28. Sibling sheets never used in development: 10 of 11.
+  Weak: low-res school plans (1/8 at 2,000 px; coarse sheets now answer totals only and say why); slab areas on an
+  unseen slab plan come out 23-41 % low, flagged low confidence. API cost: $0.003 for all 41 on PDFs. -->
+<section class="slide">
+  <h2>Stoa’s example sheets: 40 of 41 from a PDF, fewer from a scan.</h2>
+  <p>Floor, slab and piping plans, read from their own text and lines. Right answers by upload form:</p>
+  <div class="hbar" style="margin-top:72px; row-gap:28px; grid-template-columns:520px 1fr">
+    <div class="lab o">Vector PDF</div><div class="track o" style="height:64px"><i style="width:calc(40 / 41 * 960px)"></i><em>40 / 41</em></div>
+    <div class="lab">Full-resolution PNG</div><div class="track o" style="height:64px"><i style="width:calc(36 / 41 * 960px)"></i><em>36</em></div>
+    <div class="lab">2,000 px JPG</div><div class="track o" style="height:64px"><i style="width:calc(31 / 41 * 960px)"></i><em>31</em></div>
+    <div class="lab">2,500 px PNG</div><div class="track o" style="height:64px"><i style="width:calc(28 / 41 * 960px)"></i><em>28</em></div>
+    <div class="lab">Scanned PDF</div><div class="track o" style="height:64px"><i style="width:calc(28 / 41 * 960px)"></i><em>28</em></div>
+  </div>
+  <div class="foot"><span>Stoa’s four example sheets, 41 questions, uploaded through the app’s API. Method: slide 12</span><span>9</span></div>
+</section>
+
+<!-- 10 · WHY IT LASTS
   Notes: Stoa's brief asks for approaches next year's models won't make obsolete: "hybrids of frontier models + CV +
   3D/geometry + small fine-tuned models". That is this router. Exact where exactness exists (CAD layers and BIM
   quantities hold the true answer, at no cost per question). Proof is the product: a professional signs off only
@@ -230,10 +252,10 @@
   <h2>A better model still guesses from pixels.<br>We read the number from the geometry.</h2>
   <p>New models plug in behind the same proof. Each correction trains our own models.</p>
   <div class="bleed" style="top:400px"><img src="img/deck-correction.jpg" alt="A window unticked: the answer becomes 10, the app notes the solver said 11 and saves it as feedback" style="object-position:50% 0%"></div>
-  <div class="foot"><span>Drawing: Swiss Dwellings v3.0.0, M. Standfest et al. (Archilyse AG), doi:10.5281/zenodo.7788422, CC BY 4.0</span><span>9</span></div>
+  <div class="foot"><span>Drawing: Swiss Dwellings v3.0.0, M. Standfest et al. (Archilyse AG), doi:10.5281/zenodo.7788422, CC BY 4.0</span><span>10</span></div>
 </section>
 
-<!-- 10 · TEAM + TRY IT
+<!-- 11 · TEAM + TRY IT
   Notes: Toivo and Rene, built at Junction 2026 in Espoo, 13-15 Nov, with Claude Code. Open the demo, press
   "Take the 60-second tour", then ask your own question. Path to product for Stoa: now, drop in a drawing and ask;
   next, whole drawing sets and revisions (flag what changed); then, checked quantities into estimates, procurement
@@ -243,10 +265,10 @@
   <p>Toivo and Rene · <span style="color:var(--ink)">github.com/Zawaer/datum</span> · MIT</p>
   <div class="frame" style="position:absolute; left:128px; top:328px; width:1232px; height:680px"><img src="img/landing.jpg" alt="The demo's landing page: the drawing, a one-line pitch, the 60-second tour and the ask box" style="width:1711px; height:auto; max-width:none; margin:-137px 0 0 -430px"></div>
   <div class="frame" style="position:absolute; right:128px; top:328px; width:314px; height:680px; border-radius:24px"><img src="img/phone-answer.jpg" alt="The phone quick-ask view: the plan with numbered pins and the answer 20" style="object-position:50% 0%"></div>
-  <div class="foot"><span>Drawing: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0</span><span>10</span></div>
+  <div class="foot"><span>Drawing: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0</span><span>11</span></div>
 </section>
 
-<!-- 11 · METHOD (appendix) -->
+<!-- 12 · METHOD (appendix) -->
 <section class="slide">
   <h2>Method</h2>
   <div class="cols">
@@ -262,6 +284,7 @@
       </table>
       <div class="s"><b>Split.</b> 20 % of drawings held out as test by a SHA-1 hash of the drawing id, so every format and language twin of a drawing stays on one side. Nothing tuned on test.</div>
       <div class="s"><b>Scoring.</b> Counts exact, areas, lengths and volumes within 2 %. “Not sure” counts as wrong. Free text: LLM judge, same rubric for every system.</div>
+      <div class="s"><b>Sheets.</b> 41 questions on Stoa’s four example sheets; gold printed on the sheet or measured by hand (wider tolerance). Sibling sheets never used in development: 10 / 11. Weak: low-res school plans (1 / 8 at 2,000 px); slab areas on an unseen slab plan 23–41 % low, flagged. <code>runs/stoa_examples_final_*</code>.</div>
     </div>
     <div>
       <div class="s"><b>Ours.</b> All 25,420 test questions, 90.0 % [95 % CI 89.7–90.4]; declines 12.4 %. <code>runs/router_full_test_v7</code>.</div>
@@ -271,10 +294,10 @@
       <div class="s"><b>Audit.</b> Cross-audited by a second AI agent (Codex): no leakage, no test data in training or calibration, the recount reproduces. Tables: <code>docs/RESULTS.md</code>, <code>analysis/run_all.sh</code>.</div>
     </div>
   </div>
-  <div class="foot"><span></span><span>11</span></div>
+  <div class="foot"><span></span><span>12</span></div>
 </section>
 
-<!-- 12 · CREDITS (appendix) -->
+<!-- 13 · CREDITS (appendix) -->
 <section class="slide">
   <h2>Credits</h2>
   <div class="cols">
@@ -292,7 +315,7 @@
       <div class="s"><b>Models.</b> Claude Haiku 5.5 for free text only; our own YOLO11m symbol detector and fine-tuned 8B vision model; IfcOpenShell for BIM.</div>
     </div>
   </div>
-  <div class="foot"><span></span><span>12</span></div>
+  <div class="foot"><span></span><span>13</span></div>
 </section>
 
 <script>

@@ -47,15 +47,16 @@ Durations are planned. The real ones follow the voice (table below, regenerated 
 | 7 | **Heat-map + takeoff** (`heat`) | 56–61 | German-area plan in 2D. `setHeat(true)` (view menu: *Room heat-map*) shades every room on one blue scale with its m², with a punch-in on the drawing. Then `openSheet()` (*Takeoff sheet*) opens the printable room schedule. | "One click shades every room by its area, and prints the takeoff sheet." | (the app's legend) |
 | 8 | **Voice, in Finnish** (`voice`) | 60–68 | `cubicasa5k/colorful-10052.png`. Punch-in on the ask box: the mic strip goes *Listening → Transcribing → Asking* with *Kuinka monta ovea pohjapiirustuksessa on?*. Pan to the scan: the detector's boxes, 5 doors, and the second model's conflict flag. | "Or just ask out loud, in Finnish. Our detector boxes every door it counts." | (app strip) |
 | 9 | **BIM in 3D** (`ifc`) | 66.5–75 | `ifc_models/bsc-molio_molio-with-uris_plan-03-grundplan.pdf`, Q: *How many doors are shown on the floor plan of 'Grundplan'?* The 3D model loads off camera. Then: *Show whole building*, punch-in, **Explode storeys** (seven storeys lift apart, the Grundplan storey tagged "evidence" with its 12 pinned doors), **X-ray**, slow orbit drag. Recorded at 2.5x more slow-motion (`SHOT_SLOW`). | "BIM models are answered from the model itself. Explode the storeys, X-ray the rest, and the evidence glows." | |
-| 10 | **Numbers** (`results`, card) | 75–85 | One chart: our bar grows in the accent blue to **90.0 %**, grey bars follow (69.8 % Sonnet with the same files, 64.2 % Gemini). | "Ninety percent right, on all twenty-five thousand held-out test questions. Claude Sonnet, given the same files: seventy." | **90 % right on all 25,420 held-out test questions.** |
-| 11 | **Cost** (`cost`, card) | 85–91 | One number against another, at 200 px: **$0.013** (accent) vs **$25.76** (grey) per 1,000 questions. | "One point three cents per thousand questions. Sonnet: twenty-five dollars seventy-six." | **Cost per 1,000 questions** |
-| 12 | **Close** (`end`, card) | 91–~97 | White end card: *Datum* with the tagline *blueprints that talk*, *Exact, verifiable, cheap.*, repo URL. The footer band holds the dataset licences and the voice credit. | "Exact. Verifiable. Cheap. Datum: blueprints that talk." | repo URL + credits |
+| 10 | **Upload a sheet** (`sheet`) | 75–90 (~15 s) | A sheet the app has never seen: the DfE special school *Level 01* plan as a vector PDF (from the public set listed in `docs/research/EXAMPLE-SOURCES.md`; a held-out sheet, not one of Stoa's example sheets). Drag it onto the upload box; the sheet-type chip and three suggested questions appear. Q: *How many group rooms are on this level?* The **replay** runs: scale bar first, then the five group rooms fill one by one with numbered pins while the total ticks to **5**. Then **See it in 3D**: the plan tilts up, walls rise from the drawing's own linework, the five rooms stay painted on the floor. Punch-in on the answer card's *how it was read* line. | "Final judging uses sheets nobody has seen. Upload one, ask, and watch the answer work itself out on the drawing. Then tilt it into 3D." | (the app's chip and answer card) |
+| 11 | **Numbers** (`results`, card) | 90–100 | One chart: our bar grows in the accent blue to **90.0 %**, grey bars follow (69.8 % Sonnet with the same files, 64.2 % Gemini). | "Ninety percent right, on all twenty-five thousand held-out test questions. Claude Sonnet, given the same files: seventy." | **90 % right on all 25,420 held-out test questions.** |
+| 12 | **Cost** (`cost`, card) | 100–106 | One number against another, at 200 px: **$0.013** (accent) vs **$25.76** (grey) per 1,000 questions. | "One point three cents per thousand questions. Sonnet: twenty-five dollars seventy-six." | **Cost per 1,000 questions** |
+| 13 | **Close** (`end`, card) | 106–~112 | White end card: *Datum* with the tagline *blueprints that talk*, *Exact, verifiable, cheap.*, repo URL. The footer band holds the dataset licences and the voice credit. | "Exact. Verifiable. Cheap. Datum: blueprints that talk." | repo URL + credits |
 
-With the ElevenLabs voice the 2:00 cut runs about 1:37, which leaves room for one more line. Kokoro is slower; check with `--voice-only`.
+With the ElevenLabs voice the 2:00 cut ran about 1:37 before the sheet beat (shot 10); with it, about 1:52. Kokoro is slower; check with `--voice-only`. The timing tables below are generated and do not include shot 10 until the next build.
 
 ## 60 s cut (`--cut short`)
 
-Shots 1, 2, 4, 5, 6, 8, 10, 11, 12 with shorter lines. *How it works*, the heat-map and BIM 3D are dropped.
+Shots 1, 2, 4, 5, 6, 8, 11, 12, 13 with shorter lines. *How it works*, the heat-map, BIM 3D and the sheet upload are dropped.
 
 | # | shot | narration |
 |---|---|---|
@@ -74,6 +75,7 @@ Shots that are longer than their narration are sped up to at most 1.6x and then 
 ## Notes for the team
 
 - **Status (14 Nov):** every shot has been run once against the simplified UI with `--draft` and checked frame by frame. **The final 2:00 / 60 s renders are on hold until the deck/app restyle lands.** Then run `make_video.py --tts elevenlabs` and `--cut short --tts elevenlabs`.
+- **Sheet beat (shot 10), not yet in `SCENES`.** Add a `sheet` shot to `make_video.py` before `results`: upload with `page.set_input_files` on the upload input, wait for the sheet chip, ask, let the replay run at page speed (2–4 s, it is skipped by any key or click, so do not click), then press *See it in 3D* and wait for `window.__p3.ready`. Use a held-out sibling sheet (DfE Level 01, or DAF dorm A-1 with *What is the total first floor area?*, 28,770 SF from the sheet's table) rather than one of Stoa's own example sheets. Check first that the 3D toggle appears on that upload (walls come from `/api/walls`); if it does not, end the shot on the replay. Its credit line: "Drawing: DfE model special school, Level 01, Open Government Licence v3.0".
 - **Phone inset:** `make_video.py --phone` records a 390x844 take at DPR 3 (`runs/video/phone-inset.mp4`, 1080x2336, about 17 s, no voice). It shows a staged Finnish voice question, the X-ray count, the answer sheet, and the in-context cards on pins #3 and #10 (`selectPin`).
 - **Re-run the captures after any UI change.** The shots rely on stable hooks: `window.__p3` (open / ready / `__p3riseMs`), the app globals `ask()`, `res`, `animating`, `doAction()` (the tour's own action runner), `setMode()`, `setHeat()`, `openSheet()`, `selectPin()`, `sheetFull()`; the ids `#q`, `#img`, `#viewer`, `#answer`, `#side`, `#mic`, `#voice`; `.ghostcmp`; and the 3D buttons, found by their label (*Show whole building*, *Explode storeys*, *X-ray*). If the redesign renames one, fix that shot in `SHOTS` in `make_video.py`. A failing shot prints its error and keeps the frames it got.
 - **Voice shot.** Without `--voice-wav`, the voice strip is *staged*: the script plays the same states the
@@ -142,6 +144,7 @@ Total 57.00 s; 111 words; voice elevenlabs `21m00Tcm4TlvDq8ikWAM`. Generated by 
 - **62.74 m², five frontier baselines all wrong (59 to 75 m²)**: tour step 2 caption in `app/tour.json` and the ghost
   strip (`app/frontier.json`, the baselines' recorded answers on that question).
 - **5 doors on the Finnish scan, second model says 4**: tour step 4 caption in `app/tour.json`.
+- **Sheet beat (shot 10)**: group rooms on the DfE Level 01 plan = 5 (`runs/stoa_examples_final_hires.summary.md`, `ho_school2`, held-out split).
 
 ## Credits on screen
 
