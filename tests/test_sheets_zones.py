@@ -178,3 +178,66 @@ def test_duplicate_ocr_words_are_merged():
     b = {"text": "SQUARE", "conf": 90, "bbox": [0.1, 0.1, 0.15, 0.11]}
     c = {"text": "FOOTAGE", "conf": 90, "bbox": [0.16, 0.1, 0.2, 0.11]}
     assert [w["text"] for w in Z._dedupe_words([a, b, c])] == ["FOOTAGE", "SQUARE"]
+
+
+def _rows(labels, values, kinds):
+    return [{"id": i, "label": l, "value": v, "kind": k, "total": l.startswith(("TOTAL", "SUB")), "table": "T",
+             "bbox": [0.1, 0.1 + 0.01 * i, 0.3, 0.108 + 0.01 * i]} for i, (l, v, k) in enumerate(zip(labels, values, kinds))]
+
+
+def test_guard_prefers_the_named_row_over_totals():
+    rs = _rows(["FIRST FLOOR", "SECOND FLOOR", "THIRD FLOOR", "TOTAL", "EAST WING DORMITORY", "TOTAL EAST WING",
+                "SUBTOTAL", "EXTERIOR STAIR", "TOTAL FIRST FLOOR"],
+               [48, 48, 48, 144, 6092, 7005, 28389, 381, 28770], ["count"] * 4 + ["area"] * 5)
+
+    def picked(q, i):
+        g = Z._guard_pick(q, rs, {"groups": [{"name": "x", "ids": [i]}]})["groups"]
+        return [rs[j]["label"] for x in g for j in x["ids"]]
+
+    assert picked("How many dorm rooms are on the second floor?", 3) == ["SECOND FLOOR"]
+    assert picked("Wie viele Zimmer hat das 2. OG?", 3) == ["SECOND FLOOR"]
+    assert picked("How many dorm rooms in total?", 3) == ["TOTAL"]
+    assert picked("What's the total first floor area?", 6) == ["TOTAL FIRST FLOOR"]
+    assert picked("Total net floor area of the east wing dorm rooms?", 4) == ["EAST WING DORMITORY"]
+    assert picked("How many dorms are in the north wing?", 3) == []  # no such row: never the total
+
+
+def test_total_rows_are_checked_against_their_parts():
+    rs = _rows(["COMMON SPACE", "UTILITY", "TOTAL COMMON SPACE", "SUBTOTAL", "EXTERIOR STAIR", "TOTAL FLOOR"],
+               [2911, 328, 3239, 26181, 381, 26562], ["area"] * 6)
+    assert Z._parts_check(rs, rs[2])[0] == 3239
+    assert Z._parts_check(rs, rs[5])[0] == 26562
+
+
+def test_multilingual_questions_are_ours():
+    assert Z.is_mine("Wie groß ist die gesamte Verkehrsfläche (Circulation) im 2. OG?")
+    assert Z.is_mine("Montako huonetta toisessa kerroksessa on?")
+    assert not Z.is_mine("How many doors are there?")
+
+
+def test_guard_keeps_a_sum_to_one_category():
+    rs = _rows(["WEST WING CIRCULATION", "EAST WING CIRCULATION", "NORTH WING CIRCULATION",
+                "COMMON SPACE CIRCULATION", "EXTERIOR STAIR"], [914, 913, 1403, 1240, 381], ["area"] * 5)
+    g = Z._guard_pick("total circulation area?", rs, {"groups": [{"name": "c", "ids": [0, 1, 2, 3, 4]}]})["groups"]
+    assert g[0]["ids"] == [0, 1, 2, 3]
+
+
+def test_guard_treats_a_floor_name_without_floor_rows_as_context():
+    rs = _rows(["COMMON SPACE", "UTILITY", "TOTAL COMMON SPACE"], [4379, 1368, 6687], ["area"] * 3)
+    g = Z._guard_pick("How many square metres of common space are on the first floor?", rs,
+                      {"groups": [{"name": "x", "ids": [2]}]})["groups"]
+    assert g and g[0]["ids"] == [2]
+    rs = _rows(["COMMON SPACE", "UTILITY", "TOTAL COMMON SPACE", "TOTAL FIRST FLOOR", "FIRST FLOOR", "SECOND FLOOR"],
+               [4379, 1368, 6687, 28770, 48, 48], ["area"] * 4 + ["count"] * 2)
+    g = Z._guard_pick("How many square metres of common space are on the first floor?", rs,
+                      {"groups": [{"name": "x", "ids": [2]}]})["groups"]
+    assert g and g[0]["ids"] == [2]
+
+
+def test_vision_answer_with_dotted_thousands_is_an_integer():
+    from bp.generic.vision import _thousands
+
+    assert _thousands('{"answer": 4.470, "evidence": []}', 4.47) == 4470
+    assert _thousands('{"answer": 1,050}', None) == 1050
+    assert _thousands('{"answer": 4.47}', 4.47) == 4.47
+    assert _thousands('{"answer": "12 doors"}', "12 doors") == "12 doors"

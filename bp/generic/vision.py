@@ -30,7 +30,7 @@ READ_QWEN = ("This is a construction / architectural drawing. Question: {questio
 
 READ_CLAUDE = ("This is a construction / architectural drawing, {w}x{h} pixels. Question: {question}\n"
                "Reply with JSON only: "
-               '{{"answer": <short answer{unit}>, "evidence": [{{"bbox": [x0, y0, x1, y1], "label": "<what is there>"}}], '
+               '{{"answer": <short answer{unit}; numbers as plain digits, no thousands separators>, "evidence": [{{"bbox": [x0, y0, x1, y1], "label": "<what is there>"}}], '
                '"confidence": "high|medium|low"}} with boxes in pixel coordinates of this image marking where '
                "the answer was read from. If the drawing does not show it, answer null.")
 
@@ -210,7 +210,7 @@ def read(img, question, backend="qwen", unit=None):
             b = e.get("bbox_2d") if isinstance(e, dict) else None
             if isinstance(b, list) and len(b) == 4:
                 ev.append(([v / 1000 for v in b], str(e.get("label", ""))[:80]))
-        ans = data.get("answer") if isinstance(data, dict) else None
+        ans = _thousands(text, data.get("answer") if isinstance(data, dict) else None)
         return ans, ev, None, 0.0, gs, text
     r = llm.ask(READ_CLAUDE.format(w=w, h=h, question=question, unit=u), [img], model=backend, tag="read")
     data = llm.parse_json(r["text"]) or {}
@@ -223,7 +223,17 @@ def read(img, question, backend="qwen", unit=None):
             except TypeError:
                 pass
     conf = {"high": 0.8, "medium": 0.55, "low": 0.3}.get(str(data.get("confidence", "")).lower()) if isinstance(data, dict) else None
-    return (data.get("answer") if isinstance(data, dict) else None), ev, conf, r["cost_usd"], 0.0, r["text"]
+    ans = _thousands(r["text"], data.get("answer") if isinstance(data, dict) else None)
+    return ans, ev, conf, r["cost_usd"], 0.0, r["text"]
+
+
+def _thousands(text, ans):
+    """A model answering a German / Finnish question writes 4.470 for 4470; as a JSON number that parses as 4.47.
+    A bare answer number with digit groups of exactly three after a dot or comma is a thousands-grouped integer."""
+    m = re.search(r'"answer"\s*:\s*(-?\d{1,3}(?:[.,]\d{3})+)(?!\d)(?![.,]\d)', text or "")
+    if m and (ans is None or (isinstance(ans, (int, float)) and not isinstance(ans, bool))):
+        return int(re.sub(r"[.,]", "", m.group(1)))
+    return ans
 
 
 def dump(x) -> str:

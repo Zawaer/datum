@@ -47,7 +47,7 @@ CONTEXT = set(WINGS) | {"wing", "total", "module", "building", "unit", "whole", 
                         "second", "third", "fourth", "ground", "upper", "lower", "combined", "together", "sum", "inside",
                         "within", "gros", "net", "approximately", "roughly", "about", "what", "calculate", "find",
                         "tell", "covered", "occupied", "used"}
-ZONES_VERSION = 9  # bump when the measurement changes (invalidates the per-upload disk cache)
+ZONES_VERSION = 11  # bump when the measurement changes (invalidates the per-upload disk cache)
 TOL_FRAC = 0.7  # colour tolerance as a fraction of the closest pair of legend / paper / ink colours
 CLOSE_FT = 6.0  # zone fills are closed over walls, furniture and fixtures up to this size
 CENTRE_BOX = 0.12  # |offset| / plan span under which a pixel is in the "centre" rather than a wing
@@ -162,7 +162,8 @@ def _dedupe_words(ws: list[dict]) -> list[dict]:
             if ix <= 0 or iy <= 0:
                 continue
             small = min((b[2] - b[0]) * (b[3] - b[1]), (c[2] - c[0]) * (c[3] - c[1]))
-            if ix * iy > 0.5 * small and k["text"].upper().startswith(w["text"].upper().rstrip(".,")):
+            t = w["text"].upper().rstrip(".,!")
+            if ix * iy > 0.5 * small and (k["text"].upper().startswith(t) or (len(t) >= 3 and t in k["text"].upper())):
                 dup = True
                 break
         if not dup:
@@ -177,7 +178,7 @@ def _vertical(w, aspect):
     return len(w["text"]) > 2 and (b[3] - b[1]) > 1.3 * (b[2] - b[0]) * aspect  # ("0'", "8'" are tall but short)
 
 
-def _rows_of_words(ws: list[dict], aspect: float = 1.0) -> list[list[dict]]:
+def _rows_by_band(ws: list[dict], aspect: float = 1.0) -> list[list[dict]]:
     """Words grouped into baselines, each sorted left to right. A word joins the row band (median top/bottom of its
     words) it overlaps most vertically (>= half its height); a second pass reassigns every word to its best band,
     so a tall or misread neighbour seeding a row first does not split a table row."""
@@ -219,6 +220,41 @@ def _rows_of_words(ws: list[dict], aspect: float = 1.0) -> list[list[dict]]:
     return [sorted(r, key=lambda w: w["bbox"][0]) for r in rows]
 
 
+def _rows_of_words(ws: list[dict], aspect: float = 1.0) -> list[list[dict]]:
+    """Words grouped into baselines, each sorted left to right. Rows are chained left to right: a word joins the
+    row whose last (rightmost) word it overlaps most vertically (>= half the smaller height), so a skewed scan's
+    rows stay apart however wide the sheet is; a word much taller than the page's text (a stray mark read as
+    "a") stays on its own instead of bridging two rows."""
+    def ov(b, c):
+        inter = min(b[3], c[3]) - max(b[1], c[1])
+        return inter / max(1e-9, min(b[3] - b[1], c[3] - c[1]))
+
+    ws = [w for w in ws if not _vertical(w, aspect)]
+    if not ws:
+        return []
+    mh = float(np.median([w["bbox"][3] - w["bbox"][1] for w in ws]))
+    rows: list[list[dict]] = []
+    for w in sorted(ws, key=lambda w: w["bbox"][0]):
+        b = w["bbox"]
+        if b[3] - b[1] > 2.5 * mh:
+            rows.append([w])
+            continue
+        best, bs = None, 0.5
+        for r in rows:
+            last = r[-1]["bbox"]
+            if last[3] - last[1] > 2.5 * mh or last[2] > b[0] + 0.5 * (b[3] - b[1]) / aspect:
+                continue
+            o = ov(b, last)
+            if o > bs or (best is not None and o == bs and last[2] > best[-1]["bbox"][2]):
+                best, bs = r, o
+        if best is None:
+            rows.append([w])
+        else:
+            best.append(w)
+    rows.sort(key=lambda r: float(np.median([_cy(w["bbox"]) for w in r])))
+    return [sorted(r, key=lambda w: w["bbox"][0]) for r in rows]
+
+
 def _unit_of(t: str):
     u = t.strip().upper().rstrip(":;,")
     if u in AREA_UNITS:
@@ -228,12 +264,12 @@ def _unit_of(t: str):
     return None, None
 
 
-def parse_rows(ws: list[dict], aspect: float = 1.0) -> list[dict]:
+def parse_rows(ws: list[dict], aspect: float = 1.0, grouping=None) -> list[dict]:
     """Schedule rows from OCR words: [{"id", "label", "value", "unit", "kind", "table", "total", "bbox",
     "value_bbox"}]. A row is: label words, then (after a gap) a number and its unit on the same baseline.
     `aspect` = image width / height (word gaps are measured in text heights, horizontally)."""
     out = []
-    for r in _rows_of_words(ws, aspect):
+    for r in (grouping or _rows_by_band)(ws, aspect):
         hs = [w["bbox"][3] - w["bbox"][1] for w in r]
         md = float(np.median(hs))
         mh = float(np.percentile([x for x in hs if x <= 2.5 * md], 80))  # junk (underlines read as "na") is short
@@ -287,8 +323,13 @@ def parse_rows(ws: list[dict], aspect: float = 1.0) -> list[dict]:
                 k -= 1
             # OCR junk inside labels: lone letters / marks ("WEST V WING", "\\") and stutters ("FIRST FIRST")
             lab = [w for w in lab if len(w["text"]) > 1 or w["text"].isdigit() or w["text"] in "&+"]
-            lab = [w for i_, w in enumerate(lab) if not (i_ + 1 < len(lab) and lab[i_ + 1]["text"].upper().startswith(
-                w["text"].upper()))]
+            def _junk(i_, w):
+                t = w["text"].rstrip(":;.,").upper()
+                later = [x["text"].upper() for x in lab[i_ + 1:]]
+                return (i_ + 1 < len(lab) and later[0].startswith(t)) or \
+                    (len(t) <= 4 and any(x.startswith(t) and x != t for x in later)) or \
+                    bool(re.fullmatch(r"[A-Z][a-z]", w["text"]))  # "COMMON Si SPACE"
+            lab = [w for i_, w in enumerate(lab) if not _junk(i_, w)]
             if not lab:
                 i = j_unit + 1
                 continue
@@ -445,7 +486,9 @@ def _reread_rows(meta, ws, rs, aspect):
             continue
         lx = float(np.median([r["label_bbox"][0] for r in tr]))
         rx = max(r["value_bbox"][2] for r in tr)
-        y0, y1 = min(r["bbox"][1] for r in tr), max(r["bbox"][3] for r in tr)
+        rh = float(np.median([r["bbox"][3] - r["bbox"][1] for r in tr]))
+        # a total row under the last one read (or a row above the first) is looked for too
+        y0, y1 = min(r["bbox"][1] for r in tr) - 2.5 * rh, max(r["bbox"][3] for r in tr) + 4 * rh
         for line in _rows_of_words(ws, aspect):
             lw = [w for w in line if lx - 0.006 <= w["bbox"][0] <= rx]
             if not lw or not (y0 <= _cy(lw[0]["bbox"]) <= y1):
@@ -457,10 +500,19 @@ def _reread_rows(meta, ws, rs, aspect):
             hh = max(w["bbox"][3] - w["bbox"][1] for w in lw)
             reg = [max(0.0, lx - 0.004), max(0.0, min(w["bbox"][1] for w in lw) - 0.3 * hh), min(1.0, rx + 0.004),
                    min(1.0, max(w["bbox"][3] for w in lw) + 0.3 * hh)]
-            try:
-                got = parse_rows(sheets.ocr_words(meta, region=reg, scale=2.0, psm=7, min_conf=0), aspect)
-            except Exception:  # noqa: BLE001
-                got = []
+            got = []
+            for sc_, psm in ((2.0, 7), (3.0, 7), (3.0, 11)):
+                try:
+                    ww = [dict(w) for w in sheets.ocr_words(meta, region=reg, scale=sc_, psm=psm, min_conf=0)]
+                except Exception:  # noqa: BLE001
+                    ww = []
+                for i_, w in enumerate(ww[1:], 1):  # the table's unit misread on a scan ("SE", "5F" for SF)
+                    if kind == "area" and w["text"] in ("SE", "5F", "SP", "S.F", "SF,", "Sf") and \
+                            _num(ww[i_ - 1]["text"]) is not None:
+                        w["text"] = "SF"
+                got = parse_rows(ww, aspect)
+                if any(g["kind"] == kind for g in got):
+                    break
             for g in got:
                 if g["kind"] == kind:
                     g["reread"] = True
@@ -482,6 +534,18 @@ def rows(meta) -> list[dict]:
         ws = words(meta)
         aspect = (meta.get("w") or 1) / (meta.get("h") or 1)
         rs = parse_rows(ws, aspect=aspect) if ws else []
+        if ws and not meta.get("words"):
+            # a skewed scan: rows chained word to word find what the flat bands merged; add the rows they add
+            for x in parse_rows(ws, aspect=aspect, grouping=_rows_of_words):
+                cy = _cy(x["value_bbox"])
+                if not any(abs(_cy(y["value_bbox"]) - cy) < 0.5 * (y["bbox"][3] - y["bbox"][1]) and
+                           abs(y["value_bbox"][2] - x["value_bbox"][2]) < 0.02 for y in rs):
+                    x["chained"] = True
+                    rs.append(x)
+            rs.sort(key=lambda x: (x["bbox"][1], x["bbox"][0]))
+            _tables(rs, ws)
+            for n, x in enumerate(rs):
+                x["id"] = n
         if rs and not meta.get("words") and meta.get("image"):
             rs = _reread_rows(meta, ws, rs, aspect)
         cost = 0.0
@@ -909,14 +973,18 @@ def zone_match(z: dict, label: str, total: bool = False) -> float | None:
 # --------------------------------------------------------------------------------------------------- answering
 def is_mine(q: str) -> bool:
     ql = q.lower()
-    return bool(re.search(r"area|square f|\bsf\b|sq\.? ?f|m²|m2|sq\.? ?m|footage|floor space|how big|size of|"
-                          r"colou?r|legend|zone|schedule|table|module", ql)
-                or (re.search(r"how many|number of|count", ql) and re.search(r"dorm|room|unit|bed|apartment", ql)))
+    return bool(re.search(r"area|square f|square met|square metre|sq\.? ?ft|\bsf\b|sq\.? ?f|m²|m2|sq\.? ?m|footage|floor space|how big|size of|"
+                          r"colou?r|legend|zone|schedule|table|module|"
+                          r"fläche|flaeche|wie groß|wie gross|quadratmeter|pinta-?ala|neliö|kuinka suuri|yta\b|ytan|"
+                          r"kvadratmeter|superficie|surface", ql)
+                or (re.search(r"how many|number of|count|wie viele|anzahl|montako|kuinka monta|hur många|antal", ql)
+                    and re.search(r"dorm|room|unit|bed|apartment|zimmer|wohn|huone|rum\b|rummen", ql)))
 
 
 def wants_metric(q: str, rs) -> bool | None:
     ql = q.lower()
-    if re.search(r"m²|m2\b|sq\.? ?m|square met|metres|meters|sqm", ql):
+    if re.search(r"m²|m2\b|sq\.? ?m|square met|metres|meters|sqm|neliömet|neliometr|quadratmeter|kvadratmeter|"
+                 r"mètres? carr|metros? cuadr", ql):
         return True
     if re.search(r"square f|\bsf\b|sq\.? ?f|feet|foot", ql):
         return False
@@ -959,6 +1027,107 @@ def _pick_llm(meta, question, rs):
     out = {"groups": gs, "confidence": d.get("confidence", "medium"), "note": d.get("note") or ""}
     cache[question] = out
     return out, r.get("cost_usd", 0.0)
+
+
+ORD = {"1st": "first", "2nd": "second", "3rd": "third", "4th": "fourth", "ground": "first",
+       "erste": "first", "ersten": "first", "zweite": "second", "zweiten": "second", "dritte": "third",
+       "ensimmäinen": "first", "ensimmäisen": "first", "toinen": "second", "toisen": "second", "kolmas": "third",
+       "kolmannen": "third", "eg": "first", "og": "second"}
+TOTAL_RX = re.compile(r"\b(total|totals|overall|whole|entire|gross|all|altogether|combined|gesamt\w*|insgesamt|"
+                      r"yhteens[äa]|koko|kaikki|totalt|sum)\b", re.I)
+_MSTOP = {"what", "whats", "is", "the", "of", "a", "an", "on", "in", "this", "that", "how", "many", "much", "are",
+          "there", "for", "and", "to", "sheet", "plan", "drawing", "sf", "s", "do", "does", "we", "have", "at", "per",
+          "area", "areas", "size", "square", "feet", "foot", "footage", "metres", "meters", "m2", "net", "space"}
+
+
+def _mtoks(s: str) -> set:
+    """Words for matching a question to a row label: lower case, ordinals spelled out ("2nd" -> second), stemmed."""
+    ws = re.findall(r"[a-zäöü0-9]+", s.lower().replace("2. og", "second").replace("1. og", "first"))
+    out = set()
+    for w in ws:
+        w = ORD.get(w, w)
+        if len(w) < 3 or w in _MSTOP or w.isdigit():
+            continue
+        out.add(_stem(w))
+    return out
+
+
+def _guard_pick(question, rs, pick):
+    """Deterministic checks on the rows a model picked: a single TOTAL / SUBTOTAL row is replaced by a row whose
+    own label is named in the question ("dorm rooms on the SECOND FLOOR" -> SECOND FLOOR = 48, not TOTAL = 144;
+    "total FIRST FLOOR area" -> TOTAL FIRST FLOOR = 28,770, not SUBTOTAL); a TOTAL picked while the question names a
+    part that no row has (a row OCR lost) is not answered from the total."""
+    qm = _mtoks(question)
+    asks_total = bool(TOTAL_RX.search(question))
+    out = []
+    for g in pick["groups"]:
+        if len(g["ids"]) >= 3:
+            # a sum is of one category: rows lacking the word most of them share (EXTERIOR STAIR among the
+            # ...CIRCULATION rows) are not part of it
+            toks = [_mtoks(rs[i]["label"]) - set(WINGS) - {"wing", "total"} for i in g["ids"]]
+            cnt = {}
+            for t in toks:
+                for u in t:
+                    cnt[u] = cnt.get(u, 0) + 1
+            if cnt:
+                top, n = max(cnt.items(), key=lambda kv: kv[1])
+                if n >= len(toks) - 1 and n < len(toks):
+                    g = {**g, "ids": [i for i, t in zip(g["ids"], toks) if top in t],
+                         "guard": f"kept the {top} rows only"}
+        if len(g["ids"]) != 1:
+            out.append(g)
+            continue
+        r = rs[g["ids"][0]]
+        same = [x for x in rs if x["kind"] == r["kind"]]
+
+        def score(x):
+            lm = _mtoks(x["label"]) - {"total", "subtotal"}
+            hit = sum(any(t == u or (min(len(t), len(u)) >= 4 and (t.startswith(u) or u.startswith(t))) for u in qm)
+                      for t in lm)
+            cover = hit / len(lm) if lm else 0.0
+            return (cover >= 0.999 and hit > 0, hit, cover, x["total"] == asks_total)
+
+        best = max(same, key=score)
+        if r["total"] and not score(r)[0] and score(best)[:2] > score(r)[:2] and score(best)[0]:
+            out.append({"name": best["label"], "ids": [best["id"]], "guard": f"{r['label']} -> {best['label']}"})
+            continue
+        if r["total"] and not asks_total:
+            keys = qm & {"first", "second", "third", "fourth", "west", "east", "north", "south"}
+            # a floor the table's own total names ("TOTAL FIRST FLOOR") is the sheet's context, not a part
+            keys -= {t for x in same if x["total"] for t in _mtoks(x["label"])}
+            if keys:
+                cand = [x for x in same if not x["total"] and keys <= _mtoks(x["label"])]
+                if len(cand) == 1:
+                    out.append({"name": cand[0]["label"], "ids": [cand[0]["id"]],
+                                "guard": f"{r['label']} -> {cand[0]['label']}"})
+                    continue
+                classes = [{"first", "second", "third", "fourth"}, set(WINGS)]
+                siblings = any(keys & c and any(_mtoks(x["label"]) & c for x in rs) for c in classes)
+                if not cand and siblings:
+                    # the table lists parts of this kind (FIRST, THIRD FLOOR) but not the asked one (OCR lost the
+                    # SECOND FLOOR row): its TOTAL is not the answer. ("first floor" on a table without floor rows
+                    # is only the sheet's context.)
+                    return {"groups": [], "confidence": "low", "note": "the asked part is not a row of the table"}
+        out.append(g)
+    return {**pick, "groups": out}
+
+
+def _parts_check(rs, r):
+    """(sum, [rows]) of the rows a TOTAL row adds up: the rows above it in its table back to the previous total
+    (a SUBTOTAL met on the way counts as one part and ends the walk); None if there are none."""
+    tab = [x for x in rs if x["table"] == r["table"] and x["kind"] == r["kind"]]
+    tab.sort(key=lambda x: x["bbox"][1])
+    i = tab.index(r) if r in tab else -1
+    parts = []
+    for x in reversed(tab[:i]):
+        if x["total"]:
+            if re.search(r"subtotal", x["label"], re.I):
+                parts.append(x)
+            break
+        parts.append(x)
+    if len(parts) < 2:
+        return None
+    return sum(x["value"] for x in parts), parts[::-1]
 
 
 def _pick_kw(question, rs):
@@ -1047,6 +1216,12 @@ def answer(path, question, meta):
         cost += c
         if pick is None:
             pick = _pick_kw(question, rs)
+        if pick and pick["groups"]:
+            pick = _guard_pick(question, rs, pick)
+            if not pick["groups"]:
+                return {"answer": None, "confidence": 0.0, "evidence": [], "cost_usd": round(cost, 5),
+                        "method": "sheets-zones-schedule-none",
+                        "explanation": "the sheet's table has no row for the part asked about (only a total)"}
     low = _low_res(meta)
     if pick and pick["groups"]:
         res = _answer_rows(meta, question, rs, pick, metric)
@@ -1141,7 +1316,7 @@ def _answer_rows(meta, question, rs, pick, metric):
         z = zones(meta)
     except Exception:  # noqa: BLE001 - the cross-check never blocks the schedule answer
         log.exception("zones cross-check failed")
-    ev, parts, nums, checks = [], [], [], []
+    ev, parts, nums, checks, sum_mismatch = [], [], [], [], []
     units = set()
     for g in pick["groups"]:
         grs = [rs[i] for i in g["ids"]]
@@ -1157,6 +1332,15 @@ def _answer_rows(meta, question, rs, pick, metric):
                        "text": f"{_fmt(r['value'], 2)} {r['unit']}", "table": r["table"].capitalize()})
         arith = (" + ".join(_fmt(v, 2) for v in vals) + f" = {_fmt(tot, 2)} {unit}") if len(vals) > 1 else \
             f"{_fmt(tot, 2)} {unit}"
+        if len(grs) == 1 and grs[0]["total"]:
+            pc = _parts_check(rs, grs[0])
+            if pc:
+                ps, prs = pc
+                if abs(ps - tot) <= max(1, 0.002 * tot):
+                    arith += f" (checks: {' + '.join(_fmt(x['value'], 2) for x in prs)} = {_fmt(ps, 2)})"
+                else:
+                    arith += f" (the rows above it add up to {_fmt(ps, 2)}, not {_fmt(tot, 2)}: a misread is possible)"
+                    sum_mismatch.append(grs[0]["label"])
         if cu != unit:
             arith += f" = {_fmt(cv, 1)} {cu} (x 0.0929)"
         parts.append((g["name"], cv, cu, arith))
@@ -1185,6 +1369,8 @@ def _answer_rows(meta, question, rs, pick, metric):
         expl += ". Cross-check, colour zones measured on the plan at " + \
                 f"{z['px_per_ft']:.2f} px/ft ({z['scale_how']}): " + "; ".join(checks)
     conf = {"high": 0.9, "medium": 0.75, "low": 0.5}.get(pick.get("confidence"), 0.7)
+    if sum_mismatch:
+        conf = min(conf, 0.55)
     return {"answer": ans, "confidence": conf, "method": "sheets-zones-schedule", "cost_usd": 0.0,
             "explanation": expl, "evidence": ev, "unit": parts[0][2] if len(parts) == 1 else None}
 
