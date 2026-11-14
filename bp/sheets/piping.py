@@ -1247,6 +1247,11 @@ def _recheck(sheet: dict, fam: str, found: list[dict], cost: list, avoid: list[d
     # the band in up to 4 pieces, each zoomed >= 1x (else a crop is no sharper than the tiles were)
     n = max(1, min(4, math.ceil(cw / (SEND_PX / 2))))
     f = min(3.0, SEND_PX / max(cw / n, ch))
+    if f < 2.0 and ch * 2 <= SEND_PX:
+        # a big scan: four pieces zoom the band barely past the tile read (FSCV-6 / 7 of M-101B missed again);
+        # up to eight pieces, each at least 2x
+        n = max(n, min(8, math.ceil(cw / (SEND_PX / 2))))
+        f = min(3.0, SEND_PX / max(cw / n, ch))
     if f < 1.0:
         return None
     pieces = [[r[0] + (r[2] - r[0]) * i / n - (0.01 if i else 0), r[1],
