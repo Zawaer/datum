@@ -1,20 +1,94 @@
-// 3D evidence viewer: the model in quiet grey, evidence elements lit up one by one.
+// 3D evidence viewer: the model as a quiet line drawing, evidence elements lit up one by one.
 // Storey focus clips everything above the storey so interior elements (rooms, inner walls) are visible.
+// Two view controls live in the viewer itself: "Explode storeys" lifts the floors apart (each one labelled), and
+// "X-ray" turns everything that is not evidence into faint glass with its outlines kept, so the counted items stand out.
+// Rendering is on demand: frames are drawn only while something moves, never while the view is idle.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 let renderer, scene, camera, controls, host, model = null, hl = null, offMesh = null, hotMesh = null, anim = null, animDone = null;
+let ctxEdges = null, hlEdges = null, pulse = null, grid = null;
 let positions = null, elements = [], byGuid = new Map(), storeys = [], allIdx = null;
-let clip = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1e9);
-let cbs = {};
+let edgeIdx = null;  // per-element outline segments (vertex index pairs into the shared position buffer)
+let clip = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1e9), clipWanted = 1e9;
+let cbs = {}, revealListener = null;
 const ray = new THREE.Raycaster();
 // not drawn as context: spaces (would hide the interior) and site / terrain (a big box around everything)
 const CONTEXT_SKIP = new Set(['IfcSpace', 'IfcSite', 'IfcGeographicElement']);
+const RM = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
+const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;  // cubic in-out
+
+// the context model, its outlines and the evidence: one material each, retuned when x-ray is switched
+const ctxMat = new THREE.MeshLambertMaterial({ color: 0xd9dee5, side: THREE.DoubleSide, polygonOffset: true,
+  polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+const ctxLine = new THREE.LineBasicMaterial({ color: 0x5b6470, transparent: true, opacity: 0.3, depthWrite: false });
+const hlLine = new THREE.LineBasicMaterial({ color: 0x003a5c, transparent: true, opacity: 0.85 });
+const pulseMat = new THREE.MeshBasicMaterial({ color: 0x56b4e9, transparent: true, opacity: 0, side: THREE.DoubleSide,
+  depthTest: false, depthWrite: false });
+for (const m of [ctxMat, ctxLine, hlLine, pulseMat]) m.clippingPlanes = [clip];
 
 function b64(s, Type) {
   const bin = atob(s), u8 = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
   return new Type(u8.buffer);
+}
+
+// ------------------------------------------------------------ in-viewer controls and storey labels (DOM owned here)
+let bar, btnExplode, btnXray, labLayer, labels = [];
+const CSS = `
+.v3bar { position: absolute; left: 12px; top: 12px; display: flex; gap: 0; z-index: 4; font: 500 13px var(--font, system-ui); }
+.v3bar button { border: 1px solid var(--line2, #c3c8cf); background: var(--panel, #fff); color: var(--text, #16191d);
+  padding: 5px 10px; cursor: pointer; font: inherit; display: inline-flex; align-items: center; gap: 6px; min-height: 30px; }
+.v3bar button + button { border-left: 0; }
+.v3bar button:first-child { border-radius: var(--r1, 4px) 0 0 var(--r1, 4px); }
+.v3bar button:last-child { border-radius: 0 var(--r1, 4px) var(--r1, 4px) 0; }
+.v3bar button:only-child { border-radius: var(--r1, 4px); }
+.v3bar button[aria-pressed=true] { background: var(--ink, #16191d); color: #fff; border-color: var(--ink, #16191d); }
+.v3bar button[hidden] { display: none; }
+.v3bar svg { width: 14px; height: 14px; flex: none; }
+.v3labs { position: absolute; inset: 0; pointer-events: none; z-index: 3; overflow: hidden; }
+.v3lab { position: absolute; left: 0; top: 0; display: flex; align-items: center; white-space: nowrap; will-change: transform;
+  font: 500 11px var(--font, system-ui); letter-spacing: .06em; text-transform: uppercase; color: var(--mut, #5b6470); }
+.v3lab b { font-weight: 600; color: var(--text, #16191d); background: var(--panel, #fff); border: 1px solid var(--line2, #c3c8cf);
+  border-radius: var(--r1, 4px); padding: 2px 6px; }
+.v3lab i { font-style: normal; font-feature-settings: "tnum"; color: var(--mut, #5b6470); margin-left: 6px; letter-spacing: 0; text-transform: none; }
+.v3lab.ev b { border-color: var(--ev, #0072b2); box-shadow: inset 3px 0 0 var(--ev, #0072b2); padding-left: 8px; }
+.v3lab.ev i { color: var(--ev-ink, #005f94); font-weight: 600; }
+.v3lab s { display: block; width: 18px; height: 1px; background: var(--faint, #8a929d); text-decoration: none; }
+.v3lab.ev s { background: var(--ev, #0072b2); }
+.v3lab.r { flex-direction: row-reverse; } .v3lab.r i { margin: 0 6px 0 0; }
+@media (max-width: 700px) { .v3bar { left: 8px; top: 8px; font-size: 12px; } .v3bar button { padding: 4px 8px; min-height: 36px; }
+  .v3lab b { padding: 1px 5px; } .v3lab s { width: 10px; } }
+`;
+const ICON_EXPLODE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 4.5 8 2l6 2.5L8 7z"/><path d="M2 11.5 8 9l6 2.5L8 14z"/></svg>';
+const ICON_XRAY = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="1" stroke-dasharray="2 1.6"/><rect x="5.5" y="5.5" width="5" height="5" fill="currentColor" stroke="none"/></svg>';
+
+function buildUI() {
+  if (!document.getElementById('v3css')) {
+    const st = document.createElement('style'); st.id = 'v3css'; st.textContent = CSS; document.head.appendChild(st);
+  }
+  labLayer = document.createElement('div'); labLayer.className = 'v3labs'; host.appendChild(labLayer);
+  bar = document.createElement('div'); bar.className = 'v3bar'; bar.setAttribute('role', 'group'); bar.setAttribute('aria-label', '3D view');
+  btnExplode = document.createElement('button'); btnExplode.type = 'button';
+  btnExplode.innerHTML = ICON_EXPLODE + '<span>Explode storeys</span>';
+  btnExplode.title = 'Lift the storeys apart so every floor can be seen';
+  btnXray = document.createElement('button'); btnXray.type = 'button';
+  btnXray.innerHTML = ICON_XRAY + '<span>X-ray</span>';
+  btnXray.title = 'Show everything that is not evidence as faint outlines';
+  bar.append(btnExplode, btnXray); host.appendChild(bar);
+  btnExplode.onclick = () => explode(explodeTo < 0.5);
+  btnXray.onclick = () => setXray(!xrayOn());
+  // the bar sits on the canvas: keep its clicks away from orbit / pick, and from the 2D pan handler around it
+  for (const ev of ['pointerdown', 'pointerup', 'wheel']) bar.addEventListener(ev, e => e.stopPropagation());
+  syncUI();
+}
+function syncUI() {
+  if (!bar) return;
+  bar.hidden = !model;
+  btnExplode.hidden = storeys.length < 2;
+  btnExplode.setAttribute('aria-pressed', String(explodeTo > 0.5));
+  btnExplode.querySelector('span').textContent = explodeTo > 0.5 ? 'Collapse storeys' : 'Explode storeys';
+  btnXray.setAttribute('aria-pressed', String(xrayOn()));
 }
 
 export function init(el, callbacks = {}) {
@@ -30,12 +104,17 @@ export function init(el, callbacks = {}) {
   controls.enableDamping = true;
   scene.add(new THREE.HemisphereLight(0xffffff, 0x8899aa, 2.2));
   const d = new THREE.DirectionalLight(0xffffff, 1.6); d.position.set(50, 120, 80); scene.add(d);
+  buildUI();
   new ResizeObserver(resize).observe(el);
   resize();
-  // click (not drag) -> pick the element under the pointer
-  let down = null;
-  renderer.domElement.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY]; });
+  // click (not drag) -> pick the element under the pointer; a press during the count only skips the count
+  let down = null, swallow = false;
+  renderer.domElement.addEventListener('pointerdown', e => {
+    down = [e.clientX, e.clientY]; swallow = false;
+    if (anim) { skipReveal(); swallow = true; }
+  });
   renderer.domElement.addEventListener('pointerup', e => {
+    if (swallow) { swallow = false; return; }
     if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return;
     const g = pick(e); if (g && cbs.onPick) cbs.onPick(g);
   });
@@ -43,28 +122,35 @@ export function init(el, callbacks = {}) {
     if (e.buttons || !cbs.onHover) return;
     cbs.onHover(pick(e));
   });
+  document.addEventListener('keydown', e => { if (anim && (e.key === 'Escape' || e.key === ' ') && host.offsetParent) skipReveal(); });
   controls.addEventListener('change', () => { if (!inFrame) requestRender(); });  // user input; update() in a frame decides itself
-  controls.addEventListener('start', () => { held = true; });
+  controls.addEventListener('start', () => { held = true; tweens.delete(camTween); camTween = null; });
   controls.addEventListener('end', () => { held = false; released = performance.now(); });
   requestRender();
 }
 
-// render on demand: one frame per request, and more frames only while the orbit controls are still damping
-// the damping tail is capped in time: it decays per frame, so on a slow (software) renderer it would crawl on for a minute
+// render on demand: one frame per request, and more frames only while the orbit controls are still damping or a
+// tween (explode, camera move, reveal pulse) is running. The damping tail is capped in time: it decays per frame, so
+// on a slow (software) renderer it would crawl on for a minute
 let pending = false, inFrame = false, held = false, released = -1e9;
 const DAMP_MS = 2500;
+const tweens = new Set();  // functions(now) -> true while still running
 window.__v3renders = 0;  // debug counter (headless tests check that the view idles)
 export function requestRender() {
   if (pending || !renderer) return;
   pending = true;
   requestAnimationFrame(() => {
     pending = false;
+    const now = performance.now();
+    for (const f of [...tweens]) if (!f(now)) tweens.delete(f);
     inFrame = true; const moving = controls.update(); inFrame = false;
-    if (moving && (held || performance.now() - released < DAMP_MS)) requestRender();  // still easing out after a drag
+    if (tweens.size || (moving && (held || now - released < DAMP_MS))) requestRender();  // still easing out
     renderer.render(scene, camera);
+    placeLabels();
     window.__v3renders++;
   });
 }
+function tween(f) { tweens.add(f); requestRender(); return f; }
 
 function resize() {
   if (!host) return;
@@ -84,7 +170,56 @@ function subMesh(list, material) {
   g.computeVertexNormals();
   const m = new THREE.Mesh(g, material);
   m.userData.ranges = ranges;
+  m.frustumCulled = false;  // the shared buffer moves when storeys are exploded; the bounds would go stale
   return m;
+}
+
+// the outlines of a subset of elements: crease and boundary edges, as segments over the shared position buffer,
+// so they move with the storeys like the faces do. ends[] (optional) gets the running segment count per group
+function subEdges(groups, material, ends = null) {
+  if (!edgeIdx) return null;
+  let n = 0; for (const g of groups) for (const e of g) n += e.ecount;
+  const idx = new Uint32Array(n);
+  let o = 0;
+  for (const g of groups) { for (const e of g) { idx.set(edgeIdx.subarray(e.estart, e.estart + e.ecount), o); o += e.ecount; } if (ends) ends.push(o); }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', positions); geo.setIndex(new THREE.BufferAttribute(idx, 1));
+  const l = new THREE.LineSegments(geo, material);
+  l.frustumCulled = false;
+  return l;
+}
+
+// crease (> 20 degrees) and open edges of every element; the IFC tessellation shares vertices within an element
+function buildEdges() {
+  const pa = positions.array, nv = positions.count, COS = Math.cos(20 * Math.PI / 180);
+  let out = new Uint32Array(Math.max(1024, allIdx.length)), len = 0;
+  const nrm = (t, r) => {
+    const a = allIdx[t] * 3, b = allIdx[t + 1] * 3, c = allIdx[t + 2] * 3;
+    const ux = pa[b] - pa[a], uy = pa[b + 1] - pa[a + 1], uz = pa[b + 2] - pa[a + 2];
+    const vx = pa[c] - pa[a], vy = pa[c + 1] - pa[a + 1], vz = pa[c + 2] - pa[a + 2];
+    let x = uy * vz - uz * vy, y = uz * vx - ux * vz, z = ux * vy - uy * vx;
+    const l = Math.hypot(x, y, z) || 1; r[0] = x / l; r[1] = y / l; r[2] = z / l;
+  };
+  const n1 = [0, 0, 0], n2 = [0, 0, 0], m = new Map();
+  for (const e of elements) {
+    e.estart = len; m.clear();
+    for (let t = e.start, end = e.start + e.count; t < end; t += 3) {
+      for (let k = 0; k < 3; k++) {
+        const u = allIdx[t + k], v = allIdx[t + (k + 1) % 3];
+        const key = u < v ? u * nv + v : v * nv + u;
+        const f = m.get(key);
+        if (f === undefined) m.set(key, t);
+        else if (f >= 0) { nrm(f, n1); nrm(t, n2); m.set(key, Math.abs(n1[0] * n2[0] + n1[1] * n2[1] + n1[2] * n2[2]) > COS ? -1 : -2); }
+      }
+    }
+    for (const [key, f] of m) {
+      if (f === -1) continue;
+      if (len + 2 > out.length) { const o2 = new Uint32Array(out.length * 2); o2.set(out); out = o2; }
+      const a = Math.floor(key / nv); out[len++] = a; out[len++] = key - a * nv;
+    }
+    e.ecount = len - e.estart;
+  }
+  edgeIdx = out.subarray(0, len);
 }
 
 function guidAt(mesh, faceIndex) {
@@ -107,37 +242,67 @@ function pick(e) {
   return guidAt(ev.object, ev.faceIndex);
 }
 
+function dropModel() {
+  for (const m of [model, ctxEdges, grid]) if (m) { scene.remove(m); m.geometry.dispose(); }
+  model = ctxEdges = grid = null;
+  tweens.clear(); camTween = null;
+  explodeT = explodeTo = 0; baseY = vStorey = offsets = null; storeyBox = []; edgeIdx = null;
+}
+
 export async function load(path, onStatus) {
   clear();
-  if (model) { scene.remove(model); model.geometry.dispose(); model = null; }
+  dropModel(); syncUI(); clearLabels();
   onStatus && onStatus('loading', 'Tessellating the IFC model… (first time can take a while for big models)');
   let r;
   try { r = await fetch('/api/mesh?path=' + encodeURIComponent(path)); } catch (e) { r = null; }
   if (!r || !r.ok) { onStatus && onStatus('error', 'No 3D model could be built for this drawing.'); return null; }
   onStatus && onStatus('loading', 'Building the scene…');
   const d = await r.json();
+  dropModel();  // a second load may have finished first
   positions = new THREE.BufferAttribute(b64(d.positions, Float32Array), 3);
+  positions.setUsage(THREE.DynamicDrawUsage);
   allIdx = b64(d.indices, Uint32Array);
   elements = d.elements;
   storeys = d.storeys || [];
   byGuid = new Map(elements.map(e => [e.guid, e]));
-  model = subMesh(elements.filter(e => !CONTEXT_SKIP.has(e.type)), new THREE.MeshLambertMaterial({
-    color: 0xc9d1dc, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false, clippingPlanes: [clip] }));
+  prepareStoreys();
+  model = subMesh(elements.filter(e => !CONTEXT_SKIP.has(e.type)), ctxMat);
   scene.add(model);
+  try { buildEdges(); } catch (e) { edgeIdx = null; }
+  ctxEdges = subEdges([elements.filter(e => !CONTEXT_SKIP.has(e.type))], ctxLine);
+  if (ctxEdges) { ctxEdges.renderOrder = 1; scene.add(ctxEdges); }
+  addGrid();
+  { const b = drawnBox(model, true, FABRIC); footprint = { x0: b.min.x, x1: b.max.x, z0: b.min.z, z1: b.max.z }; }
+  applyLook();
   setClip(null); requestRender();
   frame(model);
+  syncUI();
   onStatus && onStatus('', '');
   return { storeys, n: elements.length };
+}
+
+// a faint ground grid under the building, as in a model space
+function addGrid() {
+  const b = drawnBox(model, true); if (b.isEmpty()) return;
+  const s = b.getSize(new THREE.Vector3()), c = b.getCenter(new THREE.Vector3());
+  const span = Math.max(s.x, s.z) * 1.6, step = span > 120 ? 10 : span > 40 ? 5 : 1;
+  const size = Math.ceil(span / step) * step;
+  grid = new THREE.GridHelper(size, Math.round(size / step), 0xb4bbc4, 0xcdd2d8);
+  grid.material.transparent = true; grid.material.opacity = 0.7; grid.material.depthWrite = false;
+  grid.position.set(c.x, b.min.y - 0.02, c.z);
+  grid.renderOrder = -1;
+  scene.add(grid);
 }
 
 // the box to frame: only vertices a mesh actually draws (the position buffer is shared with undrawn elements).
 // For the whole model, prefer the building shell (walls, slabs, spaces) and trim the 2 % tails per axis, so a stray
 // proxy or a far-off site object does not shrink the building to a dot. Evidence is framed in full.
 const SHELL = /^Ifc(Wall|Slab|Space|Roof|Column|Beam)/;
-function drawnBox(mesh, robust) {
+const FABRIC = /^Ifc(Wall|Slab|Roof|Column|Curtain)/;  // the built fabric only (spaces can sit far off in some models)
+function drawnBox(mesh, robust, types = SHELL) {
   let idx = mesh.geometry.index.array;
   if (robust) {
-    const shell = elements.filter(e => SHELL.test(e.type));
+    const shell = elements.filter(e => types.test(e.type));
     if (shell.length) {
       let n = 0; for (const e of shell) n += e.count;
       const sub = new Uint32Array(n); let o = 0;
@@ -160,40 +325,213 @@ function drawnBox(mesh, robust) {
   return b;
 }
 
+// where the camera should sit to frame a box; dir = view direction (from the target towards the camera)
+function framing(b, dir) {
+  const c = b.getCenter(new THREE.Vector3()), s = b.getSize(new THREE.Vector3());
+  const r = s.length() * 0.5 + 0.3;  // the bounding sphere, so a tall narrow selection is not cut off
+  // fit the narrower of the two view angles (a phone is taller than wide); a hidden viewer has no aspect yet
+  const fov = camera.fov * Math.PI / 180, asp = camera.aspect > 0.2 ? camera.aspect : 1;
+  const hfov = 2 * Math.atan(Math.tan(fov / 2) * asp);
+  const dist = r / Math.sin(Math.min(fov, hfov) / 2) * (asp < 1 ? 1.0 : 1.15);
+  return { target: c, pos: c.clone().add(dir.clone().normalize().multiplyScalar(dist)), dist };
+}
 function frame(mesh, steep = false) {
   const b = drawnBox(mesh, mesh === model);
   if (b.isEmpty()) return;
   if (clip.constant < 1e8) b.max.y = Math.min(b.max.y, clip.constant);
-  const c = b.getCenter(new THREE.Vector3()), s = b.getSize(new THREE.Vector3());
-  const r = s.length() * 0.5 + 0.3;  // the bounding sphere, so a tall narrow selection is not cut off
-  const dist = r / Math.sin((camera.fov * Math.PI / 180) / 2) * 1.15;
-  const dir = (steep ? new THREE.Vector3(0.7, 1.8, 1.0) : new THREE.Vector3(1, 0.9, 1.2)).normalize();
-  camera.position.copy(c.clone().add(dir.multiplyScalar(dist)));
-  camera.near = dist / 200; camera.far = dist * 20; camera.updateProjectionMatrix();
-  controls.target.copy(c); controls.update();
+  const f = framing(b, steep ? new THREE.Vector3(0.7, 1.8, 1.0) : new THREE.Vector3(1, 0.9, 1.2));
+  tweens.delete(camTween); camTween = null;
+  camera.position.copy(f.pos);
+  camera.near = f.dist / 200; camera.far = f.dist * 20; camera.updateProjectionMatrix();
+  controls.target.copy(f.target); controls.update();
   requestRender();
+}
+// the same, eased over ms (keeping the current view direction)
+let camTween = null;
+function glideTo(b, ms) {
+  if (b.isEmpty()) return;
+  const dir = camera.position.clone().sub(controls.target);
+  const f = framing(b, dir);
+  const p0 = camera.position.clone(), t0 = controls.target.clone(), n0 = camera.near, far0 = camera.far, s = performance.now();
+  tweens.delete(camTween);
+  camTween = tween(now => {
+    const k = ms ? ease(Math.min(1, (now - s) / ms)) : 1;
+    camera.position.lerpVectors(p0, f.pos, k); controls.target.lerpVectors(t0, f.target, k);
+    camera.near = n0 + (f.dist / 200 - n0) * k; camera.far = far0 + (f.dist * 20 - far0) * k; camera.updateProjectionMatrix();
+    return k < 1;
+  });
 }
 
 export function clear() {
   if (anim) { clearInterval(anim); anim = null; const d = animDone; animDone = null; if (d) d(); }  // never leave a count half-way
-  for (const m of [hl, offMesh, hotMesh]) if (m) { scene.remove(m); m.geometry.dispose(); }
-  hl = offMesh = hotMesh = null;
+  for (const m of [hl, offMesh, hotMesh, hlEdges, pulse]) if (m) { scene.remove(m); m.geometry.dispose(); }
+  hl = offMesh = hotMesh = hlEdges = pulse = null;
+  if (hlMat) { hlMat.dispose(); hlMat = null; }
+  evStoreys = new Map();
+  applyLook(); updateLabels();
   requestRender();
 }
 
-// storey index -> clip just under the next storey's floor; null = no clipping
+// ------------------------------------------------------------ storeys: clipping and the exploded view
+// storey index -> clip just under the next storey's floor; null = no clipping. While exploded nothing is clipped:
+// every floor is on show, lifted clear of the one under it.
 function setClip(si) {
-  if (si == null || si < 0 || si >= storeys.length - 1) clip.constant = 1e9;
-  else clip.constant = storeys[si + 1].z - 0.25;
+  if (si == null || si < 0 || si >= storeys.length - 1) clipWanted = 1e9;
+  else clipWanted = storeys[si + 1].z - 0.25;
+  applyClip();
 }
+function applyClip() { clip.constant = explodeTo > 0 || explodeT > 0 ? 1e9 : clipWanted; }
 export function getStoreys() { return storeys; }
 export function focusStorey(si, reframe = true) {
   setClip(si);
-  if (reframe && model) frame(hl || model, si != null && si >= 0);
+  if (reframe && model) frame(hl || model, si != null && si >= 0 && !(explodeTo > 0));
   requestRender();
 }
-export function setCut(y) { clip.constant = y; requestRender(); }
+export function setCut(y) { clipWanted = y; applyClip(); requestRender(); }
 
+let footprint = null;  // the building's plan extent (robust): every storey label sits off the same corner of it
+let baseY = null, vStorey = null, offsets = null, storeyBox = [], explodeT = 0, explodeTo = 0, evStoreys = new Map();
+// which storey each vertex belongs to (elements without one go by their base level), the lift of each storey when
+// exploded (a storey height and a half per level, so each floor is seen from above with air under the next), and
+// whether a storey draws anything (empty ones get no label)
+function prepareStoreys() {
+  const nv = positions.count, pa = positions.array;
+  baseY = new Float32Array(nv); for (let i = 0; i < nv; i++) baseY[i] = pa[i * 3 + 1];
+  vStorey = new Int16Array(nv);
+  storeyBox = storeys.map(() => ({ n: 0 }));  // how many context elements each storey draws (empty ones get no label)
+  if (storeys.length < 2) return;
+  const sOf = e => {
+    if (e.storey >= 0 && e.storey < storeys.length) return e.storey;
+    let s = 0; for (let i = 0; i < storeys.length; i++) if (storeys[i].z <= (e.zmin ?? 0) + 0.3) s = i;
+    return s;
+  };
+  for (const e of elements) {
+    const s = sOf(e), bx = storeyBox[s], ctx = !CONTEXT_SKIP.has(e.type);
+    for (let t = e.start, end = e.start + e.count; t < end; t++) vStorey[allIdx[t]] = s;
+    if (ctx) bx.n++;
+  }
+  const h = [];
+  for (let i = 1; i < storeys.length; i++) { const d = storeys[i].z - storeys[i - 1].z; if (d > 1.5) h.push(d); }
+  h.sort((a, b) => a - b);
+  const H = h.length ? h[h.length >> 1] : 3;
+  const gap = Math.min(8, Math.max(2.5, H * 1.5));
+  offsets = new Float32Array(storeys.length);
+  for (let i = 0; i < storeys.length; i++) offsets[i] = i * gap;
+}
+function applyExplode() {
+  const pa = positions.array, nv = positions.count, t = explodeT;
+  for (let i = 0; i < nv; i++) pa[i * 3 + 1] = baseY[i] + offsets[vStorey[i]] * t;
+  positions.needsUpdate = true;
+}
+
+// lift the storeys apart (true) or set them back (false), eased over ~0.8 s; the camera follows to frame the stack
+export function explode(on = true, ms = 800) {
+  if (!model || !offsets || storeys.length < 2) return;
+  const to = on ? 1 : 0;
+  if (to === explodeTo) return;
+  explodeTo = to; applyClip(); syncUI();
+  if (RM.matches) ms = 0;
+  // frame where things will be at the end: the whole stack when lifting, the evidence (or the focused storey) when
+  // setting back. Measured on the end state, then the buffer goes back to where it is now
+  const from = explodeT, target = hl && !on ? hl : model;
+  explodeT = to; applyExplode();
+  const b = drawnBox(target, target === model, on ? FABRIC : SHELL);
+  explodeT = from; applyExplode();
+  if (!on && clipWanted < 1e8 && target === model) b.max.y = Math.min(b.max.y, clipWanted);
+  const s = performance.now();
+  for (const f of tweens) if (f.explode) tweens.delete(f);
+  const f = now => {
+    const k = ms ? Math.min(1, (now - s) / ms) : 1;
+    explodeT = from + (to - from) * ease(k);
+    applyExplode(); fadeLabels();
+    if (k >= 1) { explodeT = to; applyClip(); for (const m of [model, hl, offMesh, hotMesh]) if (m) { m.geometry.boundingSphere = null; m.geometry.boundingBox = null; } }
+    return k < 1;
+  };
+  f.explode = true;
+  tween(f);
+  glideTo(b, ms);
+  updateLabels();
+}
+export function isExploded() { return explodeTo > 0.5; }
+
+// ------------------------------------------------------------ storey labels, drawn beside each lifted floor
+function clearLabels() { for (const l of labels) l.el.remove(); labels = []; }
+function updateLabels() {
+  if (!labLayer) return;
+  clearLabels();
+  if (!model || storeys.length < 2 || (explodeTo === 0 && explodeT === 0)) return;
+  storeys.forEach((s, i) => {
+    const bx = storeyBox[i]; if (!bx || !bx.n) return;
+    const el = document.createElement('div');
+    const ev = evStoreys.get(i) || 0;
+    el.className = 'v3lab' + (ev ? ' ev' : '');
+    const z = s.z, elev = (z >= 0 ? '+' : '−') + Math.abs(z).toFixed(2);
+    el.innerHTML = `<b></b><i></i><s></s>`;
+    el.querySelector('b').textContent = s.name || `Storey ${i + 1}`;
+    el.querySelector('i').textContent = ev ? `${elev} · evidence` : elev;
+    el.title = `${s.name}, level ${elev} m`;
+    labLayer.appendChild(el);
+    labels.push({ el, i, ev, w: 0, h: 0 });
+  });
+  fadeLabels();
+  requestRender();
+}
+function fadeLabels() { if (labLayer) labLayer.style.opacity = String(Math.max(0, (explodeT - 0.35) / 0.65)); }
+const _v = new THREE.Vector3();
+function placeLabels() {
+  if (!labels.length || !footprint) return;
+  const W = host.clientWidth, H = host.clientHeight, shown = [];
+  for (const l of labels) {
+    if (!l.w) { l.w = l.el.offsetWidth; l.h = l.el.offsetHeight; }
+    const bx = footprint, y = storeys[l.i].z + offsets[l.i] * explodeT + 0.2;
+    let lo = null, hi = null;
+    for (const [x, z] of [[bx.x0, bx.z0], [bx.x0, bx.z1], [bx.x1, bx.z0], [bx.x1, bx.z1]]) {
+      _v.set(x, y, z).project(camera);
+      if (_v.z > 1) continue;
+      const sx = (_v.x + 1) / 2 * W, sy = (1 - _v.y) / 2 * H;
+      if (!lo || sx < lo[0]) lo = [sx, sy];
+      if (!hi || sx > hi[0]) hi = [sx, sy];
+    }
+    l.lo = lo; l.hi = hi;
+  }
+  // all in one column: beside the left edge of the building if they fit there, else beside its right edge
+  const vis = labels.filter(l => l.lo), fitL = vis.every(l => l.lo[0] - l.w - 2 >= 4), fitR = vis.every(l => l.hi[0] + l.w + 2 <= W - 4);
+  const right = !fitL && (fitR || vis.reduce((a, l) => a + (W - l.hi[0]) - l.lo[0], 0) > 0);
+  for (const l of labels) {
+    l.pos = !l.lo ? null : right ? [l.hi[0] + l.w + 2, l.hi[1]] : l.lo;
+    l.el.classList.toggle('r', right);
+  }
+  // evidence storeys first, then top to bottom; a label that would overlap one already placed is left out
+  const order = [...labels].sort((a, b) => (b.ev > 0) - (a.ev > 0) || b.i - a.i);
+  for (const l of order) {
+    let ok = !!l.pos;
+    if (ok) {
+      const x = Math.min(W - l.w - 4, Math.max(4, l.pos[0] - l.w - 2)), y = Math.min(H - l.h - 2, Math.max(48, l.pos[1] - l.h / 2));
+      l.x = x; l.y = y;
+      ok = !shown.some(o => Math.abs(o.y - y) < l.h + 2 && x < o.x + o.w && o.x < x + l.w);
+    }
+    l.el.style.display = ok ? '' : 'none';
+    if (ok) { l.el.style.transform = `translate(${l.x.toFixed(1)}px, ${l.y.toFixed(1)}px)`; shown.push(l); }
+  }
+}
+
+// ------------------------------------------------------------ x-ray: everything but the evidence as faint glass
+let xrayUser = null;  // null = automatic: on while an answer has evidence to show, off for the bare model
+function xrayOn() { return xrayUser != null ? xrayUser : !!hl; }
+export function setXray(on) { xrayUser = on == null ? null : !!on; applyLook(); syncUI(); requestRender(); }
+export function isXray() { return xrayOn(); }
+function applyLook() {
+  const x = xrayOn();
+  // solid: a light-grey model with fine dark outlines; x-ray: barely-there glass, the outlines carry the shape
+  ctxMat.transparent = x; ctxMat.opacity = x ? 0.08 : 1; ctxMat.depthWrite = !x;
+  ctxMat.color.set(x ? 0xc4ccd6 : 0xd9dee5);
+  ctxLine.opacity = x ? 0.2 : 0.32;
+  ctxMat.needsUpdate = true;
+  if (hlMat && !hlMat.userData.volumes) { hlMat.emissive.set(x ? 0x004670 : 0x002a44); }
+  syncUI();
+}
+
+// ------------------------------------------------------------ evidence
 // which storey to focus so the evidence is visible: the highest storey holding evidence, if the evidence sits
 // on one or two adjacent storeys; else none
 export function autoStorey(items) {
@@ -205,43 +543,90 @@ export function autoStorey(items) {
   return a[a.length - 1];
 }
 
-// items: [{guids, on}] in evidence order. Elements light up one item at a time.
+let hlMat = null, revealSkip = null;
+// a listener for the count-up: fn(k, total) after each item lights up (k = items lit so far), and fn(total, total)
+// when the count is complete or skipped. The highlight() onStep argument does the same for one call.
+export function onReveal(fn) { revealListener = fn; }
+// finish the running count at once (a click or tap on the model, Esc, or the caller)
+export function skipReveal() { if (revealSkip) revealSkip(); }
+export function revealing() { return !!anim; }
+
+// items: [{guids, on}] in evidence order. Elements light up one item at a time (each with a short pulse), in at
+// most ~1.8 s however many items there are; instant under prefers-reduced-motion.
 export function highlight(items, animate = true, onStep = null, reframe = true, onDone = null) {
   clear();
   if (!model) return;
-  const on = [], off = [], ends = [];
+  if (RM.matches) animate = false;
+  const on = [], off = [], ends = [], groups = [];
   let n = 0;
   items.forEach(it => {
-    const list = it.on ? on : off;
-    for (const gid of it.guids || []) { const e = byGuid.get(gid); if (e) { list.push(e); if (it.on) n += e.count; } }
-    ends.push(n);
+    const list = it.on ? on : off, grp = [];
+    for (const gid of it.guids || []) { const e = byGuid.get(gid); if (e) { list.push(e); if (it.on) { n += e.count; grp.push(e); } } }
+    ends.push(n); groups.push(grp);
   });
+  // count evidence items (not elements) per storey, for the labels
+  evStoreys = new Map();
+  for (const g of groups) { const ss = new Set(g.map(e => e.storey >= 0 ? e.storey : vStorey ? vStorey[allIdx[e.start]] : -1)); for (const s of ss) evStoreys.set(s, (evStoreys.get(s) || 0) + 1); }
   if (off.length) {
     offMesh = subMesh(off, new THREE.MeshLambertMaterial({ color: 0x8a94a3, transparent: true, opacity: 0.55,
       side: THREE.DoubleSide, clippingPlanes: [clip] }));
     scene.add(offMesh);
   }
+  updateLabels();
   requestRender();
-  if (!on.length) { onDone && onDone(); return; }
+  if (!on.length) { applyLook(); onDone && onDone(); return; }
   // rooms are volumes: draw them see-through so what's inside (and the rooms behind) stays visible
   const volumes = on.filter(e => e.type === 'IfcSpace').length > on.length / 2;
-  hl = subMesh(on, new THREE.MeshLambertMaterial({ color: 0x0072b2, emissive: 0x002a44,
+  // drawn in the transparent pass, after the context: in x-ray the glass in front of it does not veil it, while a
+  // solid (depth-writing) context still hides what is behind a wall
+  hlMat = new THREE.MeshLambertMaterial({ color: 0x0072b2, emissive: 0x002a44,
     side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, clippingPlanes: [clip],
-    transparent: volumes, opacity: volumes ? 0.42 : 1, depthWrite: !volumes }));
+    transparent: true, opacity: volumes ? 0.42 : 1, depthWrite: !volumes });
+  hlMat.userData.volumes = volumes;
+  hl = subMesh(on, hlMat);
   hl.renderOrder = 2;
   scene.add(hl);
+  const eEnds = [];
+  hlEdges = subEdges(groups, hlLine, eEnds);
+  if (hlEdges) { hlEdges.renderOrder = 3; scene.add(hlEdges); }
+  // the pulse: the item that has just lit up, flashed light blue and fading into the evidence blue
+  const pg = new THREE.BufferGeometry();
+  pg.setAttribute('position', positions); pg.setAttribute('normal', hl.geometry.getAttribute('normal')); pg.setIndex(hl.geometry.index);
+  pulse = new THREE.Mesh(pg, pulseMat); pulse.frustumCulled = false; pulse.renderOrder = 5; pg.setDrawRange(0, 0);
+  scene.add(pulse);
+  applyLook();
   requestRender();
-  if (reframe) frame(hl, clip.constant < 1e8);
-  if (!animate) { onDone && onDone(); return; }
-  hl.geometry.setDrawRange(0, 0); requestRender();
+  if (reframe) { if (explodeTo > 0) requestRender(); else frame(hl, clip.constant < 1e8); }
+  const total = items.length;
+  if (!animate) { revealListener && revealListener(total, total); onDone && onDone(); return; }
+  hl.geometry.setDrawRange(0, 0); if (hlEdges) hlEdges.geometry.setDrawRange(0, 0); requestRender();
   // time-based, so a slow GPU (or a software renderer) skips steps instead of stretching the count out
-  const step = Math.max(20, Math.min(120, 1800 / Math.max(1, items.length))), dur = step * items.length, t0 = performance.now();
-  let i = 0;
-  animDone = onDone;
+  const step = Math.max(20, Math.min(120, 1800 / Math.max(1, total))), dur = step * total, t0 = performance.now();
+  let i = 0, pulseAt = 0, pulseFrom = 0;
+  const myHl = hl;
+  tween(now => {
+    if (hl !== myHl) return false;
+    const a = Math.max(0, 1 - (now - pulseAt) / 380);
+    pulseMat.opacity = 0.9 * a * a;
+    if (a <= 0) pg.setDrawRange(0, 0);
+    return a > 0 || !!anim;
+  });
+  const finish = () => {
+    clearInterval(anim); anim = null; animDone = null; revealSkip = null;
+    hl.geometry.setDrawRange(0, Infinity); if (hlEdges) hlEdges.geometry.setDrawRange(0, Infinity);
+    requestRender();
+    revealListener && revealListener(total, total);
+    onDone && onDone();
+  };
+  revealSkip = () => { if (!anim) return; i = total; onStep && onStep(i); finish(); };
+  animDone = () => { revealSkip = null; hl && hl.geometry.setDrawRange(0, Infinity); onDone && onDone(); };
   anim = setInterval(() => {
-    i = Math.min(ends.length, Math.max(i + 1, Math.floor((performance.now() - t0) / dur * ends.length)));
-    hl.geometry.setDrawRange(0, ends[i - 1]); requestRender(); onStep && onStep(i);
-    if (i >= ends.length) { clearInterval(anim); anim = null; animDone = null; hl.geometry.setDrawRange(0, Infinity); onDone && onDone(); }
+    const prev = i;
+    i = Math.min(total, Math.max(i + 1, Math.floor((performance.now() - t0) / dur * total)));
+    hl.geometry.setDrawRange(0, ends[i - 1]); if (hlEdges) hlEdges.geometry.setDrawRange(0, eEnds[i - 1]);
+    pulseFrom = prev > 0 ? ends[prev - 1] : 0; pg.setDrawRange(pulseFrom, ends[i - 1] - pulseFrom); pulseAt = performance.now();
+    requestRender(); onStep && onStep(i); revealListener && i < total && revealListener(i, total);
+    if (i >= total) finish();
   }, step);
 }
 
@@ -252,7 +637,7 @@ export function hot(guids) {
   if (!list.length || !model) return;
   hotMesh = subMesh(list, new THREE.MeshLambertMaterial({ color: 0xf0e442, emissive: 0x5a5200, side: THREE.DoubleSide,
     polygonOffset: true, polygonOffsetFactor: -2, clippingPlanes: [clip], depthTest: false, transparent: true, opacity: 0.9 }));
-  hotMesh.renderOrder = 3;
+  hotMesh.renderOrder = 4;
   scene.add(hotMesh); requestRender();
 }
 
