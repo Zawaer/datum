@@ -246,10 +246,12 @@ def _tess_items(image_path: str) -> list[dict]:
 VISION_PROMPT = """This is one tile of a piping plan (construction drawing), {w}x{h} pixels.
 Transcribe EVERY piece of printed text in it: tags (e.g. CV-1, PS-12, FSCV-3, FP-2, PIT 1, DPT-1 & 2), pipe sizes
 (e.g. 8", 16" SUCTION HEADER, 10" X 12" REDUCER), abbreviations (PG, MAV, IF), callout bubbles (e.g. E1 above M-303),
-notes, titles. One line per text line, format exactly:
-x0,y0,x1,y1|TEXT
-pixel coordinates of that text line in this tile image. Text exactly as printed (keep inch marks "). Skip text cut
-off at the tile edge. No other output."""
+notes, titles. One line per text line: the text line's box as four integer pixel coordinates in this tile image
+(left,top,right,bottom), a bar, then the text, e.g.
+412,88,470,104|CV-1
+120,300,388,318|16" SUCTION HEADER
+Write the numbers themselves, never the letters x0,y0,x1,y1. Text exactly as printed (keep inch marks "). Skip text
+cut off at the tile edge. No other output."""
 
 
 SEND_PX = 1072  # tile side sent to the model: <= ~1.15 MP, so the API never resizes it (boxes stay in our frame)
@@ -290,7 +292,7 @@ def _vision_items(image_path: str) -> tuple[list[dict], float]:
         if up != 1.0:
             crop = crop.resize((round(crop.width * up), round(crop.height * up)), Image.LANCZOS)
         got, spent = [], 0.0
-        for attempt in range(2):  # an empty / unparseable reply (it happens on dense tiles) is retried once
+        for attempt in range(3):  # an empty / unparseable reply (it happens on dense tiles) is retried
             r = llm.ask(VISION_PROMPT.format(w=crop.width, h=crop.height), [crop], model="haiku", think="low",
                         system="You transcribe drawings exactly. Output only the requested lines.", timeout=180,
                         tag="sheets-piping-ocr")
@@ -1167,9 +1169,10 @@ def _tag_list(fam: str, nums: list[int]) -> str:
 
 
 RECHECK_PROMPT = """This is a zoomed crop of a piping plan, {w}x{h} pixels. List every label of the form {fam}-<number>
-(e.g. {ex}) printed in it. One line per label, format exactly:
-x0,y0,x1,y1|LABEL
-pixel coordinates in this image. Only labels you can actually read. No other output."""
+(e.g. {ex}) printed in it. One line per label: its box as four integer pixel coordinates in this image
+(left,top,right,bottom), a bar, then the label, e.g.
+212,40,268,58|{ex}
+Write the numbers themselves, never the letters x0,y0,x1,y1. Only labels you can actually read. No other output."""
 
 
 def _family_scan(sheet: dict, fams: list[str], cost: list) -> list[dict]:
