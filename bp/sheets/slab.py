@@ -997,17 +997,55 @@ def _scale_from_dims(hor, ver, W, H, g=None):
                 d["span"] = [sp[2], sp[0], sp[2], sp[1]]
         if sp:
             d["k"] = d["v"] / (sp[1] - sp[0])
-            est.append(d["k"])
+            if sp[1] - sp[0] >= 0.015 * max(g.shape):  # short spans: a 1 px tick error or a stray match decides
+                est.append(d["k"])
     if len(est) < 3:
         return None, dims, 0
     e = np.array(est)
-    med = float(np.median(e))
-    good = [d for d in dims if "k" in d and abs(d["k"] / med - 1) < 0.04]
+    # the scale most dimensions agree on (a misread number gives a stray ratio; garbage does not cluster)
+    support = [int((np.abs(e / v - 1) < 0.04).sum()) for v in e]
+    best = int(np.argmax(support))
+    if support[best] < 3:
+        for d in dims:
+            d["inlier"] = False
+        return None, dims, 0  # no three dimensions agree: no trustworthy scale, areas abstain
+    med = float(np.median(e[np.abs(e / e[best] - 1) < 0.04]))
+    good = [d for d in dims if "k" in d and abs(d["k"] / med - 1) < 0.04
+            and abs(d["span"][2] - d["span"][0]) + abs(d["span"][3] - d["span"][1]) >= 0.015 * max(g.shape)]
     for d in dims:
         d["inlier"] = d in good
     # long dimensions dominate (a 1 px tick error matters less on 12,000 mm than on 600 mm)
     k = sum(d["v"] ** 2 * d["k"] for d in good) / sum(d["v"] ** 2 for d in good)
     return k, dims, len(good)
+
+
+_PAPER_MM = {"ANSI A": 279.4, "ANSI B": 431.8, "ANSI C": 558.8, "ANSI D": 863.6, "ANSI E": 1117.6,
+             "ARCH C": 609.6, "ARCH D": 914.4, "ARCH E": 1219.2, "ISO A0": 1189, "ISO A1": 841, "ISO A2": 594,
+             "ISO A3": 420}
+
+
+def _scale_from_sheet(text, W, H):
+    """Fallback scale when no three dimension strings agree: the printed drawing scale times the printed sheet
+    size (title block "SIZE: ANSI D" / "ISO A1"), assuming the image is the whole sheet. (k, how) or None."""
+    t = text.upper()
+    m = re.search(r"\b(ANSI|ARCH|ISO)\s*([A-E]|A[0-4])\b", t)
+    if not m:
+        return None
+    key = f"{m.group(1)} {m.group(2)}"
+    paper = _PAPER_MM.get(key)
+    sm = re.search(r"SCALE\s*:?\s*1\s*:\s*(\d{1,4})\b", t)
+    if sm:
+        factor = int(sm.group(1))
+    else:
+        sm = re.search(r"SCALE\s*:?\s*(\d+)\s*/\s*(\d+)\s*\"?\s*=\s*1\s*'\s*-?\s*0", t) or \
+            re.search(r"SCALE\s*:?\s*(\d+)\s*\"?\s*=\s*1\s*'\s*-?\s*0()", t)
+        if not sm:
+            return None
+        inch = int(sm.group(1)) / (int(sm.group(2)) if sm.group(2) else 1)
+        factor = 12 / inch
+    if not paper or not factor:
+        return None
+    return paper * factor / max(W, H), f"sheet size {key} × scale {sm.group(0).split(':')[-1].strip()} (assumes the image is the whole sheet)"
 
 
 def _snap_to(v, ticks, tol):
@@ -1232,6 +1270,10 @@ def analyse(meta) -> dict:
     # scale
     k, dims, n_scale = _scale_from_dims(hor, ver, W, H, g)
     scale_src = f"{n_scale} dimension-string pairs" if k else None
+    if not k:
+        k2 = _scale_from_sheet(full_text + " " + " ".join(w["text"] for w in hor + ver), W, H)
+        if k2:
+            k, scale_src = k2
 
     # zones
     joint_pts = [((w["bbox"][0] + w["bbox"][2]) / 2 * W, (w["bbox"][1] + w["bbox"][3]) / 2 * H) for w in hor + ver
@@ -1311,6 +1353,11 @@ def analyse(meta) -> dict:
             if dist < 0.15 * S:
                 z["type"], z["type_how"] = ti, f"nearest note outside the zone ({dist * (k or 0) / 1000:.1f} m away, leader)"
                 used.add(ti)
+    default = next((ti for ti, t in enumerate(types) if t.get("default")), None)
+    if default is not None:  # "12\" SLAB-ON-GRADE U.N.O.": every slab zone without its own note
+        for z in out_zones:
+            if z["type"] is None:
+                z["type"], z["type_how"] = default, "the U.N.O. (unless noted otherwise) slab note"
     if k and os.environ.get("BP_SLAB_DIMZONES", "1") == "1":
         _dimension_zones(out_zones, types, used, dims, W, H, S)
     union = np.zeros_like(g, dtype=np.uint8)
@@ -1323,7 +1370,7 @@ def analyse(meta) -> dict:
     tr_text = "\n".join(b["text"] for b in blocks if b.get("read")) or full_text
     for m in re.finditer(r"([A-Z][A-Z ]{2,40}?)\s+TRENCH\s+LENGTH\s*[-=:]?\s*(\d[\d,]*)", tr_text.upper()):
         trenches.append({"name": m.group(1).strip().title() + " trench", "length_mm": int(m.group(2).replace(",", ""))})
-    for m in re.finditer(r"(?:^|\n|\d\.\s)([A-Z][A-Z ,/]{3,80}?),?\s*APPROXIMATELY\s*((?:\d+\s*'\s*-?\s*)?\d+(?:\s+\d/\d+)?\s*\")\s*LONG",
+    for m in re.finditer(r"(?:^|\n|\d\.\s|\.\s)([A-Z][A-Z ,/]{3,80}?),?\s*APPROXIMATELY\s*((?:\d+\s*'\s*-?\s*)?\d+(?:\s+\d/\d+)?\s*\")\s*LONG",
                          tr_text.upper()):
         fm = _FTIN_RE.search(m.group(2))
         v = _ftin_mm(fm) if fm else None
@@ -1351,6 +1398,8 @@ def analyse(meta) -> dict:
     hatch_note = next((b for b in blocks if re.search(r"SHADED|HATCH", b["text"].upper())), None)
     inl = [d for d in dims if d.get("inlier")]
     imperial = bool(inl) and sum(bool(d.get("imperial")) for d in inl) > len(inl) / 2
+    if not inl:  # no dimension evidence: inch slab notes say the sheet is imperial
+        imperial = any(t.get("thickness_in") for t in types)
     low = bool(meta.get("low_res")) if "low_res" in meta else (src != "pdf-text" and max(meta.get("w") or 0, meta.get("h") or 0) < 3000)
     res = {"v": 1, "src": src, "low_res": low, "imperial": imperial, "W": W, "H": H, "f": f, "k": k, "scale_src": scale_src,
            "scale_note": f"1:{sc.group(1)}" if sc else None, "types": types, "zones": out_zones,
@@ -1694,8 +1743,19 @@ def answer(path, question, meta) -> dict | None:
             a, how, used = _zone_area(z, A)
             rows.append((z, a, how, used))
         conf = conf0
+        if A.get("scale_src") and "sheet size" in A["scale_src"]:
+            conf *= 0.7  # scale from the sheet size: right only if the image is the whole, uncropped sheet
         typed = [r for r in rows if _type_of(r[0], A)]
-        if len(typed) < len(rows):
+        if typed and len(typed) < len(rows):
+            # closed areas no slab note claims (title-block cells, pits, pads drawn as rooms) are not counted
+            skipped = [r for r in rows if not _type_of(r[0], A)]
+            z0, a0, h0, u0 = typed[0]
+            typed[0] = (z0, a0, h0 + f" ({len(skipped)} closed area(s) with no slab note, "
+                        f"{sum(r[1] for r in skipped):.1f} m², not counted)", u0)
+            rows = typed
+            conf *= 0.9
+            zones = [r[0] for r in rows]
+        elif len(typed) < len(rows):
             conf *= 0.8
         used_t = {z.get("type") for z in zones}
         if any(i not in used_t for i in range(len(A["types"]))):
