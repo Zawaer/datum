@@ -1,0 +1,763 @@
+"""Doors and windows on architectural floor plans, by classical CV at full resolution (no training data needed).
+
+Reached through bp/sheets/arch.py (SUBMODULES: "doors" / "windows" / "doors_windows" -> openings.answer), and
+reusable on its own: `find_doors(image)` / `find_windows(image)` take a path, PIL image or grey ndarray and return
+pixel boxes [x0, y0, x1, y1].
+
+Doors  : the swing arc. Ink is split into thick walls (morphological opening) and thin linework (the rest). Each
+         thin connected component of door size is searched (RANSAC) for circle arcs; an arc counts as a door swing
+         when it spans ~60-120 degrees, its centre (the hinge) sits on a wall end and a straight leaf runs from the
+         hinge out to one arc end. Two swings whose hinges are r1 + r2 apart and that close towards each other are one
+         double door. Sliding and folding doors have no arc and are not found (said so in the answer).
+Windows: a glazing strip in a thick wall: two or more thin parallel lines, about a wall thickness apart, running
+         between two solid wall piers whose thickness matches the strip. Strips on the building's outside face are
+         windows; strips between two rooms are reported separately as internal glazing.
+Scale  : printed scale via arch.scale(meta) when available, else the median door-swing radius taken as 0.9 m.
+Rasters are worked at ~110 px/m (vector PDF pages are re-rendered; rasters upsampled up to 2x). Rasters needing
+more (2000-3000 px screenshots/JPGs: swings become sub-pixel dots) are flagged low_res and answer() abstains.
+
+Measured on the DfE special school plan level 00 (14000 px, 1:200 on A2) against a hand count (tests/fixtures/openings/eval_gold.json):
+doors 122 found / 122 correct / 128 in the hand count (P 1.00, R 0.95), windows 67 / 67 / 68 (P 1.00, R 0.99);
+without the printed scale (estimated) doors 124 found, ~122 correct. Not handled: double-line (unfilled) walls with
+grey swings (DAF dormitory: abstains at its 23 px/m), sliding doors, 180-degree swings.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import math
+import os
+import re
+from pathlib import Path
+
+import numpy as np
+
+log = logging.getLogger(__name__)
+
+METHOD = "sheets-openings"
+DARK = 110  # walls / black linework
+INK = 165  # thin linework incl. grey door swings (some CAD exports draw swings ~150 grey, furniture ~170+)
+# measured on the hand-checked school plan (tests/fixtures/openings/eval_gold.json); the answer's confidence is capped lower
+# because a single sheet is a thin basis (the US A-101 pump house sheet scored P 5/8, R 5/6 for doors)
+PRECISION = {"door": 0.98, "window": 0.99}
+RECALL = {"door": 0.95, "window": 0.99}
+
+
+# --------------------------------------------------------------------------------------------------- image prep
+def _gray(image) -> np.ndarray:
+    from PIL import Image
+
+    Image.MAX_IMAGE_PIXELS = None
+    if isinstance(image, np.ndarray):
+        a = image
+        if a.ndim == 3:
+            a = (a[..., :3].astype(np.float32) @ np.array([0.299, 0.587, 0.114], np.float32)).astype(np.uint8)
+        return a
+    im = image if hasattr(image, "convert") else Image.open(str(image))
+    return np.asarray(im.convert("L"))
+
+
+def _line_width(dark: np.ndarray) -> int:
+    """Most common horizontal run length of ink among thin runs (the drawing's line weight), in px."""
+    sub = dark[:: max(1, dark.shape[0] // 1500)]
+    d = np.diff(np.pad(sub.astype(np.int8), ((0, 0), (1, 1))), axis=1)
+    starts = np.argwhere(d == 1)
+    ends = np.argwhere(d == -1)
+    runs = ends[:, 1] - starts[:, 1]
+    runs = runs[(runs >= 1) & (runs <= 12)]
+    if len(runs) == 0:
+        return 2
+    return int(np.bincount(runs).argmax())
+
+
+def _layers(gray: np.ndarray, ink_thr: int = INK):
+    """(dark, ink, wall, thin, lw): wall = solid fill thicker than ~3 line widths; thin = ink off the walls."""
+    import cv2
+
+    dark = gray < DARK
+    ink = gray < ink_thr
+    lw = max(1, _line_width(dark))
+    k = max(5, 2 * lw + 3)
+    wall = cv2.morphologyEx(dark.astype(np.uint8), cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (k, k)))
+    # text strokes and arrow heads survive a small opening only as specks: keep wall blobs of real size
+    n, lab, st, _ = cv2.connectedComponentsWithStats(wall, 8)
+    keep = np.zeros(n, bool)
+    keep[1:] = (st[1:, cv2.CC_STAT_AREA] >= 4 * k * k) & (np.maximum(st[1:, 2], st[1:, 3]) >= 2 * k)
+    wall = keep[lab].astype(np.uint8)
+    wd = cv2.dilate(wall, np.ones((2 * lw + 3, 2 * lw + 3), np.uint8))
+    thin = (ink & (wd == 0)).astype(np.uint8)
+    return dark, ink, wall, thin, lw, k
+
+
+# ------------------------------------------------------------------------------------------------------- doors
+def _circle3(p):
+    (x1, y1), (x2, y2), (x3, y3) = p
+    d = 2 * (x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2))
+    if abs(d) < 1e-6:
+        return None
+    s1, s2, s3 = x1 * x1 + y1 * y1, x2 * x2 + y2 * y2, x3 * x3 + y3 * y3
+    cx = (s1 * (y2 - y3) + s2 * (y3 - y1) + s3 * (y1 - y2)) / d
+    cy = (s1 * (x3 - x2) + s2 * (x1 - x3) + s3 * (x2 - x1)) / d
+    return cx, cy, math.hypot(x1 - cx, y1 - cy)
+
+
+def _arc_span(ang: np.ndarray, bins: int = 72):
+    """(span degrees of the longest run of occupied 5-degree bins on the circle, start angle, end angle)."""
+    occ = np.zeros(bins, bool)
+    occ[((ang % (2 * np.pi)) / (2 * np.pi) * bins).astype(int) % bins] = True
+    if occ.all():
+        return 360.0, 0.0, 2 * np.pi
+    # rotate so that an empty bin is first, then find the longest run (gaps of one bin are bridged)
+    z = int(np.argmin(occ))
+    o = np.roll(occ, -z)
+    o2 = o.copy()
+    for i in range(1, bins - 1):
+        if not o[i] and o[i - 1] and o[i + 1]:
+            o2[i] = True
+    best, cur, bs = 0, 0, 0
+    for i, v in enumerate(o2):
+        cur = cur + 1 if v else 0
+        if cur > best:
+            best, bs = cur, i - cur + 1
+    a0 = ((bs + z) % bins) / bins * 2 * np.pi
+    return best * 360.0 / bins, a0, a0 + best / bins * 2 * np.pi
+
+
+def _leaf(thin, wall, cx, cy, r, a0, a1, lw):
+    """Is there a straight leaf line from the hinge (cx, cy) to one end of the arc? Returns the end angle or None."""
+    H, W = thin.shape
+    best = None
+    for a in (a0, a1):
+        n = max(8, int(r))
+        ts = np.linspace(0.12, 0.92, n)
+        xs = np.clip(np.round(cx + np.cos(a) * r * ts).astype(int), 0, W - 1)
+        ys = np.clip(np.round(cy + np.sin(a) * r * ts).astype(int), 0, H - 1)
+        hit = 0
+        rad = max(2, lw + 1)
+        for x, y in zip(xs, ys):
+            if thin[max(0, y - rad):y + rad + 1, max(0, x - rad):x + rad + 1].any() or \
+                    wall[max(0, y - 1):y + 2, max(0, x - 1):x + 2].any():
+                hit += 1
+        f = hit / n
+        if best is None or f > best[1]:
+            best = (a, f)
+    return best
+
+
+def _arcs_in(pts, rmin, rmax, tol, rng, iters=1500, min_span=65, max_span=135):
+    """RANSAC circle arcs among component points (N x 2, x/y). Returns [(cx, cy, r, span, a0, a1, n_inliers)]."""
+    out = []
+    pts = pts.astype(np.float64)
+    for _ in range(3):  # up to three swings in one component (double doors, a door beside a cupboard)
+        if len(pts) < 20:
+            break
+        # vectorised RANSAC: many triples at once, scored on a subsample, best one re-scored on all points
+        idx = rng.integers(0, len(pts), (iters, 3))
+        P = pts[idx]
+        x1, y1, x2, y2, x3, y3 = P[:, 0, 0], P[:, 0, 1], P[:, 1, 0], P[:, 1, 1], P[:, 2, 0], P[:, 2, 1]
+        d = 2 * (x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2))
+        ok = np.abs(d) > 1e-6
+        d = np.where(ok, d, 1.0)
+        s1, s2, s3 = x1 * x1 + y1 * y1, x2 * x2 + y2 * y2, x3 * x3 + y3 * y3
+        cx = (s1 * (y2 - y3) + s2 * (y3 - y1) + s3 * (y1 - y2)) / d
+        cy = (s1 * (x3 - x2) + s2 * (x1 - x3) + s3 * (x2 - x1)) / d
+        r = np.hypot(x1 - cx, y1 - cy)
+        ok &= (r >= rmin) & (r <= rmax)
+        best = None
+        if ok.any():
+            cx, cy, r = cx[ok], cy[ok], r[ok]
+            sub = pts if len(pts) <= 1200 else pts[rng.choice(len(pts), 1200, replace=False)]
+            D = np.abs(np.hypot(sub[None, :, 0] - cx[:, None], sub[None, :, 1] - cy[:, None]) - r[:, None]) < tol
+            score = D.sum(1) * len(pts) / len(sub)
+            j = int(np.argmax(score))
+            c = (float(cx[j]), float(cy[j]), float(r[j]))
+            inl = np.abs(np.hypot(pts[:, 0] - c[0], pts[:, 1] - c[1]) - c[2]) < tol
+            k = int(inl.sum())
+            if k >= 0.6 * c[2] * 0.9:  # a quarter arc has ~1.57 r pixels on its centre line; demand a good part
+                best = (c, k, inl)
+        if best is None:
+            break
+        (cx, cy, r), k, inl = best
+        # refine by least squares on the inliers
+        q = pts[inl]
+        A = np.c_[2 * q[:, 0], 2 * q[:, 1], np.ones(len(q))]
+        b = (q ** 2).sum(1)
+        sol, *_ = np.linalg.lstsq(A, b, rcond=None)
+        cx2, cy2 = sol[0], sol[1]
+        r2 = math.sqrt(max(1e-6, sol[2] + cx2 ** 2 + cy2 ** 2))
+        if rmin <= r2 <= rmax and abs(r2 - r) < 0.15 * r:
+            cx, cy, r = cx2, cy2, r2
+            d = np.abs(np.hypot(pts[:, 0] - cx, pts[:, 1] - cy) - r)
+            inl = d < tol
+        ang = np.arctan2(pts[inl, 1] - cy, pts[inl, 0] - cx)
+        span, a0, a1 = _arc_span(ang)
+        if min_span <= span <= max_span:
+            out.append((cx, cy, r, span, a0, a1, int(inl.sum())))
+        pts = pts[~inl]
+    return out
+
+
+def _swings(gray, px_per_m=None, layers=None):
+    """Door swing arcs: [{"c": (cx, cy), "r", "a0", "a1", "span", "leaf", "hinge_wall", "score"}] in px."""
+    import cv2
+
+    dark, ink, wall, thin, lw, k = layers or _layers(gray)
+    H, W = gray.shape
+    if px_per_m:
+        rmin, rmax = 0.4 * px_per_m, 1.6 * px_per_m
+    else:
+        rmin, rmax = max(12.0, 5 * lw, max(W, H) / 300), max(W, H) / 30  # sheet-relative without a scale
+    n, lab, st, _ = cv2.connectedComponentsWithStats(thin, 8)
+    rng = np.random.default_rng(0)
+    tol = max(1.5, 0.8 * lw + 0.8)
+    out = []
+    for i in range(1, n):
+        x, y, w, h, a = st[i]
+        if max(w, h) < 0.6 * rmin or max(w, h) > 2.6 * rmax + 4 * k or a < 1.2 * rmin:
+            continue
+        if min(w, h) < 0.4 * rmin:  # a straight line: no arc
+            continue
+        sub = lab[y:y + h, x:x + w] == i
+        ys, xs = np.nonzero(sub)
+        pts = np.c_[xs + x, ys + y]
+        if len(pts) > 4000:
+            pts = pts[rng.choice(len(pts), 4000, replace=False)]
+        for cx, cy, r, span, a0, a1, ni in _arcs_in(pts, rmin, rmax, tol, rng):
+            la, lf = _leaf(thin, wall, cx, cy, r, a0, a1, lw)
+            hx, hy = int(round(cx)), int(round(cy))
+            rr = max(3, int(0.12 * r))
+            near = wall[max(0, hy - rr):hy + rr + 1, max(0, hx - rr):hx + rr + 1]
+            hinge_wall = bool(near.any())
+            # the arc's free end should also land on a wall/jamb or the other leaf (not floating like a chair back)
+            fill = ni / max(1.0, r * math.radians(span))
+            # the arc runs through free space: its middle is not on (or hugging) a solid mass
+            am = (a0 + a1) / 2
+            mx, my = int(cx + r * math.cos(am)), int(cy + r * math.sin(am))
+            o = 2 * lw + 4
+            if wall[max(0, my - o):my + o + 1, max(0, mx - o):mx + o + 1].any():
+                continue
+            score = 0.35 * min(1, lf / 0.8) + 0.25 * hinge_wall + 0.2 * min(1, fill) + 0.2 * (70 <= span <= 110)
+            out.append({"c": (cx, cy), "r": r, "a0": a0, "a1": a1, "span": span, "leaf": lf, "leaf_a": la,
+                        "hinge_wall": hinge_wall, "fill": fill, "score": score})
+    return out
+
+
+def _swing_box(s):
+    cx, cy = s["c"]
+    r = s["r"]
+    angs = np.linspace(s["a0"], s["a1"], 16)
+    xs = np.r_[cx, cx + r * np.cos(angs)]
+    ys = np.r_[cy, cy + r * np.sin(angs)]
+    return [float(xs.min()), float(ys.min()), float(xs.max()), float(ys.max())]
+
+
+def _pair(s, t):
+    """Two swings of one double door: hinges r1 + r2 apart, both closing towards the gap between them."""
+    (x1, y1), (x2, y2) = s["c"], t["c"]
+    d = math.hypot(x2 - x1, y2 - y1)
+    rs = s["r"] + t["r"]
+    if abs(d - rs) > 0.22 * rs or max(s["r"], t["r"]) > 2.2 * min(s["r"], t["r"]):
+        return False
+    ux, uy = (x2 - x1) / d, (y2 - y1) / d
+    # each swing's closed-leaf end (one of a0/a1) points along the hinge line towards the other hinge
+    def toward(sw, vx, vy):
+        return max(math.cos(sw["a0"]) * vx + math.sin(sw["a0"]) * vy, math.cos(sw["a1"]) * vx + math.sin(sw["a1"]) * vy)
+    if toward(s, ux, uy) < 0.85 or toward(t, -ux, -uy) < 0.85:
+        return False
+    # and both swing to the same side of the hinge line
+    def side(sw):
+        m = (sw["a0"] + sw["a1"]) / 2
+        return math.cos(m) * -uy + math.sin(m) * ux
+    return side(s) * side(t) > 0
+
+
+def doors_detail(image, px_per_m=None, min_score=0.6, layers=None, footprint=None):
+    """Doors with their parts: [{"bbox": px box, "leaves": 1|2, "score", "swings": [...]}], reading order.
+    footprint: (mask, f) of the building (from _windows); swings whose hinge is off the building are dropped."""
+    gray = _gray(image)
+    sw = [s for s in _swings(gray, px_per_m, layers) if s["score"] >= min_score * 0.75 and s["hinge_wall"]]
+    if footprint is not None:
+        m, f = footprint
+        sw = [s for s in sw if 0 <= int(s["c"][1] / f) < m.shape[0] and 0 <= int(s["c"][0] / f) < m.shape[1]
+              and m[int(s["c"][1] / f), int(s["c"][0] / f)]]
+    # suppress near-duplicate swings (one arc found twice from overlapping components)
+    sw.sort(key=lambda s: -s["score"])
+    uniq = []
+    for s in sw:
+        if any(math.hypot(s["c"][0] - u["c"][0], s["c"][1] - u["c"][1]) < 0.25 * s["r"] and abs(s["r"] - u["r"]) < 0.25 * s["r"]
+               for u in uniq):
+            continue
+        uniq.append(s)
+    used = set()
+    doors = []
+    for i, s in enumerate(uniq):
+        if i in used:
+            continue
+        partner = None
+        for j, t in enumerate(uniq):
+            if j <= i or j in used:
+                continue
+            if _pair(s, t):
+                partner = j
+                break
+        if partner is not None:
+            used |= {i, partner}
+            t = uniq[partner]
+            b1, b2 = _swing_box(s), _swing_box(t)
+            doors.append({"bbox": [min(b1[0], b2[0]), min(b1[1], b2[1]), max(b1[2], b2[2]), max(b1[3], b2[3])],
+                          "leaves": 2, "score": (s["score"] + t["score"]) / 2 + 0.05, "swings": [s, t]})
+        else:
+            used.add(i)
+            doors.append({"bbox": _swing_box(s), "leaves": 1, "score": s["score"], "swings": [s]})
+    doors = [d for d in doors if d["score"] >= min_score]
+    doors.sort(key=lambda d: (round(d["bbox"][1] / max(1, gray.shape[0] / 40)), d["bbox"][0]))
+    return doors
+
+
+def _leaf_doors(layers, px_per_m, footprint, taken):
+    """Doors drawn without a swing: a straight leaf standing ajar (5-45 degrees off the wall) from a wall end, or
+    a folding door's zig-zag. Hough segments of door length on the thin layer, starting at a wall."""
+    import cv2
+
+    dark, ink, wall, thin, lw, k = layers
+    lmin, lmax = (0.35 * px_per_m, 1.4 * px_per_m) if px_per_m else (max(8 * k, max(wall.shape) / 250), 30 * k)
+    # isolated thin components of door size that are made of a few straight strokes (a leaf, a zig-zag)
+    n, lab, st, _ = cv2.connectedComponentsWithStats(thin, 8)
+    segs = []
+    for i in range(1, n):
+        x, y, w, h, a = st[i]
+        if not (0.7 * lmin <= max(w, h) <= 1.6 * lmax) or a > 6 * lmax * lw:
+            continue
+        crop = ((lab[y:y + h, x:x + w] == i) * 255).astype(np.uint8)
+        ss = cv2.HoughLinesP(np.pad(crop, 2), 1, np.pi / 360, threshold=int(lmin * 0.4),
+                             minLineLength=int(lmin * 0.6), maxLineGap=max(2, lw * 2))
+        if ss is None:
+            continue
+        ss = [(x1 + x - 2, y1 + y - 2, x2 + x - 2, y2 + y - 2) for x1, y1, x2, y2 in ss.reshape(-1, 4).tolist()]
+        # straightness: one stroke-width band around the segments holds nearly all of the component's ink
+        band = np.zeros_like(crop)
+        for x1, y1, x2, y2 in ss:
+            cv2.line(band, (x1 - x, y1 - y), (x2 - x, y2 - y), 255, 2 * lw + 3)
+        if (crop[band > 0] > 0).sum() < 0.85 * (crop > 0).sum():
+            continue
+        segs += ss
+    if not segs:
+        return []
+    m, f = footprint
+    H, W = wall.shape
+    rr = 2 * k
+
+    def at_wall(x, y):
+        x, y = int(x), int(y)
+        return bool(wall[max(0, y - rr):y + rr + 1, max(0, x - rr):x + rr + 1].any())
+
+    cands = []
+    for x1, y1, x2, y2 in segs:
+        L = math.hypot(x2 - x1, y2 - y1)
+        if not (lmin <= L <= lmax):
+            continue
+        ang = math.degrees(math.atan2(abs(y2 - y1), abs(x2 - x1)))
+        off = min(ang, 90 - ang)
+        if off < 6:  # axis-aligned: a wall face, sliding panel, furniture edge or dimension line
+            continue
+        w1, w2 = at_wall(x1, y1), at_wall(x2, y2)
+        if not (w1 or w2):
+            continue
+        # the free end stands near the opposite jamb (a leader line ends at its note, away from any wall)
+        fx, fy = (x2, y2) if w1 else (x1, y1)
+        hx, hy = (x1, y1) if w1 else (x2, y2)
+        q = int(1.05 * L)
+        bx0, by0 = max(0, int(fx) - q), max(0, int(fy) - q)
+        wy, wx = np.nonzero(wall[by0:int(fy) + q + 1, bx0:int(fx) + q + 1])
+        if not len(wx) or not (np.hypot(wx + bx0 - hx, wy + by0 - hy) > 0.6 * L).any():
+            continue
+        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+        if not (0 <= int(cy / f) < m.shape[0] and 0 <= int(cx / f) < m.shape[1] and m[int(cy / f), int(cx / f)]):
+            continue
+        if any(b[0] - 0.2 * L <= cx <= b[2] + 0.2 * L and b[1] - 0.2 * L <= cy <= b[3] + 0.2 * L for b in taken):
+            continue
+        # a stroke running along a solid mass (the edge of a filled arrow / north point) is not a leaf
+        nx, ny = -(y2 - y1) / L, (x2 - x1) / L
+        o = 2 * lw + 6
+        if any(wall[min(H - 1, max(0, int(cy + sg * ny * o))), min(W - 1, max(0, int(cx + sg * nx * o)))]
+               for sg in (-1, 1)):
+            continue
+        cands.append((min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2), L, off, w1 and w2))
+    # one door per cluster of segments (a folding door is two or four; Hough splits lines too)
+    out = []
+    for c in sorted(cands, key=lambda c: -c[4]):
+        b = [float(c[0]), float(c[1]), float(c[2]), float(c[3])]
+        hit = None
+        for o in out:
+            ob = o["bbox"]
+            g = 0.3 * c[4]
+            if b[0] <= ob[2] + g and ob[0] <= b[2] + g and b[1] <= ob[3] + g and ob[1] <= b[3] + g:
+                hit = o
+                break
+        if hit:
+            ob = hit["bbox"]
+            hit["bbox"] = [min(ob[0], b[0]), min(ob[1], b[1]), max(ob[2], b[2]), max(ob[3], b[3])]
+            hit["segments"] += 1
+        else:
+            out.append({"bbox": b, "leaves": 1, "kind": "leaf", "segments": 1, "score": 0.6 if c[5] < 45 else 0.5})
+    for o in out:  # pad thin boxes so the mark is visible
+        b = o["bbox"]
+        pad = 0.1 * max(b[2] - b[0], b[3] - b[1])
+        o["bbox"] = [max(0.0, b[0] - pad), max(0.0, b[1] - pad), min(W, b[2] + pad), min(H, b[3] + pad)]
+    return out
+
+
+def analyse(image, px_per_m=None, ink_thr: int = INK, lowres: bool = False) -> dict:
+    """Doors and windows in one pass (shared layers; doors limited to the building footprint).
+    {"doors": doors_detail items, "windows": exterior strips, "internal_glazing": interior strips, "size": (W, H)}"""
+    import cv2
+
+    gray = _gray(image)
+    layers = _layers(gray, ink_thr)
+    raw = doors_detail(gray, px_per_m, layers=layers)  # door swings close their openings in the footprint
+    strips, inside, f = _windows(gray, px_per_m, layers, [d["bbox"] for d in raw], lowres)
+    grow = int((1.0 * px_per_m if px_per_m else 20 * layers[5]) / f) | 1
+    fp = cv2.dilate(inside.astype(np.uint8), np.ones((grow, grow), np.uint8)).astype(bool)
+    doors = doors_detail(gray, px_per_m, layers=layers, footprint=(fp, f))
+    for d in doors:
+        d["kind"] = "swing"
+    doors += _leaf_doors(layers, px_per_m, (fp, f), [d["bbox"] for d in doors] + [w["bbox"] for w in strips])
+    H = gray.shape[0]
+    doors.sort(key=lambda d: (round(d["bbox"][1] / max(1, H / 40)), d["bbox"][0]))
+    return {"doors": doors, "windows": [w for w in strips if w["exterior"]],
+            "internal_glazing": [w for w in strips if not w["exterior"]], "size": (gray.shape[1], gray.shape[0])}
+
+
+DOOR_LEAF_M = 0.9  # typical single leaf width; the median swing radius gives the scale when none is printed
+
+
+def estimate_px_per_m(gray) -> float | None:
+    """Scale from the drawing itself: median radius of clear door swings / 0.9 m (None with < 5 swings)."""
+    gray = _gray(gray)
+    sw = [s for s in _swings(gray) if s["score"] >= 0.85 and 75 <= s["span"] <= 105 and s["hinge_wall"]]
+    if len(sw) < 5:
+        return None
+    r = np.array([s["r"] for s in sw])
+    p25, p50, p75 = np.percentile(r, [25, 50, 75])
+    log.info("openings scale estimate: %d swings, r p25/50/75 = %.0f/%.0f/%.0f px", len(r), p25, p50, p75)
+    if p75 / p25 > 1.5:  # radii all over the place: arcs of text and symbols, not a door population
+        return None
+    if p25 < 1.2 * max(12.0, max(gray.shape) / 300):  # piled up at the search floor: small symbols, not doors
+        return None
+    return float(p50) / DOOR_LEAF_M
+
+
+TARGET_PX_PER_M = 110.0  # the pixel density the thresholds were tuned at (DfE school, 1:200 A2 at 14000 px)
+MAX_SIDE = 16000
+
+
+def detect_openings(image, px_per_m=None) -> dict:
+    """analyse() at a working resolution: small rasters (screenshots, 2000-3000 px JPGs) are upsampled so that
+    door swings are ~100 px in radius (to TARGET_PX_PER_M when the scale is known, else to ~12000 px on the long
+    side); boxes come back in the input image's pixels. Adds "factor" (working / input)."""
+    from PIL import Image
+
+    Image.MAX_IMAGE_PIXELS = None
+    if isinstance(image, np.ndarray):
+        im = Image.fromarray(_gray(image))
+    else:
+        im = image if hasattr(image, "convert") else Image.open(str(image))
+        im = im.convert("L")
+    W, H = im.size
+    est = None
+    if not px_per_m and max(W, H) >= 6000:
+        px_per_m = est = estimate_px_per_m(np.asarray(im))
+    if px_per_m:
+        f = TARGET_PX_PER_M / px_per_m
+    else:
+        f = 12000 / max(W, H)
+    f = max(1.0, min(f, 3.0, MAX_SIDE / max(W, H)))
+    if f < 1.15:
+        f = 1.0
+    work = im if f == 1.0 else im.resize((round(W * f), round(H * f)), Image.BICUBIC)
+    # rasters needing > 2x upsampling (screenshots, ~2000 px JPGs) lose door swings to sub-pixel dotted lines;
+    # measured on the school screenshot the result is unusable, so callers get a "low_res" flag to abstain on
+    res = analyse(np.asarray(work), px_per_m * f if px_per_m else None)
+    res["low_res"] = f >= 2
+    res["px_per_m_estimated"] = est
+    if f != 1.0:
+        for key in ("doors", "windows", "internal_glazing"):
+            for d in res[key]:
+                d["bbox"] = [v / f for v in d["bbox"]]
+                d.pop("swings", None)
+        res["size"] = (W, H)
+    res["factor"] = f
+    return res
+
+
+def find_doors(image, px_per_m=None) -> list[list[float]]:
+    """Pixel boxes [x0, y0, x1, y1] of the doors (a double door is one box; swing, folding and ajar leaves)."""
+    return [d["bbox"] for d in detect_openings(image, px_per_m)["doors"]]
+
+
+# ----------------------------------------------------------------------------------------------------- windows
+def _inside(wall, strips, px_per_m, k):
+    """(mask of the building footprint at 1/f resolution, f): thick walls plus glazing strips, door swings
+    and gaps up to ~1.5 m closed, holes filled. Everything else is outside."""
+    import cv2
+
+    H, W = wall.shape
+    f = 8 if max(H, W) > 6000 else 4
+    # wall pieces of real size only (bold title text and the north arrow also survive the wall opening)
+    n, lab, st, _ = cv2.connectedComponentsWithStats(wall, 8)
+    big = np.zeros(n, bool)
+    big[1:] = np.maximum(st[1:, 2], st[1:, 3]) >= (1.0 * px_per_m if px_per_m else 15 * k)
+    m = cv2.resize(big[lab].astype(np.uint8) * 255, (W // f, H // f), interpolation=cv2.INTER_AREA) > 0
+    m = m.astype(np.uint8)
+    for b in strips:
+        x0, y0, x1, y1 = (int(v / f) for v in b)
+        m[y0:y1 + 1, x0:x1 + 1] = 1
+    gap = int((1.5 * px_per_m if px_per_m else 25 * k) / f) | 1
+    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (gap, gap)))
+    ff = np.pad(1 - m, 1, constant_values=1).astype(np.uint8)
+    mask = np.zeros((ff.shape[0] + 2, ff.shape[1] + 2), np.uint8)
+    cv2.floodFill(ff, mask, (0, 0), 2)
+    inside = (ff[1:-1, 1:-1] != 2).astype(np.uint8)
+    # the building is the big blob(s); bold title-block text and the north arrow are small ones
+    n, lab, st, _ = cv2.connectedComponentsWithStats(inside, 8)
+    if n > 1:
+        big = st[1:, cv2.CC_STAT_AREA].max()
+        keep = np.zeros(n, bool)
+        keep[1:] = st[1:, cv2.CC_STAT_AREA] >= 0.1 * big
+        inside = keep[lab]
+    return inside.astype(bool), f
+
+
+def windows_detail(image, px_per_m=None, layers=None):
+    """Glazing strips in thick walls: [{"bbox", "axis": "h"|"v", "exterior": bool, "lines": n, "score"}]."""
+    gray = _gray(image)
+    return _windows(gray, px_per_m, layers or _layers(gray))[0]
+
+
+def _windows(gray, px_per_m, layers, extra_boxes=(), lowres=False):
+    """(strips, building footprint mask at 1/f, f)."""
+    import cv2
+
+    dark, ink, wall, thin, lw, k = layers
+    H, W = gray.shape
+    res = []
+    # glazing lines are black; grey hatch/furniture stays out (on upsampled low-res rasters thin lines are grey)
+    thinl = ((ink if lowres else dark) & (wall == 0)).astype(np.uint8)
+    minlen = max(4 * k, int(0.35 * px_per_m) if px_per_m else 4 * k)
+    for axis in ("h", "v"):
+        t = thinl if axis == "h" else thinl.T.copy()
+        wl = wall if axis == "h" else wall.T.copy()
+        # long straight lines along the axis
+        lines = cv2.morphologyEx(t, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (minlen, 1)))
+        # strips: lines that pair up across about one wall thickness. Close across the axis by the max wall thickness
+        tmax = int(max(6 * k, 0.65 * px_per_m)) if px_per_m else 9 * k
+        band = cv2.morphologyEx(lines, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (1, tmax)))
+        band = cv2.morphologyEx(band, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (minlen, 1)))
+        n, lab, st, _ = cv2.connectedComponentsWithStats(band, 4)
+        for i in range(1, n):
+            x, y, w, h, a = st[i]
+            if h < 2 * lw + 2 or h > tmax + 2 * lw or w < minlen:
+                continue
+            # count the distinct lines across the strip at its middle third
+            cols = lines[y:y + h, x + w // 3:x + 2 * w // 3]
+            prof = cols.mean(1) > 0.6
+            nl = int(np.sum(np.diff(np.r_[0, prof.astype(np.int8)]) == 1))
+            if nl < 2:
+                continue
+            # fill between the lines must be light (white glazing), not a hatched or solid band
+            mid = t[y:y + h, x + w // 3:x + 2 * w // 3]
+            if mid.mean() > 0.6:
+                continue
+            # solid piers of about the strip's depth at both ends (wall pieces or the end of another strip)
+            def pier(x0, x1):
+                x0, x1 = max(0, x0), min(wl.shape[1], x1)
+                if x1 <= x0:
+                    return 0.0
+                blk = wl[y + 1:y + h - 1, x0:x1]
+                return float(blk.any(axis=1).mean()) if blk.size else 0.0
+            g = 3 * lw + 6
+            pl, pr = pier(x - g, x + 2), pier(x + w - 2, x + w + g)
+            if min(pl, pr) < 0.6:
+                continue
+            # depth of the wall beside the strip ~ strip depth (walls a little thicker than the strip are fine)
+            if axis == "h":
+                bx = [x, y, x + w, y + h]
+            else:
+                bx = [y, x, y + h, x + w]
+            res.append({"bbox": [float(v) for v in bx], "axis": axis, "lines": nl,
+                        "score": 0.6 + 0.2 * (nl >= 3) + 0.2 * (min(pl, pr) > 0.9)})
+    inside, f = _inside(wall, [r["bbox"] for r in res] + list(extra_boxes), px_per_m, k)
+    # exterior: looking out from the strip on one side, no wall is met before the edge of the sheet
+    block = cv2.resize(wall * 255, (W // f, H // f), interpolation=cv2.INTER_AREA) > 0
+    for b in [r["bbox"] for r in res] + list(extra_boxes):  # glazing and door swings block the view too
+        block[int(b[1] / f):int(b[3] / f) + 1, int(b[0] / f):int(b[2] / f) + 1] = True
+    for r in res:
+        x0, y0, x1, y1 = (v / f for v in r["bbox"])
+        sides = []
+        for sgn in (-1, 1):
+            free = 0
+            for t in (0.3, 0.5, 0.7):  # three parallel rays across the strip's length
+                if r["axis"] == "h":
+                    c = int(x0 + t * (x1 - x0))
+                    ray = block[:max(0, int(y0) - 2), c][::-1] if sgn < 0 else block[int(y1) + 3:, c]
+                else:
+                    c = int(y0 + t * (y1 - y0))
+                    ray = block[c, :max(0, int(x0) - 2)][::-1] if sgn < 0 else block[c, int(x1) + 3:]
+                # skip the rest of this wall (piers beside the strip are not "met"): start past 2 strip depths
+                skip = int(2 * (y1 - y0 if r["axis"] == "h" else x1 - x0)) + 2
+                free += not ray[skip:].any()
+            sides.append(free == 3)
+            # or: just past the outer face lies outside the footprint
+            dpt = (y1 - y0 if r["axis"] == "h" else x1 - x0) + 3
+            px, py = ((x0 + x1) / 2, (y0 - dpt if sgn < 0 else y1 + dpt)) if r["axis"] == "h" else \
+                ((x0 - dpt if sgn < 0 else x1 + dpt), (y0 + y1) / 2)
+            if not (0 <= int(py) < inside.shape[0] and 0 <= int(px) < inside.shape[1]) or not inside[int(py), int(px)]:
+                sides[-1] = True
+        r["exterior"] = bool(any(sides))
+    res.sort(key=lambda d: (round(d["bbox"][1] / max(1, H / 40)), d["bbox"][0]))
+    return res, inside, f
+
+
+def find_windows(image, px_per_m=None, exterior_only=True) -> list[list[float]]:
+    """Pixel boxes of the windows (each glazed panel between wall piers is one window)."""
+    r = detect_openings(image, px_per_m)
+    return [d["bbox"] for d in r["windows"] + ([] if exterior_only else r["internal_glazing"])]
+
+
+# -------------------------------------------------------------------------------------------- sheet module API
+def detect(meta) -> float:
+    """Not a sheet type of its own: bp/sheets/arch.py routes door / window questions here."""
+    from bp import sheets
+
+    return 0.5 * sheets.kw_score(meta, "arch")
+
+
+def intent(question: str) -> str | None:
+    q = question.lower()
+    d = re.search(r"\bdoor(s|way|ways)?\b|\bovi|\bovet|\btür", q)
+    w = re.search(r"\bwindows?\b|\bikkun|\bfenster", q)
+    if not re.search(r"how many|count|number|quantity|total|list|montako|kuinka|anzahl|wie viele", q):
+        return None
+    return "doors_windows" if d and w else "doors" if d else "windows" if w else None
+
+
+def _scale(meta):
+    """px per metre on meta["image"], from arch's scale reader when it has one."""
+    try:
+        from bp.sheets import arch
+
+        sc = arch.scale(meta)
+        return sc["px_per_m"] if sc else None
+    except Exception as e:  # noqa: BLE001
+        log.info("openings: no scale (%s)", e)
+        return None
+
+
+def _work_image(meta, ppm):
+    """(image path, px_per_m on it, factor vs meta image): a vector PDF page is re-rendered when the stored raster is
+    too coarse for door swings (target ~TARGET_PX_PER_M, or ~12000 px on the long side without a scale)."""
+    img, path = meta["image"], str(meta.get("path") or "")
+    W, H = meta.get("w") or 0, meta.get("h") or 0
+    need = (TARGET_PX_PER_M / ppm) if ppm else (12000 / max(1, W, H))
+    if not path.lower().endswith(".pdf") or need < 1.3:
+        return img, ppm, 1.0
+    try:
+        import pymupdf
+
+        pg = pymupdf.open(path)[int(meta.get("page") or 0)]
+        long_pt = max(pg.rect.width, pg.rect.height)
+        target = min(MAX_SIDE, max(W, H) * need)
+        zoom = target / long_pt
+        out = Path(img).with_name(f"openings_p{meta.get('page') or 0}_{int(target)}.png")
+        if not out.exists():
+            pg.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False, colorspace=pymupdf.csGRAY).save(str(out))
+        f = target / max(W, H)
+        return str(out), (ppm * f if ppm else None), f
+    except Exception as e:  # noqa: BLE001
+        log.warning("openings: PDF re-render failed: %s", e)
+        return img, ppm, 1.0
+
+
+def analyse_meta(meta) -> dict:
+    """detect_openings() for an upload, cached in meta["openings"] and on disk next to the page image."""
+    if "openings" in meta:
+        return meta["openings"]
+    ppm = _scale(meta)
+    img, wppm, f = _work_image(meta, ppm)
+    st = os.stat(img)
+    key = hashlib.sha1(f"{img}|{st.st_size}|{st.st_mtime}|{wppm}|v1".encode()).hexdigest()[:12]
+    cf = Path(meta["image"]).with_name(f"openings_{key}.json")
+    res = None
+    if cf.exists():
+        try:
+            res = json.loads(cf.read_text())
+        except json.JSONDecodeError:
+            res = None
+    if res is None:
+        r = detect_openings(img, wppm)
+        W, H = r["size"]
+
+        def norm(items):
+            return [{"bbox": [d["bbox"][0] / W, d["bbox"][1] / H, d["bbox"][2] / W, d["bbox"][3] / H],
+                     **{k: d[k] for k in ("leaves", "kind", "score", "exterior", "lines") if k in d}} for d in items]
+        res = {"doors": norm(r["doors"]), "windows": norm(r["windows"]), "internal_glazing": norm(r["internal_glazing"]),
+               "low_res": bool(r.get("low_res")), "render_factor": f,
+               "px_per_m": (wppm or r.get("px_per_m_estimated") or 0) / f or None,
+               "scale_from": "printed scale" if wppm else "median door swing = 0.9 m" if r.get("px_per_m_estimated") else None,
+               "solid_walls": None}
+        try:
+            cf.write_text(json.dumps(res))
+        except OSError:
+            pass
+    meta["openings"] = res
+    return res
+
+
+def _ev(b, label):
+    return {"kind": "box", "page": 0, "bbox": [round(float(v), 5) for v in b], "label": label, "value": 1}
+
+
+def answer(path, question, meta):
+    it = intent(question)
+    if it is None:
+        return None
+    r = analyse_meta(meta)
+    if r["low_res"]:
+        return None  # swings are sub-pixel dots at this resolution: let the generic / detector path answer
+    ev, parts, conf = [], [], []
+    if it in ("doors", "doors_windows"):
+        ds = r["doors"]
+        if not ds:
+            return None
+        nd = sum(1 for d in ds if d.get("leaves") == 2)
+        nl = sum(1 for d in ds if d.get("kind") == "leaf")
+        for i, d in enumerate(ds, 1):
+            tag = " (double)" if d.get("leaves") == 2 else " (folding / ajar leaf)" if d.get("kind") == "leaf" else ""
+            ev.append(_ev(d["bbox"], f"door {i}{tag}"))
+        parts.append(f"{len(ds)} doors ({nd} double doors counted once, {nl} drawn as a folding or ajar leaf "
+                     f"without a swing)")
+        conf.append(0.8 if len(ds) >= 5 else 0.55)
+    if it in ("windows", "doors_windows"):
+        ws = r["windows"]
+        if not ws and it == "windows":
+            return None
+        for i, w in enumerate(ws, 1):
+            ev.append(_ev(w["bbox"], f"window {i}"))
+        ig = len(r["internal_glazing"])
+        parts.append(f"{len(ws)} windows (each glazed panel between wall piers in an outside wall"
+                     + (f"; {ig} internal glazed panels / screens not counted" if ig else "") + ")")
+        conf.append(0.8 if ws else 0.3)
+    if it == "doors_windows":
+        ans = f"{len(r['doors'])} doors and {len(r['windows'])} windows"
+    elif it == "doors":
+        ans = len(r["doors"])
+    else:
+        ans = len(r["windows"])
+    expl = ("Found " + "; ".join(parts) + ". Every counted item is a numbered box: check the marked ones. "
+            "Doors are read from their swing arcs (plus folding / ajar leaves); sliding doors and openings "
+            "without a door symbol are not counted.")
+    return {"answer": ans, "confidence": round(min(conf), 2), "method": f"{METHOD}-cv", "cost_usd": 0.0,
+            "explanation": expl, "evidence": ev,
+            "counts": {"doors": len(r["doors"]), "windows": len(r["windows"]),
+                       "internal_glazing": len(r["internal_glazing"])}}

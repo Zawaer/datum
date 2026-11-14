@@ -1,0 +1,27 @@
+{
+  "module": "bp/sheets/openings.py",
+  "date": "2026-11-14",
+  "how_gold_was_made": "Hand count by the agent: the detector's numbered boxes were overlaid on the full-resolution sheet and every part of both wings was read at 0.24-0.4x tiles plus 1x zooms of doubtful spots; each box was marked correct or wrong and every unboxed door / window symbol was added as a miss. Anchored on the detections, so a miss that looks like nothing at tile zoom could still be absent from the gold. Rules: a double door counts once; folding and ajar-leaf doors count; sliding doors count; exterior windows = each glazed panel between solid piers in an outside wall; internal glazed screens / side panels are not windows.",
+  "special_school_plan_level_00.png (14000x9902, 1:200 A2, px_per_m 117.85)": {
+    "doors": {"found": 122, "correct": 122, "gold": 128, "precision": 1.0, "recall": 0.953,
+      "misses": ["2 double doors of the enclosed walkway (thin-walled, outside the building footprint)",
+                 "double door hall -> servery drawn with ~180-degree swings",
+                 "2 sliding doors at the entrance lobby (arrows, no swing)",
+                 "1 ajar leaf by the east-wing corridor cupboard (found when the scale is estimated)"],
+      "uncertain": ["the bifold / ajar-leaf store and cupboard doors (counted as doors)"]},
+    "windows": {"found": 67, "correct": 67, "gold": 68, "precision": 1.0, "recall": 0.985,
+      "misses": ["1 window in the east-wing lobby north wall next to a pier with a stub"],
+      "uncertain": ["W at the lift landing facing the enclosed walkway (counted)"],
+      "internal_glazing_reported_separately": 11},
+    "without_printed_scale": {"px_per_m_estimated": 112.1, "doors_found": 124, "doors_correct_approx": 122, "windows_found": 67},
+    "vector_pdf_page (SEN-DFE-...-Level_00.pdf, re-rendered 12000 px)": {"doors_found": 127, "windows_found": 67},
+    "low_res_screenshot (2000x1415 jpg)": "abstains (low_res): swings are 1-px dotted lines; tried a mask-upsampling path, it produced ~180 junk boxes"
+  },
+  "us_aw_078-24-28 p085 A-101 pump house (10000 px, 1/4in=1ft, px_per_m 241)": {
+    "doors": {"found": 8, "correct": 5, "gold": 6, "precision": 0.625, "recall": 0.833,
+      "notes": "doors 101, 102S, 104S, 105S, 106 found; 103S missed; 3 false: leader lines of notes ending on the wall. No windows on the sheet, none found."},
+    "without_scale": "45 boxes, mostly text arcs: the swing-radius scale estimate correctly refuses (radii pile at the search floor) but the sheet-relative fallback is too permissive; arch.scale normally supplies the scale"
+  },
+  "dormitory_second_floor_A-2_hires.png (10200x6600, 1in=40ft, ~23 px/m)": "not handled: double-line unfilled walls, grey 150-level swings ~20 px radius; 0 windows / 11 doors found unscaled; with the printed scale the raster needs >2x upsampling so answer() abstains to the generic / YOLO path. No hand gold made.",
+  "not_done": ["Haiku crop verification (no uncertain class large enough on the school to justify it)", "CubiCasa YOLO comparison (arch.py's existing path)", "door-tag cross-check from vector PDF text"]
+}
