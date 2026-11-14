@@ -213,3 +213,24 @@ def test_thickness_misread_and_pen_marks(tmp_path):
     g = slab._ink_free_gray(str(f))
     assert g[210, 150] > 200 and g[210, 450] > 200  # the stroke over paper is gone
     assert g[110, 301] < 80 and g[210, 301] < 150  # the wall stays, also where the stroke crossed it
+
+
+def test_segmentation_grey_levels(tmp_path):
+    """The grey used for zone segmentation: grey scan paper gained to ~235 (ink stays dark), faint ink on clean
+    paper darkened, a clean render left alone."""
+    import cv2
+    import numpy as np
+
+    def level(paper, ink):
+        im = np.full((300, 400), paper, np.uint8)
+        im[::20, :] = ink  # lines
+        f = tmp_path / f"g{paper}_{ink}.png"
+        cv2.imwrite(str(f), im)
+        g, _ = slab._gray({"image": str(f)}, stretch="paper")
+        return int(np.percentile(g, 60)), int(g[0, 5])
+
+    p, i = level(215, 40)
+    assert 230 <= p <= 240 and i < 60
+    p, i = level(252, 120)
+    assert p >= 245 and i < 60
+    assert level(255, 20) == (255, 20)
