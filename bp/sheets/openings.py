@@ -965,36 +965,44 @@ def haiku_openings(image, ext=None, grid=3, model="haiku", max_side=1400) -> dic
     cache = Path("cache/openings")
     cache.mkdir(parents=True, exist_ok=True)
     out = {"doors": [], "windows": [], "cost_usd": 0.0, "tiles": grid * grid}
-    for gy in range(grid):
-        for gx in range(grid):
-            tx0, tx1 = X0 + (X1 - X0) * gx / grid, X0 + (X1 - X0) * (gx + 1) / grid
-            ty0, ty1 = Y0 + (Y1 - Y0) * gy / grid, Y0 + (Y1 - Y0) * (gy + 1) / grid
-            tile = im.crop((int(tx0), int(ty0), int(tx1), int(ty1)))
-            s = min(3.0, max_side / max(tile.size))  # small tiles are upscaled: swings must be visible
-            if abs(s - 1) > 0.05:
-                tile = tile.resize((round(tile.width * s), round(tile.height * s)), Image.LANCZOS)
-            cf = cache / f"{h}_{grid}_{gx}{gy}_{model}_{tile.width}.json"
-            if cf.exists():
-                d = json.loads(cf.read_text())
-            else:
-                r = llm.ask(HAIKU_PROMPT.format(w=tile.width, h=tile.height), [tile], model=model,
-                            tag="openings-tiles", timeout=120)
-                d = llm.parse_json(r["text"]) or {}
-                d = d if isinstance(d, dict) else {}
-                d["cost_usd"] = r.get("cost_usd", 0.0)
-                if r.get("text"):
-                    cf.write_text(json.dumps(d))
-                out["cost_usd"] += d["cost_usd"]
-            for k in ("doors", "windows"):
-                for b in d.get(k) or []:
-                    if not (isinstance(b, list) and len(b) == 4):
-                        continue
-                    try:
-                        bx = [float(v) for v in b]
-                    except (TypeError, ValueError):
-                        continue
-                    gb = [(tx0 + bx[0] / s) / W, (ty0 + bx[1] / s) / H, (tx0 + bx[2] / s) / W, (ty0 + bx[3] / s) / H]
-                    out[k].append({"bbox": gb})
+
+    def read(cell):  # one tile: (tile origin, scale, reply, cost of a new call)
+        gx, gy = cell
+        tx0, tx1 = X0 + (X1 - X0) * gx / grid, X0 + (X1 - X0) * (gx + 1) / grid
+        ty0, ty1 = Y0 + (Y1 - Y0) * gy / grid, Y0 + (Y1 - Y0) * (gy + 1) / grid
+        tile = im.crop((int(tx0), int(ty0), int(tx1), int(ty1)))
+        s = min(3.0, max_side / max(tile.size))  # small tiles are upscaled: swings must be visible
+        if abs(s - 1) > 0.05:
+            tile = tile.resize((round(tile.width * s), round(tile.height * s)), Image.LANCZOS)
+        cf = cache / f"{h}_{grid}_{gx}{gy}_{model}_{tile.width}.json"
+        if cf.exists():
+            return tx0, ty0, s, json.loads(cf.read_text()), 0.0
+        r = llm.ask(HAIKU_PROMPT.format(w=tile.width, h=tile.height), [tile], model=model,
+                    tag="openings-tiles", timeout=120)
+        d = llm.parse_json(r["text"]) or {}
+        d = d if isinstance(d, dict) else {}
+        d["cost_usd"] = r.get("cost_usd", 0.0)
+        if r.get("text"):
+            cf.write_text(json.dumps(d))
+        return tx0, ty0, s, d, d["cost_usd"]
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    # the tiles at once (they wait on the API; one after the other was ~30 s of a first question on a screenshot)
+    with ThreadPoolExecutor(grid * grid) as ex:
+        reads = list(ex.map(read, [(gx, gy) for gy in range(grid) for gx in range(grid)]))
+    for tx0, ty0, s, d, c in reads:
+        out["cost_usd"] += c
+        for k in ("doors", "windows"):
+            for b in d.get(k) or []:
+                if not (isinstance(b, list) and len(b) == 4):
+                    continue
+                try:
+                    bx = [float(v) for v in b]
+                except (TypeError, ValueError):
+                    continue
+                gb = [(tx0 + bx[0] / s) / W, (ty0 + bx[1] / s) / H, (tx0 + bx[2] / s) / W, (ty0 + bx[3] / s) / H]
+                out[k].append({"bbox": gb})
     return out
 
 
