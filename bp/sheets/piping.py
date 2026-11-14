@@ -1272,14 +1272,21 @@ def _recheck(sheet: dict, fam: str, found: list[dict], cost: list, avoid: list[d
             return pc, json.loads(cf.read_text())["lines"], 0.0
         crop = im.crop((round(pc[0] * W), round(pc[1] * H), round(pc[2] * W), round(pc[3] * H)))
         crop = crop.resize((round(crop.width * f), round(crop.height * f)), Image.LANCZOS)
-        res = llm.ask(RECHECK_PROMPT.format(w=crop.width, h=crop.height, fam=f"{fam}-<number>", ex=found[0]["tag"]), [crop],
-                      model="haiku", system="You read drawings exactly. Output only the requested lines.",
-                      timeout=120, tag="sheets-piping-recheck")
-        lines = (res.get("text") or "").splitlines()
-        if res.get("text"):
+        prompt = RECHECK_PROMPT.format(w=crop.width, h=crop.height, fam=f"{fam}-<number>", ex=found[0]["tag"])
+
+        def read(_):
+            return llm.ask(prompt, [crop.copy()], model="haiku", timeout=120, tag="sheets-piping-recheck",
+                           system="You read drawings exactly. Output only the requested lines.")
+
+        # two readings of the crop, their labels together: one reading alone misses a tag now and then (CV-4 of
+        # CV-1..5 on a scanned PDF in one cold run of two)
+        with ThreadPoolExecutor(2) as ex2:
+            rs = list(ex2.map(read, range(2)))
+        lines = [ln for r in rs for ln in (r.get("text") or "").splitlines()]
+        if any(r.get("text") for r in rs):
             cf.parent.mkdir(parents=True, exist_ok=True)
             cf.write_text(json.dumps({"fam": fam, "lines": lines}))
-        return pc, lines, float(res.get("cost_usd") or 0.0)
+        return pc, lines, sum(float(r.get("cost_usd") or 0.0) for r in rs)
 
     with ThreadPoolExecutor(len(pieces)) as ex:  # the pieces side by side: one round trip of latency
         got = list(ex.map(piece, pieces))
@@ -1298,9 +1305,25 @@ def _recheck(sheet: dict, fam: str, found: list[dict], cost: list, avoid: list[d
         for t in tags_in({"text": m.group(5), "bbox": bb}):
             if t["family"] != fam or t["tag"] in have or (ink and ink(bb) < 0.03):
                 continue
-            if any(_near(bb, o["bbox"]) or _overlap(bb, o["bbox"]) > 0.2 for o in list(found) + list(avoid)):
-                continue  # read where a label of this family already is: a misreading of it (FSCV-6 as FSCV-8)
             top = max((o["num"] for o in found if o.get("num") is not None), default=None)
+            clash = []
+            for o in list(found) + list(avoid):
+                if (_near(bb, o["bbox"]) or _overlap(bb, o["bbox"]) > 0.2) and not any(o is c for c in clash):
+                    clash.append(o)
+            if clash:
+                # read where a label of this family already is: usually a misreading of it (FSCV-6 as FSCV-8). But
+                # where the first reading has the same tag twice (CV-5 at two places, no CV-4) and the zoomed look
+                # reads the missing number at one of them, the zoomed look is right: that label is relabelled
+                o = clash[0]
+                reps = {x["tag"] for x in found if sum(1 for y in found if y["tag"] == x["tag"]) >= 2}
+                # (only in a family whose labels are otherwise printed once each: PS-12 repeats by design)
+                twice = o.get("family") == fam and reps == {o["tag"]}
+                if twice and len(clash) == 1 and t.get("num") is not None and top is not None and t["num"] < top:
+                    o.update(tag=t["tag"], num=t["num"], src="vision-recheck", relabelled_from=o["tag"],
+                             seen_by=["vision-recheck"])
+                    have.add(t["tag"])
+                    new.append(o)
+                continue
             if top is not None and t.get("num") is not None and t["num"] > 1.25 * top + 2:
                 continue  # far past the run read (FP-82 among FP-1..5): a misreading, as in tag_instances
             t.update(src="vision-recheck", seen_by=["vision-recheck"], conf=70.0)
@@ -1365,7 +1388,7 @@ def _count(q: str, sheet: dict, insts: list[dict], base: dict, cost: list) -> di
             new = _recheck(sheet, f, [t for t in sel if t["family"] == f], cost, avoid=sel)
             if new is not None:
                 rechecked.append((f, new))
-                sel += new
+                sel += [t for t in new if not any(t is x for x in sel)]
     # a family printed without numbers (PG): nothing tells a missed label, so on a raster the whole sheet is looked
     # at once more, zoomed, for that label alone (cached; ~$0.01), and labels at new places are added
     bare = [f for f in fams if f not in missing and any(t["family"] == f and t["num"] is None for t in sel)
