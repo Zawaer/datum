@@ -327,15 +327,15 @@ CLOCK_SHIM = """(() => {
 
 # On-screen text: a title chip / lower third drawn by the page itself (crisp at any zoom), plus "hero" layout.
 OVERLAY_CSS = """
-#vidtx { position: fixed; left: 50%; top: 92px; transform: translate(-50%, -12px); z-index: 99999; opacity: 0;
-  transition: opacity .35s ease, transform .35s ease; pointer-events: none; text-align: center;
-  font-family: Inter, "Helvetica Neue", Arial, "DejaVu Sans", sans-serif; }
-#vidtx.on { opacity: 1; transform: translate(-50%, 0); }
-#vidtx b { display: inline-block; background: #0b1220; color: #fff; font-size: 30px; font-weight: 800; letter-spacing: -.01em;
-  padding: 12px 22px; border-radius: 12px; box-shadow: 0 8px 30px rgba(11,18,32,.25); }
-#vidtx b em { font-style: normal; color: #60a5fa; }
-#vidtx small { display: block; margin-top: 8px; font-size: 17px; color: #334155; background: rgba(255,255,255,.92);
-  padding: 5px 12px; border-radius: 8px; width: max-content; margin-left: auto; margin-right: auto; }
+#vidtx { position: fixed; left: 24px; top: 104px; z-index: 99999; opacity: 0; transform: translateY(-8px);
+  transition: opacity .35s ease, transform .35s ease; pointer-events: none; text-align: left; max-width: 760px;
+  font-family: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif; color: #111418; }
+#vidtx.on { opacity: 1; transform: none; }
+#vidtx b { display: block; width: max-content; max-width: 760px; background: #fff; border: 1px solid #e4e7eb; border-radius: 4px;
+  font-size: 32px; line-height: 1.15; font-weight: 600; letter-spacing: -0.015em; padding: 10px 16px; }
+#vidtx b em { font-style: normal; color: #0072b2; }
+#vidtx small { display: block; width: max-content; margin-top: 6px; font-size: 16px; font-weight: 400; color: #5b636e;
+  background: #fff; border: 1px solid #e4e7eb; border-radius: 4px; padding: 4px 10px; }
 body.vidhero main { grid-template-columns: 1fr !important; }
 body.vidhero #list, body.vidhero #side { display: none !important; }
 """
@@ -476,9 +476,9 @@ async def shot_hook(rec, base):
     await wait_js(pg, "window.__p3.ready")
     rec.mark("risen")
     await rec.sleep(1.3)                           # doors pop in (~0.9 s on the page clock)
-    await rec.say("<em>20</em> doors · every one numbered", "read from the CAD layers · no AI model call · $0")
+    await rec.say("<em>20</em> doors, every one numbered", "Read from the CAD layers. No AI model call.")
     await rec.sleep(2.2)
-    await rec.say("Blueprints <em>That Talk</em>", "Junction 2026 · Stoa: Make Blueprints Talk")
+    await rec.say("Blueprints That Talk", "Junction 2026, Stoa: Make Blueprints Talk")
     await rec.sleep(2.0)
     await rec.stop()
 
@@ -521,14 +521,12 @@ async def shot_ghost(rec, base):
     await rec.sleep(0.3)
     await type_and_ask(rec, Q_AREA_DE)
     await pg.evaluate("rowHot(0, true, true); hotItem(0, true)")
-    await rec.sleep(1.4)
+    await rec.sleep(3.0)                            # "every room carries its own m²": stay on the rooms
     await pg.evaluate("rowHot(0, false); hotItem(0, false)")
     await pg.evaluate("doAction('scroll:.vs')")
     await rec.sleep(1.0)
     await rec.cam_on("#answer .ghostcmp", 640, 1.0)
-    await rec.say("5 frontier models · same drawing · <em>all 5 wrong</em>", "dataset answer 62.74 m² · they said 59 to 75 m²")
-    await rec.sleep(4.0)
-    await rec.say("")
+    await rec.sleep(4.0)                            # the app's own "5 of 5 wrong" says it: no chip
     rec.cam(None, 0.8)
     await rec.sleep(0.9)
     await rec.stop()
@@ -555,7 +553,10 @@ async def shot_heat(rec, base):
     await rec.start()
     await rec.sleep(0.6)
     await pg.evaluate("setHeat(true)")
-    await rec.sleep(3.4)
+    await rec.sleep(0.4)
+    await rec.cam_on("#viewer", 1100, 0.9)
+    await rec.sleep(3.0)
+    rec.cam(None, 0.5)
     await pg.evaluate("openSheet()")
     await rec.sleep(3.4)
     await rec.stop()
@@ -599,13 +600,17 @@ async def shot_voice(rec, base, wav=None):
 async def shot_ifc(rec, base):
     pg = rec.pg
     await wait_js(pg, f"{ANSWERED}({json.dumps(Q_IFC_WALLS)})", 240)
+    await pg.evaluate("setMode('3d')")              # loading the model in software GL is slow: do it off camera
+    await wait_js(pg, "document.querySelector('#three .v3bar button')", 300)
+    await asyncio.sleep(2 * rec.slow)
+    btn = ("(re => { const b = [...document.querySelectorAll('#viewer button')].find(b => !b.hidden"
+           " && re.test(b.textContent)); if (b) b.click(); return b ? b.textContent.trim() : null; })")
     await rec.start()
-    await rec.sleep(0.4)
-    await pg.evaluate("setMode('3d')")
-    await wait_js(pg, "document.querySelector('#three .v3bar button')", 240)
-    await rec.sleep(2.0)
-    btn = "(re => { const b = [...document.querySelectorAll('#three .v3bar button')].find(b => !b.hidden && re.test(b.textContent)); if (b) b.click(); return !!b; })"
-    await pg.evaluate(btn + "(/explode/i)")                                       # Explode storeys
+    await rec.sleep(0.6)
+    await pg.evaluate(btn + "(/whole building/i)")                              # all storeys, not just the asked one
+    await rec.sleep(1.4)
+    await rec.cam_on("#viewer", 1100, 0.9)
+    await pg.evaluate(btn + "(/explode/i)")                                     # Explode storeys
     await rec.sleep(2.2)
     await pg.evaluate(btn + "(/x-ray/i)")                                         # X-ray
     await rec.sleep(1.2)
@@ -613,8 +618,8 @@ async def shot_ifc(rec, base):
     vx = await pg.evaluate("(() => { const r = document.querySelector('#viewer').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()")
     await pg.mouse.move(vx[0], vx[1])
     await pg.mouse.down()
-    for k in range(40):
-        await pg.mouse.move(vx[0] - 6 * k, vx[1] + 0.6 * k)
+    for k in range(20):
+        await pg.mouse.move(vx[0] - 12 * k, vx[1] + 1.2 * k)
         await rec.sleep(0.05)
     await pg.mouse.up()
     await rec.sleep(1.5)
@@ -622,6 +627,7 @@ async def shot_ifc(rec, base):
 
 
 PHONE_VIEW, PHONE_DPR = (390, 844), 3.0
+SHOT_SLOW = {"ifc": 2.5}   # the whole IFC model in software GL renders ~4x slower than the Swiss plan: more slow-motion
 
 
 async def shot_phone(rec, base):
@@ -697,13 +703,14 @@ async def record(names, base, slow, dpr, gpu, voice_wav=None):
                 url = url(base)
             else:
                 fn, url = card_shot, f"{cards}?card={name}"
+            sl = slow * SHOT_SLOW.get(name, 1.0)
             # a fresh browser per shot: after the heavy IFC scene SwiftShader's GPU process could refuse screenshots
             b = await p.chromium.launch(args=args)
             phone = name == "phone"
-            ctx, pg, cdp = await new_page(b, slow, PHONE_DPR if phone else dpr, url,
+            ctx, pg, cdp = await new_page(b, sl, PHONE_DPR if phone else dpr, url,
                                           {"permissions": ["microphone"]} if voice_wav else None,
                                           PHONE_VIEW if phone else VIEW, phone)
-            rec = Rec(pg, cdp, slow, name, PHONE_VIEW if phone else VIEW)
+            rec = Rec(pg, cdp, sl, name, PHONE_VIEW if phone else VIEW)
             t = time.time()
             try:
                 await (fn(rec, base, voice_wav) if name == "voice" else fn(rec, base))
@@ -716,7 +723,7 @@ async def record(names, base, slow, dpr, gpu, voice_wav=None):
                     except Exception:
                         pass
                     (rec.dir / "meta.json").write_text(json.dumps(
-                        {"frames": rec.frames, "cams": rec.cams, "dur": rec.now(), "marks": rec.marks, "slow": slow,
+                        {"frames": rec.frames, "cams": rec.cams, "dur": rec.now(), "marks": rec.marks, "slow": sl,
                          "view": rec.view}))
             print(f"  ({time.time() - t:.0f} s wall)")
             await ctx.close()
@@ -778,91 +785,80 @@ def frames_clip(name, dur, out, dpr, size=(1920, 1080)):
 
 # ---------------------------------------------------------------- cards
 
+# Cards follow docs/deck/DESIGN-RULES.md: one idea each, light theme, IBM Plex Sans 400/600 on the 120/64/32/24/18
+# scale, left-aligned on the 128 px margin, one accent (#0072b2) for ours and grey for frontier models, no eyebrow
+# labels, no footnotes (sources: docs/video.md), only the licence/credit line in the footer band.
+PLEX = ('<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&display=swap">')
 CARD_CSS = """
-:root { --ink:#0f172a; --ink2:#475569; --muted:#94a3b8; --ours:#2563eb; --frontier:#e8590c; --navy:#0b1220; }
+:root { --ink:#111418; --g1:#5b636e; --g2:#8a929d; --g3:#e4e7eb; --ours:#0072b2; }
 * { box-sizing: border-box; }
-html, body { margin:0; width:1536px; height:864px; overflow:hidden; }
-body { font-family: Inter, "Helvetica Neue", Arial, "DejaVu Sans", sans-serif; color:var(--ink); }
+html, body { margin:0; width:1536px; height:864px; overflow:hidden; background:#fff; }
+body { font-family: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif; color:var(--ink); }
 .card { width:1920px; height:1080px; transform: scale(.8); transform-origin: 0 0; position:relative; overflow:hidden;
-  background:#fff; padding:110px 120px; display:none; }
-.card.on { display:flex; flex-direction:column; justify-content:center; padding-bottom:150px; }
-.dark { background:var(--navy); color:#fff; }
-.kicker { font-size:26px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--ours); margin-bottom:22px; }
-.dark .kicker { color:#60a5fa; }
-h1 { font-size:128px; line-height:1.02; font-weight:800; letter-spacing:-0.03em; margin:0 0 30px; }
-h1 span { color:#60a5fa; }
-h2 { font-size:64px; line-height:1.08; font-weight:800; letter-spacing:-0.02em; margin:0 0 50px; max-width:1640px; }
-.foot { position:absolute; left:120px; right:120px; bottom:40px; font-size:20px; line-height:1.45; color:var(--muted); }
-.bars { display:grid; grid-template-columns: 560px 1fr; gap:26px 30px; align-items:center; font-size:34px; }
-.bar { height:74px; background:#f1f5f9; border-radius:8px; position:relative; }
-.bar i { position:absolute; left:0; top:0; bottom:0; border-radius:8px; background:var(--frontier);
+  background:#fff; padding:96px 128px 72px; display:none; }
+.card.on { display:flex; flex-direction:column; justify-content:center; padding-bottom:168px; }
+h1 { font-size:120px; line-height:1.05; font-weight:600; letter-spacing:-0.025em; margin:0 0 40px; }
+h2 { font-size:64px; line-height:1.05; font-weight:600; letter-spacing:-0.025em; margin:0 0 72px; max-width:1500px; }
+p { font-size:32px; line-height:1.4; color:var(--g1); margin:0; max-width:1300px; }
+.foot { position:absolute; left:128px; right:128px; bottom:0; height:72px; font-size:18px; line-height:1.4; color:var(--g2); }
+.bars { display:grid; grid-template-columns: 520px 1fr; gap:32px 32px; align-items:center; }
+.lab { font-size:32px; line-height:1.25; color:var(--g1); } .lab b { color:var(--ink); font-weight:600; }
+.bar { height:40px; position:relative; }
+.bar i { position:absolute; left:0; top:0; bottom:0; border-radius:4px; background:var(--g2);
   transform-origin: 0 50%; animation: grow 1.4s cubic-bezier(.2,.7,.2,1) both; }
 .bar.ours i { background:var(--ours); }
-.bar em { position:absolute; top:50%; transform:translateY(-50%); font-style:normal; font-weight:800; font-size:40px; padding-left:18px;
-  animation: fade .5s ease both; }
-.lab { color:var(--ink2); line-height:1.2; } .lab b { color:var(--ink); }
+.bar em { position:absolute; top:50%; transform:translateY(-50%); font-style:normal; font-weight:600; font-size:32px; padding-left:16px;
+  color:var(--g1); animation: fade .5s ease both; }
+.bar.ours em { color:var(--ours); }
 @keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
-@keyframes rise { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+@keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
 .in { animation: rise .7s ease both; }
-.cost { display:flex; gap:60px; align-items:stretch; margin-top:30px; }
-.cost .box { flex:1; border-radius:18px; padding:50px 56px; background:#f8fafc; }
-.cost .box .n { font-size:150px; font-weight:800; letter-spacing:-0.04em; line-height:1; }
-.cost .box .l { font-size:34px; color:var(--ink2); margin-top:22px; line-height:1.3; }
-.cost .ours .n { color:var(--ours); } .cost .fr .n { color:var(--frontier); }
-.end .meta { font-size:38px; color:#cbd5e1; line-height:1.6; margin-top:40px; }
-.end .meta code { font-family:"DejaVu Sans Mono", monospace; color:#fff; font-size:38px; }
-.end .foot { color:#94a3b8; font-size:22px; }
+.vs { display:flex; gap:128px; align-items:flex-end; margin-top:8px; }
+.vs .n { font-size:200px; font-weight:600; letter-spacing:-0.035em; line-height:1; }
+.vs .ours .n { color:var(--ours); } .vs .fr .n { color:var(--g2); }
+.vs .l { font-size:32px; line-height:1.4; color:var(--g1); margin-top:24px; }
+.end code { font-family: inherit; font-size:32px; color:var(--ink); }
 """
 
 
 def bar(label, acc, k, ours=False):
     d = 0.5 + 0.35 * k
     return (f'<div class="lab in" style="animation-delay:{d - .2:.2f}s">{label}</div><div class="bar{" ours" if ours else ""}">'
-            f'<i style="width:{acc * 0.8:.1f}%;animation-delay:{d:.2f}s"></i>'
-            f'<em style="left:{acc * 0.8:.1f}%;animation-delay:{d + 1.1:.2f}s">{acc:.1f}&nbsp;%</em></div>')
+            f'<i style="width:{acc * 0.85:.1f}%;animation-delay:{d:.2f}s"></i>'
+            f'<em style="left:{acc * 0.85:.1f}%;animation-delay:{d + 1.1:.2f}s">{acc:.1f}&nbsp;%</em></div>')
 
 
 def cards_html():
-    return f"""<!doctype html><html><head><meta charset="utf-8"><style>{CARD_CSS}</style></head><body>
+    voice = "Kokoro-82M (Apache-2.0)" if ENGINE == "kokoro" else "ElevenLabs"
+    return f"""<!doctype html><html><head><meta charset="utf-8">{PLEX}<style>{CARD_CSS}</style></head><body>
 <section class="card" id="problem">
-  <div class="kicker">Measured, not assumed</div>
-  <h2 class="in">Frontier models get about 7 answers in 10 right, and sound just as sure when they are wrong.</h2>
+  <h2 class="in">Frontier models get 7 answers in 10 right, and sound just as sure when they are wrong.</h2>
   <div class="bars">
-    {bar("<b>Claude Sonnet 5.5</b><br>drawing + its CAD / IFC files", 69.8, 0)}
+    {bar("<b>Claude Sonnet 5.5</b><br>with the CAD / IFC files", 69.8, 0)}
     {bar("<b>Gemini 3.1 Pro</b><br>drawing only", 64.2, 1)}
     {bar("<b>Claude Sonnet 5.5</b><br>drawing only", 63.2, 2)}
   </div>
-  <div class="foot">Accuracy on a 400-question sample of our held-out test split, stratified by source × question type and re-weighted to the
-  full test-split mix (95 % CI about ±9 pp). Counts must be exact, measurements within 2 %. Source: docs/RESULTS.md.</div>
 </section>
 <section class="card" id="results">
-  <div class="kicker">Results · held-out test split</div>
-  <h2 class="in">90.0&nbsp;% right on all 25,420 held-out test questions.</h2>
+  <h2 class="in">90&nbsp;% right on all 25,420 held-out test questions.</h2>
   <div class="bars">
-    {bar("<b>Blueprints That Talk</b><br>every test question", 90.0, 0, True)}
-    {bar("<b>Claude Sonnet 5.5</b><br>same drawing + CAD / IFC files", 69.8, 1)}
-    {bar("<b>Gemini 3.1 Pro</b><br>drawing only", 64.2, 2)}
+    {bar("<b>Blueprints That Talk</b>", 90.0, 0, True)}
+    {bar("<b>Claude Sonnet 5.5</b><br>same files", 69.8, 1)}
+    {bar("<b>Gemini 3.1 Pro</b>", 64.2, 2)}
   </div>
-  <div class="foot">Ours: all 25,420 test questions, 95 % CI 89.7–90.4 %; frontier: 400-question stratified sample re-weighted to the test mix.
-  Swiss CAD plans and IFC quantities 100 %, Finnish raster plans 85.1 %, IFC free text 38.2 %. Evaluation cross-audited for leakage.
-  Sources: README.md, docs/RESULTS.md, runs/router_full_test_v7.</div>
 </section>
 <section class="card" id="cost">
-  <div class="kicker">API cost per 1,000 questions</div>
-  <h2 class="in">Exact answers don't need a giant model.</h2>
-  <div class="cost">
-    <div class="box ours in" style="animation-delay:.4s"><div class="n">$0.013</div><div class="l"><b>Blueprints That Talk</b><br>numbers come from geometry and a small detector; only free text calls a small LLM</div></div>
-    <div class="box fr in" style="animation-delay:1.1s"><div class="n">$25.76</div><div class="l"><b>Claude Sonnet 5.5</b><br>given the same drawing and its CAD / IFC files, at API list price</div></div>
+  <h2 class="in">Cost per 1,000 questions</h2>
+  <div class="vs">
+    <div class="ours in" style="animation-delay:.4s"><div class="n">$0.013</div><div class="l">Blueprints That Talk</div></div>
+    <div class="fr in" style="animation-delay:1.1s"><div class="n">$25.76</div><div class="l">Claude Sonnet 5.5, same files</div></div>
   </div>
-  <p class="in" style="font-size:40px; color:var(--ink2); margin-top:60px; animation-delay:1.8s">About <b style="color:var(--ink)">1,900 times cheaper</b>, and 0.04&nbsp;s per answer instead of 16&nbsp;s.</p>
-  <div class="foot">API list prices, measured; local compute adds about $0.006 per 1,000. Source: README.md, docs/COSTS.md.</div>
 </section>
-<section class="card dark end" id="end">
-  <div class="kicker in">Built at Junction 2026 · Stoa: Make Blueprints Talk</div>
-  <h1 class="in" style="animation-delay:.3s">Blueprints <span>That Talk</span></h1>
-  <div class="meta in" style="animation-delay:.8s">Exact · verifiable · cheap<br><code>{REPO_URL}</code></div>
-  <div class="foot">{html.escape(CREDITS)}.<br>Training compute: a local RTX 4070 and cloud GPUs (Verda). Voice: {"Kokoro-82M (Apache-2.0), generated locally" if ENGINE == "kokoro" else "ElevenLabs"}.</div>
+<section class="card end" id="end">
+  <h1 class="in">Blueprints That Talk</h1>
+  <p class="in" style="animation-delay:.5s">Exact, verifiable, cheap.<br><code>{REPO_URL}</code></p>
+  <div class="foot">{html.escape(CREDITS)}. Voice: {voice}.</div>
 </section>
 <script>
 document.getElementById(new URLSearchParams(location.search).get('card')).classList.add('on');
@@ -888,6 +884,17 @@ def update_doc(plan, caps, total, cut):
     src = doc.read_text()
     new = re.sub(rf"(<!-- {tag} -->\n).*?(<!-- /{tag} -->)", lambda m: m.group(1) + table + "\n" + m.group(2), src, flags=re.S)
     doc.write_text(new)
+
+
+def ensure_fonts():
+    """IBM Plex Sans for the burned-in captions (one typeface with the app, DESIGN-RULES.md rule 6), cached."""
+    d = ROOT / "cache/fonts"
+    d.mkdir(parents=True, exist_ok=True)
+    for w in ("Regular", "SemiBold"):
+        f = d / f"IBMPlexSans-{w}.ttf"
+        if not f.exists():
+            urllib.request.urlretrieve(f"https://github.com/google/fonts/raw/main/ofl/ibmplexsans/IBMPlexSans-{w}.ttf", f)
+    return d
 
 
 def ff(*a):
@@ -948,8 +955,12 @@ def main():
     plan = [x for x in plan if not only or x[0]["id"] in only]
     if not plan:
         sys.exit("--only matched no scene of this cut")
-    t_first = plan[0][1]
-    caps = [c for c in caps if any(t0 <= c[0] < t0 + d for _, t0, d in plan)]
+    # the chosen scenes play back to back: move each scene (and its captions) to its place in that sequence
+    starts, acc = [], 0.0
+    for _, t0, d in plan:
+        starts.append((t0, d, acc))
+        acc += d
+    caps = [(c[0] - t0 + n, c[1] - t0 + n, c[2], c[3]) for c in caps for t0, d, n in starts if t0 <= c[0] < t0 + d]
     WORK.mkdir(parents=True, exist_ok=True)
     (WORK / "cards.html").write_text(cards_html(), encoding="utf-8")
     if not a.reuse:
@@ -967,17 +978,21 @@ def main():
     ff("-f", "concat", "-safe", 0, "-i", lst, "-c", "copy", silent)
 
     span = sum(d for _, _, d in plan)
-    # with --only, the captions/voice are shifted to the first chosen scene (scenes are contiguous in the usual case)
-    shift = [(c[0] - t_first, c[1] - t_first, c[2], c[3]) for c in caps]
+    shift = caps
     voice = WORK / "voice.wav"
     write_voice(shift, span, voice)
     out = Path(a.out) if a.out else OUT / f"blueprints-{a.cut}.mp4"
     srt = out.with_suffix(".srt")
-    write_srt(shift, srt)
-    style = ("FontName=DejaVu Sans,FontSize=13,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,"
-             "Outline=0,Shadow=0,Alignment=2,MarginV=10,MarginL=40,MarginR=40")
+    write_srt(shift, srt)  # the sidecar has every line; the burned-in captions skip the cards, whose text is on screen
+    cards = [(n, n + d) for (sc, _, _), (_, d, n) in zip(plan, starts) if sc["kind"] == "card"]
+    burn = WORK / "burn.srt"
+    write_srt([c for c in shift if not any(a <= c[0] < e for a, e in cards)], burn)
+    fonts = ensure_fonts()
+    style = ("FontName=IBM Plex Sans,FontSize=13,PrimaryColour=&H00181411,BorderStyle=1,Outline=0,Shadow=0,"
+             "Alignment=1,MarginV=12,MarginL=29,MarginR=29")
     ff("-i", silent, "-i", voice,
-       "-vf", f"scale=1632:918:flags=lanczos,pad=1920:1080:144:0:color=0x0b1220,subtitles={srt}:force_style='{style}'",
+       "-vf", (f"scale=1632:918:flags=lanczos,pad=1634:920:1:1:color=0xe4e7eb,pad=1920:1080:143:0:color=0xffffff,"
+               f"subtitles={burn}:fontsdir={fonts}:force_style='{style}'"),
        "-af", "loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000",
        "-c:v", "libx264", "-preset", "slow", "-crf", 18, "-pix_fmt", "yuv420p", "-r", FPS,
        "-c:a", "aac", "-b:a", "192k", "-ac", 2, "-t", f"{span:.3f}", "-movflags", "+faststart", out)

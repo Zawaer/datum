@@ -23,13 +23,13 @@ animations), a loop grabs 3840x2160 frames stamped with page time, and they are 
 Playback is smooth at real speed however slow the renderer is. The 4K frames also allow sharp **punch-ins**
 (`rec.cam` / `rec.cam_on` in the script). A full 2:00 build takes roughly 25–40 min wall time. `--draft` takes about a quarter of that.
 
-**Format.** 1920x1080, 30 fps. The picture is scaled to 85 % so the caption band underneath never covers the drawing
-credits. Burned-in captions (+ `.srt`) use the caption text from the script, and the voice is loudness-normalised. Voice: Kokoro-82M
-`af_heart` (Apache-2.0, local) by default. With `--tts elevenlabs` (or `auto`) the script probes the ElevenLabs key once. On
-14 Nov the key **did** pass the TTS probe (voice `21m00Tcm4TlvDq8ikWAM` "Rachel", `eleven_multilingual_v2`; set
-`ELEVENLABS_VOICE_ID` for another), so the ElevenLabs voice is available. A 401/403 falls back to Kokoro (the key is never printed).
-With ElevenLabs the 2:00 cut times at about 1:34 and Kokoro is slower, so check `--voice-only` before deciding to add a line.
-The end card credits whichever voice engine was used.
+**Format and style** ([`docs/deck/DESIGN-RULES.md`](deck/DESIGN-RULES.md)). The video is 1920x1080 at 30 fps. The product
+footage is the hero. Each card carries one idea in IBM Plex Sans 400/600, on the rules' scale and left-aligned. Ours is in
+the accent #0072b2, frontier models are grey, and there are no eyebrow labels, gradients, shadows or footnotes.
+The numbers' sources are listed below. The picture is scaled to 85 % on white with a 1 px #e4e7eb hairline. The
+captions sit underneath in Plex, left-aligned with the picture, and are not burned in over the cards, whose text is
+already on screen. The `.srt` sidecar has every line. On-screen chips are white boxes with a hairline in the top-left of
+the drawing. IBM Plex Sans is fetched once into `cache/fonts/` for the captions.
 
 ## 2:00 storyboard
 
@@ -38,20 +38,20 @@ Durations are planned. The real ones follow the voice (table below, regenerated 
 
 | # | shot (`id`) | ~s | on screen (exact action) | narration | on-screen text |
 |---|---|---|---|---|---|
-| 1 | **Hook** (`hook`) | 0–8.5 (min 8.5 s) | Full-bleed 3D (side panels hidden). `swiss_dwellings/site3387_bldg5238_floor23498.pdf`, Q: *How many doors (interior doors and entrance doors together) are drawn on this floor plan?* already answered. **See it in 3D**: the flat plan, seen from straight above, rises into a building over 2.6 s (`window.__p3riseMs = 2600`). The camera tilts to three-quarter view and the 20 counted doors glow blue and pop up numbered 1…20, one after another. | "Ask a floor plan how many doors it has. Twenty. And here is every single one." | chip: **20 doors · every one numbered** / *read from the CAD layers · no AI model call · $0*, then **Blueprints That Talk** / *Junction 2026 · Stoa: Make Blueprints Talk* |
-| 2 | **Problem** (`problem`, card) | 6–17 | Animated card: three orange bars grow in turn. Sonnet 5.5 + its CAD/IFC files 69.8 %, Gemini 3.1 Pro 64.2 %, Sonnet drawing-only 63.2 %. | "Quantity takeoff is still done by hand. Frontier AI, given the very same files, gets seven answers in ten right, and sounds just as sure when it's wrong." | **Frontier models get about 7 answers in 10 right, and sound just as sure when they are wrong.** |
+| 1 | **Hook** (`hook`) | 0–8.5 (min 8.5 s) | Full-bleed 3D (picker and answer panel hidden). `swiss_dwellings/site3387_bldg5238_floor23498.pdf`, Q: *How many doors (interior doors and entrance doors together) are drawn on this floor plan?* already answered. `window.__p3.open()` with `__p3riseMs = 2600`: the drawing lies flat and tilts up into a low cut-away model. The 20 counted doors light up blue and are pinned 1…20 one after another. | "Ask a floor plan how many doors it has. Twenty. And here is every single one." | top-left chip: **20 doors, every one numbered** / *Read from the CAD layers. No AI model call.*, then **Blueprints That Talk** / *Junction 2026, Stoa: Make Blueprints Talk* |
+| 2 | **Problem** (`problem`, card) | 8.5–19.5 | Light card with one chart. Three grey bars grow in turn: Sonnet 5.5 with its CAD/IFC files 69.8 %, Gemini 3.1 Pro 64.2 %, Sonnet drawing-only 63.2 %. | "Quantity takeoff is still done by hand. Frontier AI, given the very same files, gets seven answers in ten right, and sounds just as sure when it's wrong." | **Frontier models get 7 answers in 10 right, and sound just as sure when they are wrong.** |
 | 3 | **How it works** (`how`) | 17–25 | `/how`: glide down to the routing chapter, where a question flies to its solver. Two further smooth scrolls through "proof on the drawing". | "So we don't guess. Every question goes to an exact method: the CAD geometry, the BIM model, or a small detector we trained." | (the page's own headings) |
 | 4 | **X-ray count** (`xray`) | 25–35 | Same Swiss plan in 2D. The door question types itself. **X-ray**: the drawing greys back, each door lights up in turn and the HUD counts 1/20 … 20/20. Punch-in on the drawing during the count, then on the answer card: **20**, "Verified by geometry", "Very likely right · 99.95 %", "Two independent methods agree". | "Ask in plain words, and the X-ray counts every door on the drawing. A second, independent method agrees. No model call, zero cost." | (app HUD: *X-ray · counting 20 / 20*) |
-| 5 | **Ghost comparison** (`ghost`) | 35–47 | `swiss_dwellings/site11487_bldg17991_floor47889.pdf`, Q (German): *Wie gross ist die Nettowohnfläche von Wohnung A in m² (…)?* Rooms outline with their m² while the running sum ticks up to **62.74 m²**. Hover room #1. Scroll to the ghost strip, then punch in on it: our marker on the dataset line, five ghost markers for the frontier baselines spread from 59 to 75 m², each labelled "short" or "over". | "Asked in German: the net living area of apartment A. Every room carries its own square metres, and they add up to the answer. Five frontier models, same drawing: all five wrong." | chip: **5 frontier models · same drawing · all 5 wrong** / *dataset answer 62.74 m² · they said 59 to 75 m²* |
+| 5 | **Ghost comparison** (`ghost`) | 39–51 | `swiss_dwellings/site11487_bldg17991_floor47889.pdf`, Q (German): *Wie gross ist die Nettowohnfläche von Wohnung A in m² (…)?* Rooms outline with their m² while the running sum ticks up to **62.74 m²**. Room #1 is held highlighted for 3 s. `doAction('scroll:.vs')` opens the *Frontier models* section, then a punch-in on it shows the app's own **5 of 5 wrong**: our marker on the dataset line, five ghosts from 59 to 75 m², each labelled short or over. | "Asked in German: the net living area of apartment A. Every room carries its own square metres, and they add up to the answer. Five frontier models, same drawing: all five wrong." | none (the app's "5 of 5 wrong" is the text) |
 | 6 | **Correct by click** (`correct`) | 47–53 | Door plan, Q: *How many windows are drawn on this floor plan?* Punch-in on the answer + evidence list. Window #4 highlights, is unticked, the row flashes and the total drops by one. | "Disagree? Untick an item, or click one we missed. The total follows." | |
-| 7 | **Heat-map + takeoff** (`heat`) | 53–60 | German-area plan in 2D: **Heat-map** shades every room on one blue scale with its m² and per-apartment totals. Then **Takeoff sheet** opens the printable room schedule. | "One click shades every room by its area, and prints the takeoff sheet." | (legend: *Net area per room*) |
+| 7 | **Heat-map + takeoff** (`heat`) | 56–61 | German-area plan in 2D. `setHeat(true)` (view menu: *Room heat-map*) shades every room on one blue scale with its m², with a punch-in on the drawing. Then `openSheet()` (*Takeoff sheet*) opens the printable room schedule. | "One click shades every room by its area, and prints the takeoff sheet." | (the app's legend) |
 | 8 | **Voice, in Finnish** (`voice`) | 60–68 | `cubicasa5k/colorful-10052.png`. Punch-in on the ask box: the mic strip goes *Listening → Transcribing → Asking* with *Kuinka monta ovea pohjapiirustuksessa on?*. Pan to the scan: the detector's boxes, 5 doors, and the second model's conflict flag. | "Or just ask out loud, in Finnish. Our detector boxes every door it counts." | (app strip) |
-| 9 | **BIM in 3D** (`ifc`) | 68–79 | `ifc_models/bsc-molio_molio-with-uris_plan-03-grundplan.pdf`, Q: *How many doors are shown on the floor plan of 'Grundplan'?* Switch to 3D, **Explode storeys** (floors lift apart), **X-ray** (everything but the evidence goes to faint outlines, counted doors glow), slow orbit drag. | "BIM models are answered from the model itself. Explode the storeys, X-ray the rest, and the evidence glows." | |
-| 10 | **Numbers** (`results`, card) | 79–92 | Animated card: blue bar grows to **90.0 %**, orange bars follow (69.8 % Sonnet + files, 64.2 % Gemini). | "Ninety percent right, on all twenty-five thousand held-out test questions. Claude Sonnet, given the same files: seventy." | **90.0 % right on all 25,420 held-out test questions.** |
-| 11 | **Cost** (`cost`, card) | 92–100 | Two big numbers slide in, **$0.013** vs **$25.76** per 1,000 questions, then "about 1,900 times cheaper, 0.04 s per answer instead of 16 s". | "One point three cents per thousand questions. Sonnet: twenty-five dollars seventy-six." | **Exact answers don't need a giant model.** |
-| 12 | **Close** (`end`, card) | 100–~106 | Navy end card: title, *Exact · verifiable · cheap*, repo URL, dataset credits. | "Exact. Verifiable. Cheap. Blueprints That Talk." | repo URL + credits |
+| 9 | **BIM in 3D** (`ifc`) | 66.5–75 | `ifc_models/bsc-molio_molio-with-uris_plan-03-grundplan.pdf`, Q: *How many doors are shown on the floor plan of 'Grundplan'?* The 3D model loads off camera. Then: *Show whole building*, punch-in, **Explode storeys** (seven storeys lift apart, the Grundplan storey tagged "evidence" with its 12 pinned doors), **X-ray**, slow orbit drag. Recorded at 2.5x more slow-motion (`SHOT_SLOW`). | "BIM models are answered from the model itself. Explode the storeys, X-ray the rest, and the evidence glows." | |
+| 10 | **Numbers** (`results`, card) | 75–85 | One chart: our bar grows in the accent blue to **90.0 %**, grey bars follow (69.8 % Sonnet with the same files, 64.2 % Gemini). | "Ninety percent right, on all twenty-five thousand held-out test questions. Claude Sonnet, given the same files: seventy." | **90 % right on all 25,420 held-out test questions.** |
+| 11 | **Cost** (`cost`, card) | 85–91 | One number against another, at 200 px: **$0.013** (accent) vs **$25.76** (grey) per 1,000 questions. | "One point three cents per thousand questions. Sonnet: twenty-five dollars seventy-six." | **Cost per 1,000 questions** |
+| 12 | **Close** (`end`, card) | 91–~97 | White end card: *Blueprints That Talk*, *Exact, verifiable, cheap.*, repo URL. The footer band holds the dataset licences and the voice credit. | "Exact. Verifiable. Cheap. Blueprints That Talk." | repo URL + credits |
 
-At the current narration the 2:00 cut runs about 1:50, which leaves ~10 s of slack for one more line.
+With the ElevenLabs voice the 2:00 cut runs about 1:37, which leaves room for one more line. Kokoro is slower; check with `--voice-only`.
 
 ## 60 s cut (`--cut short`)
 
@@ -73,7 +73,9 @@ Shots that are longer than their narration are sped up to at most 1.6x and then 
 
 ## Notes for the team
 
-- **Re-run the captures after the UI redesign lands.** The shots rely on stable hooks: `window.__p3` (open / ready / `__p3riseMs`), the app globals `ask()`, `res`, `animating`, `doAction()` (the tour's own action runner), `setMode()`, and the ids `#q`, `#viewer`, `#answer`, `#side`, `#heatbtn`, `#sheetbtn`, `#mic`, `#voice`, `.v3bar`, `.ghostcmp`. If the redesign renames one, fix that shot in `SHOTS` in `make_video.py`. A failing shot prints its error and keeps the frames it got.
+- **Status (14 Nov):** every shot has been run once against the simplified UI with `--draft` and checked frame by frame. **The final 2:00 / 60 s renders are on hold until the deck/app restyle lands.** Then run `make_video.py --tts elevenlabs` and `--cut short --tts elevenlabs`.
+- **Phone inset:** `make_video.py --phone` records a 390x844 take at DPR 3 (`runs/video/phone-inset.mp4`, 1080x2336, about 17 s, no voice). It shows a staged Finnish voice question, the X-ray count, the answer sheet, and the in-context cards on pins #3 and #10 (`selectPin`).
+- **Re-run the captures after any UI change.** The shots rely on stable hooks: `window.__p3` (open / ready / `__p3riseMs`), the app globals `ask()`, `res`, `animating`, `doAction()` (the tour's own action runner), `setMode()`, `setHeat()`, `openSheet()`, `selectPin()`, `sheetFull()`; the ids `#q`, `#img`, `#viewer`, `#answer`, `#side`, `#mic`, `#voice`; `.ghostcmp`; and the 3D buttons, found by their label (*Show whole building*, *Explode storeys*, *X-ray*). If the redesign renames one, fix that shot in `SHOTS` in `make_video.py`. A failing shot prints its error and keeps the frames it got.
 - **Voice shot.** Without `--voice-wav`, the voice strip is *staged*: the script plays the same states the
   app shows (Listening → Transcribing → Asking) and then asks the Finnish question as text. For the real
   ElevenLabs Scribe path, record a teammate saying *"Kuinka monta ovea pohjapiirustuksessa on?"* (WAV, mono 16 or
@@ -91,13 +93,40 @@ Shots that are longer than their narration are sped up to at most 1.6x and then 
 ## Timing (generated, 2:00 cut)
 
 <!-- TIMING -->
-(run `make_video.py --voice-only`)
+| # | time | shot | voice-over (caption text) |
+|---|---|---|---|
+| 1 | 0:00.00–0:08.50 | shot `hook` | Ask a floor plan how many doors it has. Twenty. And here is every single one. |
+| 2 | 0:08.50–0:19.47 | card `problem` | Quantity takeoff is still done by hand. Frontier AI, given the very same files, gets seven answers in ten right, and sounds just as sure when it's wrong. |
+| 3 | 0:19.47–0:28.33 | shot `how` | So we don't guess. Every question goes to an exact method: the CAD geometry, the BIM model, or a small detector we trained. |
+| 4 | 0:28.33–0:39.17 | shot `xray` | Ask in plain words, and the X-ray counts every door on the drawing. A second, independent method agrees. No model call, zero cost. |
+| 5 | 0:39.17–0:50.77 | shot `ghost` | Asked in German: the net living area of apartment A. Every room carries its own square metres, and they add up to the answer. Five frontier models, same drawing: all five wrong. |
+| 6 | 0:50.77–0:55.77 | shot `correct` | Disagree? Untick an item, or click one we missed. The total follows. |
+| 7 | 0:55.77–1:01.00 | shot `heat` | One click shades every room by its area, and prints the takeoff sheet. |
+| 8 | 1:01.00–1:06.53 | shot `voice` | Or just ask out loud, in Finnish. Our detector boxes every door it counts. |
+| 9 | 1:06.53–1:14.83 | shot `ifc` | BIM models are answered from the model itself. Explode the storeys, X-ray the rest, and the evidence glows. |
+| 10 | 1:14.83–1:24.83 | card `results` | 90.0 % right on all 25,420 held-out test questions. Claude Sonnet 5.5, given the same files: 69.8 %. |
+| 11 | 1:24.83–1:31.13 | card `cost` | $0.013 per 1,000 questions. Sonnet: $25.76. |
+| 12 | 1:31.13–1:37.07 | card `end` | Exact. Verifiable. Cheap. Blueprints That Talk. |
+
+Total 97.07 s; 209 words; voice elevenlabs `21m00Tcm4TlvDq8ikWAM`. Generated by `make_video.py`.
 <!-- /TIMING -->
 
 ## Timing (generated, 60 s cut)
 
 <!-- TIMING60 -->
-(run `make_video.py --cut short --voice-only`)
+| # | time | shot | voice-over (caption text) |
+|---|---|---|---|
+| 1 | 0:00.00–0:08.50 | shot `hook` | Ask a floor plan how many doors it has. Twenty. And here is every single one. |
+| 2 | 0:08.50–0:14.13 | card `problem` | Frontier AI gets seven answers in ten right, and sounds just as sure when it's wrong. |
+| 3 | 0:14.13–0:19.47 | shot `xray` | Ask in plain words. The X-ray counts every door on the drawing. |
+| 4 | 0:19.47–0:27.33 | shot `ghost` | In German: every room's square metres add up to the answer. Five frontier models, same drawing: all five wrong. |
+| 5 | 0:27.33–0:32.33 | shot `correct` | Disagree? Untick an item, or click one we missed. The total follows. |
+| 6 | 0:32.33–0:34.77 | shot `voice` | Or ask out loud, in Finnish. |
+| 7 | 0:34.77–0:44.77 | card `results` | 90.0 % right on all 25,420 held-out test questions. Claude Sonnet 5.5, given the same files: 69.8 %. |
+| 8 | 0:44.77–0:51.07 | card `cost` | $0.013 per 1,000 questions. Sonnet: $25.76. |
+| 9 | 0:51.07–0:57.00 | card `end` | Exact. Verifiable. Cheap. Blueprints That Talk. |
+
+Total 57.00 s; 111 words; voice elevenlabs `21m00Tcm4TlvDq8ikWAM`. Generated by `make_video.py`.
 <!-- /TIMING60 -->
 
 ## Sources for every number on screen or spoken
