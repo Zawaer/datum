@@ -56,6 +56,7 @@ const CSS = `
 .v3lab.ev i { color: var(--ev-ink, #005f94); font-weight: 600; }
 .v3lab s { display: block; width: 18px; height: 1px; background: var(--faint, #8a929d); text-decoration: none; }
 .v3lab.ev s { background: var(--ev, #0072b2); }
+.v3labs.n .v3lab i { display: none; }
 .v3lab.r { flex-direction: row-reverse; } .v3lab.r i { margin: 0 6px 0 0; }
 @media (max-width: 700px) { .v3bar { left: 8px; top: 8px; font-size: 12px; } .v3bar button { padding: 4px 8px; min-height: 36px; }
   .v3lab b { padding: 1px 5px; } .v3lab s { width: 10px; } }
@@ -122,7 +123,7 @@ export function init(el, callbacks = {}) {
     if (e.buttons || !cbs.onHover) return;
     cbs.onHover(pick(e));
   });
-  document.addEventListener('keydown', e => { if (anim && (e.key === 'Escape' || e.key === ' ') && host.offsetParent) skipReveal(); });
+  document.addEventListener('keydown', e => { if (anim && e.key === 'Escape' && host.offsetParent) skipReveal(); });
   controls.addEventListener('change', () => { if (!inFrame) requestRender(); });  // user input; update() in a frame decides itself
   controls.addEventListener('start', () => { held = true; tweens.delete(camTween); camTween = null; });
   controls.addEventListener('end', () => { held = false; released = performance.now(); });
@@ -437,6 +438,7 @@ export function explode(on = true, ms = 800) {
   explodeT = to; applyExplode();
   const b = drawnBox(target, target === model, on ? FABRIC : SHELL);
   explodeT = from; applyExplode();
+  if (on) b.expandByVector(new THREE.Vector3(0, offsets[1] * 0.4, 0));  // air above the roof and under the lowest floor
   if (!on && clipWanted < 1e8 && target === model) b.max.y = Math.min(b.max.y, clipWanted);
   const s = performance.now();
   for (const f of tweens) if (f.explode) tweens.delete(f);
@@ -481,6 +483,15 @@ const _v = new THREE.Vector3();
 function placeLabels() {
   if (!labels.length || !footprint) return;
   const W = host.clientWidth, H = host.clientHeight, shown = [];
+  // on a narrow viewer the labels carry the storey name only
+  const narrow = W < 560;
+  if (labLayer.classList.contains('n') !== narrow) { labLayer.classList.toggle('n', narrow); for (const l of labels) l.w = 0; }
+  // controls floating over the viewer (ours, and the page's storey / mode / tour panels): labels keep clear of them
+  const hr = host.getBoundingClientRect();
+  for (const o of [bar, ...(host.parentElement ? host.parentElement.querySelectorAll('.tools3d, .modes, .caption') : [])]) {
+    const r = o.getBoundingClientRect();
+    if (r.width && r.height) shown.push({ x: r.left - hr.left, y: r.top - hr.top, w: r.width, h: r.height, box: true });
+  }
   for (const l of labels) {
     if (!l.w) { l.w = l.el.offsetWidth; l.h = l.el.offsetHeight; }
     const bx = footprint, y = storeys[l.i].z + offsets[l.i] * explodeT + 0.2;
@@ -506,9 +517,9 @@ function placeLabels() {
   for (const l of order) {
     let ok = !!l.pos;
     if (ok) {
-      const x = Math.min(W - l.w - 4, Math.max(4, l.pos[0] - l.w - 2)), y = Math.min(H - l.h - 2, Math.max(48, l.pos[1] - l.h / 2));
+      const x = Math.min(W - l.w - 4, Math.max(4, l.pos[0] - l.w - 2)), y = Math.min(H - l.h - 2, Math.max(4, l.pos[1] - l.h / 2));
       l.x = x; l.y = y;
-      ok = !shown.some(o => Math.abs(o.y - y) < l.h + 2 && x < o.x + o.w && o.x < x + l.w);
+      ok = !shown.some(o => y < o.y + o.h + 2 && o.y < y + l.h + 2 && x < o.x + o.w + 2 && o.x < x + l.w + 2);
     }
     l.el.style.display = ok ? '' : 'none';
     if (ok) { l.el.style.transform = `translate(${l.x.toFixed(1)}px, ${l.y.toFixed(1)}px)`; shown.push(l); }
