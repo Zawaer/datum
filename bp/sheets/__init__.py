@@ -14,6 +14,9 @@ Contract for a module `bp/sheets/<name>.py`:
     {"text":  page text (PDF text layer, or OCR / vision read of the title block; may be ""),
      "title": title-block text if found (sheet title + number, e.g. "FOUNDATION AND SLAB PLAN S-100F"),
      "kind":  sheet kind from the classifier ("arch" | "slab" | "piping" | "other"),
+     "words": [{"text", "bbox" (normalised, as displayed), "conf"}] exact vector words when the upload is a PDF
+              page with a text layer ("text_source": "pdf"), else [] ("text_source": "ocr"); use sheets.words(meta)
+              (or ocr_words, which returns these first) before running OCR yourself,
      "image": path of a PNG/JPG render of the page (full resolution, page 0 unless "page" says otherwise),
      "page":  page index the image is of,
      "w", "h": image size in px,
@@ -152,6 +155,35 @@ def _pdf_text(path: str, page: int) -> str:
         return ""
 
 
+def pdf_words(path: str, page: int) -> list[dict]:
+    """Vector words of a PDF page as displayed (page rotation applied), boxes normalised to the rendered page:
+    [{"text", "bbox": [x0, y0, x1, y1], "conf": 100}]. [] for rasters or pages without a text layer."""
+    if not path.lower().endswith(".pdf"):
+        return []
+    try:
+        import pymupdf
+
+        pg = pymupdf.open(path)[page]
+        R = pg.rotation_matrix
+        W, H = pg.rect.width, pg.rect.height
+        out = []
+        for x0, y0, x1, y1, t, *_ in pg.get_text("words"):
+            r = pymupdf.Rect(x0, y0, x1, y1) * R
+            r.normalize()
+            out.append({"text": t, "conf": 100.0,
+                        "bbox": [max(0.0, r.x0 / W), max(0.0, r.y0 / H), min(1.0, r.x1 / W), min(1.0, r.y1 / H)]})
+        return out
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def words(meta, **ocr_kw) -> list[dict]:
+    """The sheet's words: the PDF's exact vector words when it has a text layer, else tesseract OCR."""
+    if meta.get("words"):
+        return meta["words"]
+    return ocr_words(meta, **ocr_kw)
+
+
 def classify(image_path: str, model: str = "haiku") -> dict:
     """One cheap vision call on a downscaled view of the sheet (~$0.002): kind, title, sheet number, scale."""
     from PIL import Image
@@ -200,6 +232,11 @@ def build_meta(path: str, page: int = 0, cache_dir: str | Path | None = None, do
         img, w, h = _image_for(path, page, cache_dir)
         meta = meta or {}
         meta.update({"path": path, "page": page, "image": img, "w": w, "h": h, "text": _pdf_text(path, page)})
+        pw = pdf_words(path, page)
+        if len(pw) >= 20:
+            meta["words"], meta["text_source"] = pw, "pdf"
+        else:
+            meta["words"], meta["text_source"] = [], "ocr"
         if do_classify and os.environ.get("BP_SHEET_CLASSIFY", "1") == "1":
             c = classify(img)
             meta["classify"] = c
@@ -224,6 +261,10 @@ def ocr_words(meta, region=None, scale: float = 1.0, psm: int = 11, min_conf: fl
     """Tesseract words of the sheet image (or of a region [x0,y0,x1,y1] normalised), cached per call signature.
     Returns [{"text", "bbox": [x0,y0,x1,y1] normalised to the full image, "conf"}]. [] if tesseract is missing.
     Upscale (scale=2) helps on ~2000 px screenshots; large images are processed in tiles of <= 4000 px."""
+    if meta.get("words"):  # a PDF text layer: exact, no OCR needed
+        x0, y0, x1, y1 = region or (0, 0, 1, 1)
+        return [w for w in meta["words"] if x0 <= (w["bbox"][0] + w["bbox"][2]) / 2 <= x1
+                and y0 <= (w["bbox"][1] + w["bbox"][3]) / 2 <= y1]
     if not shutil.which("tesseract"):
         return []
     from PIL import Image
