@@ -2,7 +2,7 @@
 FROM python:3.11-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
-RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 libgomp1 curl ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 libgomp1 tesseract-ocr tesseract-ocr-eng curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Claude Code CLI (the frontier-model fallback calls it one-shot, no tools); wrapped by claude-capped below
