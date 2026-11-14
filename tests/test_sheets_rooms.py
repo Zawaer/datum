@@ -121,3 +121,16 @@ def test_intent_and_match():
     assert [r["label"] for r in R.match_rooms(halls, "area of room 214")[0]] == ["214"]
     assert R.match_rooms(halls, "area of the gym")[0][0]["label"] == "Multi-Purpose Hall"
     assert R._clean("|| 214 ee") == "214"
+
+
+def test_coarse_sheet_only_totals(plan, tmp_path):
+    """At ~20 px/m single rooms are not trusted: named rooms abstain, totals come with a low-res hint."""
+    g, words = plan
+    small = cv2.resize(g, (g.shape[1] // 3, g.shape[0] // 3), interpolation=cv2.INTER_AREA)
+    p = tmp_path / "small.png"
+    cv2.imwrite(str(p), small)
+    meta = {"image": str(p), "w": small.shape[1], "h": small.shape[0], "kind": "arch", "words": words}
+    assert R.answer(str(p), "What is the area of the office?", meta) is None
+    assert R.answer(str(p), "Baseboard length excluding wet rooms", meta) is None
+    b = R.answer(str(p), "Linear meters for baseboards", meta)
+    assert b is not None and b["low_res"] and b["confidence"] < 0.5

@@ -35,7 +35,8 @@ MAX_DOOR_M = 2.1     # widest unglazed gap closed as a doorway (double doors ~1.
 MAX_WIDE_M = 3.6     # widest unglazed gap closed when door swings are drawn along it (pairs of doors)
 MAX_WINDOW_M = 6.0   # widest glazed gap closed as a window
 MIN_ROOM_M2 = 0.8
-MIN_WIDTH_M = 0.7    # narrower spaces are niches / recesses
+MIN_WIDTH_M = 0.7
+COARSE_PPM = 35.0    # below this many px per metre single rooms are not trusted (only totals / footprint)    # narrower spaces are niches / recesses
 LINE_M = 0.25        # wall pieces shorter than this along an axis don't bridge gaps along it
 FT = 0.3048
 PAPER_MM = {"A0": 1189, "A1": 841, "A2": 594, "A3": 420, "A4": 297}
@@ -231,6 +232,16 @@ def _gaps(wall, thin, axis, ppm):
     return out
 
 
+def _scan_like(g) -> bool:
+    """A scanned / photographed sheet: grey paper noise and soft edges (lots of mid-grey next to the ink), unlike
+    a CAD render or screenshot whose paper is clean white."""
+    sub = g[::4, ::4]
+    paper = sub[sub >= 230]
+    dark = float((sub < 100).mean())
+    mid = float(((sub >= 100) & (sub < 230)).mean())
+    return bool(paper.size and (paper < 250).mean() > 0.3) or (dark > 0 and mid / dark > 1.8)
+
+
 def _has_swing(leafy, g, length, ppm):
     """Door swings drawn along a gap: enough thin linework within 0.5 m of the gap, on one side, between its
     jambs (arcs of a pair of doors, double-acting doors drawn as arcs only). Open niches have none that close."""
@@ -383,6 +394,9 @@ def segment(image, px_per_m=None, words=None, meta=None, with_labels=True) -> di
         cs, _ = cv2.findContours((clab == c).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         big.append(max(cs, key=cv2.contourArea))
     footprint = sum(cv2.contourArea(c) for c in big) / ppm ** 2
+    # colour-filled space diagrams (rooms shaded by type) are read by the colour-zone path, not by wall gaps
+    inside = np.isin(lab[::3, ::3], [r["_i"] for r in rooms])
+    fill_gray = float(np.median(small[::3, ::3][inside])) if inside.any() else 255.0
     seg_extra = {"lab": lab, "f": f, "W": W, "H": H, "src_ppm": px_per_m,
                  "vector": bool(words is None and meta and meta.get("words"))}
     if with_labels:
@@ -395,7 +409,8 @@ def segment(image, px_per_m=None, words=None, meta=None, with_labels=True) -> di
         r.pop("_c", None)
     rooms.sort(key=lambda r: -r["area_m2"])
     return {"rooms": rooms, "scale": sc or {"px_per_m": px_per_m, "how": "given"}, "px_per_m": px_per_m,
-            "wall_px": round(wall_px, 1), "_lab": seg_extra,
+            "wall_px": round(wall_px, 1), "_lab": seg_extra, "scan": _scan_like(g),
+            "fill_gray": fill_gray,
             "doors": doors, "footprint_m2": round(footprint, 1),
             "footprint_polys": [[[round(p[0][0] / f, 1), round(p[0][1] / f, 1)] for p in c] for c in big]}
 
@@ -707,6 +722,8 @@ def answer(path, question, meta):
     W, H = meta.get("w"), meta.get("h")
     if not W:
         H, W = _gray(meta["image"]).shape
+    if seg.get("fill_gray", 255) < 235:
+        return None  # rooms are shaded (a colour-coded space diagram): areas belong to the colour-zone path
     big = [r for r in rooms if r["area_m2"] >= 4]
     if seg.get("px_per_m", 0) >= 40 and len(big) >= 10 and sum(1 for r in big if r["label"]) < 0.1 * len(big):
         # readable resolution yet almost no room carries a name: not a solid-wall plan with room labels (e.g. a
@@ -725,6 +742,16 @@ def answer(path, question, meta):
             ("; " if wpx < 3 and small_text else "") + ("room names too small to read reliably" if small_text else "")
     scale_txt = f"scale {sc['px_per_m']:.1f} px/m ({sc['how']}{'; ' + sc['check'] if sc.get('check') else ''})"
     ql = question.lower()
+    # coarse sheets (screenshots, 2500 px renders, scans): walls of 1-3 px and blurred door swings make single
+    # rooms merge or split (the hall read 13 / 47 / 288 m² for 245), and names are unreadable. Whole-building
+    # totals and the footprint hold up; named rooms and wet-room exclusions are left to other paths.
+    coarse = seg.get("px_per_m", 100) < COARSE_PPM or wpx < 3 or seg.get("scan", False)
+    if seg.get("scan"):
+        low_res = (low_res + "; " if low_res else "") + "scanned sheet: single rooms not measured"
+    if coarse:
+        if query_words(question) or re.search(r"exclud|except|without|wet|dry rooms?", ql):
+            return None
+        cf *= 0.6
     sel, qw = match_rooms(rooms, question)
     if qw and not sel:
         # the question names a room we have no label for: read the unlabelled / larger rooms' own crops (budgeted)
@@ -789,6 +816,12 @@ def answer(path, question, meta):
             return {**base, "answer": round(tot, 1), "confidence": round(0.6 * cf, 2),
                     "method": "sheets-rooms-area-sum", "evidence": ev + ev_scale,
                     "explanation": f"{' / '.join(sorted(groups))}: {txt}; {scale_txt}."}
+        if coarse:
+            return {**base, "answer": round(tot, 1), "confidence": round(0.55 * cf, 2),
+                    "method": "sheets-rooms-area-total", "evidence": ev + ev_scale,
+                    "explanation": f"{len(sel)} enclosed spaces sum to {tot:.0f} m² net (gross footprint "
+                                   f"{seg['footprint_m2']} m²); room names are not readable at this resolution, so "
+                                   f"no per-room split; {scale_txt}."}
         listing = "; ".join(parts[:40])
         return {**base, "answer": f"Total {tot:.0f} m² net over {len(sel)} rooms. " + listing, "value": round(tot, 1),
                 "confidence": round(0.55 * cf, 2), "method": "sheets-rooms-area-list", "evidence": ev + ev_scale,
