@@ -89,15 +89,15 @@ SCENES = [
          "Switch to 3D, and the same doors light up as I.F.C. elements."),
     ]},
     {"kind": "card", "ref": "results", "lines": [
-        ("Overall: 88.2 % correct on 25,420 held-out questions.",
-         "Overall: eighty-eight point two percent correct, on twenty-five thousand held-out questions."),
-        ("100 % on Swiss plans and BIM model quantities, 82 % on Finnish scans.",
-         "A hundred percent on Swiss plans and BIM model quantities. Eighty-two on Finnish scans."),
+        ("Overall: 89.5 % correct on 25,420 held-out questions.",
+         "Overall: eighty-nine point five percent correct, on twenty-five thousand held-out questions."),
+        ("100 % on Swiss plans and BIM model quantities, 84 % on Finnish scans.",
+         "A hundred percent on Swiss plans and BIM model quantities. Eighty-four on Finnish scans."),
         "Independently audited for leakage.",
     ]},
     {"kind": "card", "ref": "cost", "lines": [
-        ("It costs 1.4 cents per thousand questions. Frontier models: 13 to 58 dollars.",
-         "It costs one point four cents per thousand questions. Frontier models: thirteen to fifty-eight dollars."),
+        ("It costs 1.3 cents per thousand questions. Frontier models: 13 to 58 dollars.",
+         "It costs one point three cents per thousand questions. Frontier models: thirteen to fifty-eight dollars."),
     ]},
     {"kind": "card", "ref": "end", "min": 4.0, "lines": [
         "Exact, verifiable, cheap. Blueprints That Talk.",
@@ -260,29 +260,29 @@ def cards_html():
 </section>
 <section class="card" id="results">
   <div class="kicker">Results · held-out test split</div>
-  <h2>88.2&nbsp;% correct on 25,420 held-out questions.</h2>
+  <h2>89.5&nbsp;% correct on 25,420 held-out questions.</h2>
   <div class="bars">
-    {bar("<b>Blueprints That Talk</b>", 88.2, True)}
+    {bar("<b>Blueprints That Talk</b>", 89.5, True)}
     {bar("Claude Sonnet 5.5 + CAD / IFC files", 69.8)}
     {bar("Claude Sonnet 5.5, drawing only", 63.2)}
   </div>
   <div class="tiles">
     <div class="tile"><div class="n">100&nbsp;%</div><div class="l">Swiss CAD plans<br>counts and room areas</div></div>
     <div class="tile"><div class="n">100&nbsp;%</div><div class="l">BIM / IFC models<br>counts, areas, lengths, volumes</div></div>
-    <div class="tile"><div class="n">82.2&nbsp;%</div><div class="l">Finnish raster plans<br>symbol counts</div></div>
+    <div class="tile"><div class="n">84.2&nbsp;%</div><div class="l">Finnish raster plans<br>symbol counts</div></div>
   </div>
   <div class="badge">✓ Evaluation independently audited for leakage (Codex): no drawing in both train and test</div>
-  <div class="foot">Ours: all 25,420 test questions, 95 % CI 87.8–88.6 % (Swiss 99.9–100 % rounded; IFC numeric questions; free-text IFC answers 36.4 %).
-  Sources: docs/STATUS.md, docs/RESULTS.md, runs/router_full_test_v4.</div>
+  <div class="foot">Ours: all 25,420 test questions, 95 % CI 89.1–89.8 % (Swiss 99.9–100 % rounded; IFC numeric questions; free-text IFC answers 38.2 %).
+  Sources: docs/STATUS.md, docs/RESULTS.md, runs/router_full_test_v6.</div>
 </section>
 <section class="card" id="cost">
   <div class="kicker">Cost per 1,000 questions</div>
   <h2>Exact answers don't need a giant model.</h2>
   <div class="cost">
-    <div class="box ours"><div class="n">$0.014</div><div class="l"><b>Blueprints That Talk</b><br>numeric answers run locally with no model call; only free-text questions call a small LLM</div></div>
+    <div class="box ours"><div class="n">$0.013</div><div class="l"><b>Blueprints That Talk</b><br>numeric answers run locally with no model call; only free-text questions call a small LLM</div></div>
     <div class="box fr"><div class="n">$13–58</div><div class="l"><b>Frontier models</b><br>Claude Sonnet 5.5, drawing only or with its CAD / IFC files, at API list price</div></div>
   </div>
-  <p style="font-size:40px; color:var(--ink2); margin-top:60px">About <b style="color:var(--ink)">1,000 to 4,000 times cheaper</b>, and about 30&nbsp;ms per answer instead of 13&nbsp;s.</p>
+  <p style="font-size:40px; color:var(--ink2); margin-top:60px">About <b style="color:var(--ink)">1,000 to 4,000 times cheaper</b>, and about 40&nbsp;ms per answer instead of 13&nbsp;s.</p>
   <div class="foot">API list prices, measured: ours on all 25,420 test questions, frontier on a 400-question sample. Local CPU/GPU compute adds ~$0.005 per 1,000.
   Detector and model training ran on cloud GPUs (Verda). Source: docs/COSTS.md, docs/RESULTS.md.</div>
 </section>

@@ -54,7 +54,7 @@ The 80 % cut was chosen on the dev split only.
 ## Measured
 
 `python -m bp.provenance` reproduces everything below. It replays every LLM answer of `ifctext@route` on
-ifc_bench (dev and test, the 740 questions routed to the LLM) from the on-disk answer cache, so it costs $0.
+ifc_bench (dev and test, the 744 questions routed to the LLM; logged runs from the v6 fact sheet) from the on-disk answer cache, so it costs $0.
 A cache miss would be an error. Every replayed answer was identical to the logged one. Judge verdicts come
 from the logged runs `runs/ifctext_route_{dev,test}.jsonl`. Per-question output is in
 `runs/provenance_ifctext.jsonl`.
@@ -63,27 +63,26 @@ from the logged runs `runs/ifctext_route_{dev,test}.jsonl`. Per-question output 
 
 | split | status | n | share | judge accuracy |
 |---|---|---|---|---|
-| dev | verified | 354 | 55% | **57.1%** |
-| dev | partial | 159 | 24% | 43.4% |
-| dev | partial (nothing to check) | 50 | 8% | 60.0% |
-| dev | unverified | 86 | 13% | **38.4%** |
-| dev | all | 649 | 100% | 51.5% |
-| test | verified | 51 | 56% | **43.1%** |
-| test | partial | 33 | 36% | 36.4% |
-| test | partial (nothing to check) | 1 | 1% | 0.0% |
-| test | unverified | 6 | 7% | **16.7%** |
-| test | all | 91 | 100% | 38.5% |
+| dev | verified | 317 | 49% | **63.4%** |
+| dev | partial | 240 | 37% | 52.1% |
+| dev | partial (nothing to check) | 44 | 7% | 79.5% |
+| dev | unverified | 51 | 8% | **27.5%** |
+| dev | all | 652 | 100% | 57.5% |
+| test | verified | 43 | 47% | **41.9%** |
+| test | partial | 48 | 52% | 39.6% |
+| test | unverified | 1 | 1% | **0.0%** |
+| test | all | 92 | 100% | 40.2% |
 
-- On test, all non-verified answers together were judge-correct 32.5 % of the time (40 answers), against
-  43.1 % for verified ones. On dev it is 44.7 % against 57.1 %.
-- Claims traced: 90 % of 16,443 numbers and names on dev, 93 % of 3,714 on test. 60 % of `ifc` evidence items
+- On test, all non-verified answers together were judge-correct 38.8 % of the time (49 answers), against
+  41.9 % for verified ones. On dev it is 51.9 % (335 answers) against 63.4 %.
+- Claims traced: 91 % of 20,867 numbers and names on dev, 97 % of 4,328 on test. 66 % of `ifc` evidence items
   are now marked `verified`.
-- The confidence cap improves calibration slightly. Brier score goes from 0.262 to 0.257 on dev and from
-  0.280 to 0.269 on test. AUROC goes from 0.49 to 0.52 on dev and from 0.51 to 0.54 on test. Before the cap,
-  ifctext gave every non-"not available" answer 0.6.
+- The confidence cap improves calibration slightly. Brier score goes from 0.254 to 0.246 on dev and from
+  0.280 to 0.277 on test. AUROC goes from 0.48 to 0.53 on dev and from 0.50 to 0.51 on test. Without the cap,
+  ifctext gives every non-"not available" answer 0.6.
 - **Fabrication test.** In each verified answer, one number was changed to a plausible wrong value in the same
-  format (×0.87, ×1.13, ×1.5 or ×0.5, plus 1, 3 or 7). The checker flagged 254 of 396 (64 %): 215 became
-  partial and 39 unverified. Most changed integers of 100 and above, and most changed decimals, are caught.
+  format (×0.87, ×1.13, ×1.5 or ×0.5, plus 1, 3 or 7). The checker flagged 249 of 357 (70 %): 231 became
+  partial and 18 unverified. Most changed integers of 100 and above, and most changed decimals, are caught.
   The misses are mostly small counts (< 10) that some other cited line also contains.
 
 ### Generic text path (opening_design)
@@ -104,10 +103,11 @@ answers counted the right rows of the wrong table, which provenance cannot see.
 
 The checker finds **unsupported numbers and names**. It does not judge **whether the answer is correct**.
 Most wrong ifc_bench answers are faithful to the fact sheet: they answer a slightly different scope, leave
-out a group the gold lists, or use different names. That is why 43 to 57 % of verified answers are still
-judged wrong, and why judge accuracy differs by only 10 to 25 points between statuses. What the checker
-adds is a per-number trace (`found_in` = fact id → GlobalIds in 3D), a confidence cap for answers that
-don't support themselves, and a flag on about two out of three injected fabrications.
+out a group the gold lists, or use different names. That is why 37 to 58 % of verified answers are still
+judged wrong, and why verified and partial answers differ by only 2 to 11 points (unverified ones are clearly
+worse: 27.5 % on dev). What the checker adds is a per-number trace (`found_in` = fact id → GlobalIds in 3D),
+a confidence cap for answers that don't support themselves, and a flag on about seven in ten injected
+fabrications.
 
 Known gaps:
 - Subset sums are only recognised when the group can be named by a word from the answer line.

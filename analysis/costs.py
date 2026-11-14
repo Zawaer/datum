@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 os.chdir(ROOT)
 now = dt.datetime.now(dt.timezone.utc)
-OURS = os.environ.get("BP_OURS_RUN", "router_full_test_v5")
+OURS = os.environ.get("BP_OURS_RUN", "router_full_test_v6")
 
 
 def run_cost(name):

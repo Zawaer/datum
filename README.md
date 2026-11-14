@@ -4,10 +4,10 @@
 drawn on the drawing.** Our Junction 2026 entry for Stoa's *Make Blueprints Talk* challenge.
 
 On **all 25,420 questions of a held-out test split** (every question in every language, not a sample) we are right **89.5 %** of the time
-[95 % CI 89.1–89.8], for **$0.014 per 1,000 questions** in API fees and 0.17 s per question.
+[95 % CI 89.1–89.8], for **$0.013 per 1,000 questions** in API fees and 0.04 s per question.
 The fair frontier comparison, **Claude Sonnet 5.5 given the drawing *and* its sibling CAD / IFC files** (the
 same inputs our solvers read), gets **69.8 %** [60.9–78.4] at **$25.76 per 1,000**. That is +20 points at
-about 1/1,800 of the cost. The evaluation was **audited independently** by a second AI lab's coding agent
+about 1/1,900 of the cost. The evaluation was **audited independently** by a second AI lab's coding agent
 (Codex, OpenAI), and every finding was re-checked: no leakage between dev and test, no test data in
 training, tuning or calibration, no gold lookups at inference, and the headline recount reproduces.
 
@@ -36,7 +36,7 @@ tolerance: counts exact, areas / lengths / volumes within 2 %. An abstention cou
 
 | system | accuracy [95 % CI] | API $ / 1,000 questions | s / question |
 |---|---:|---:|---:|
-| **Blueprints That Talk** (all 25,420 questions) | **89.5 %** [89.1–89.8] | **$0.014** | **0.17** |
+| **Blueprints That Talk** (all 25,420 questions) | **89.5 %** [89.1–89.8] | **$0.013** | **0.04** |
 | Claude Sonnet 5.5 + sibling CAD / IFC files¹ (fair comparison) | 69.8 % [60.9–78.4] | $25.76 | 15.6 |
 | Claude Sonnet 5.5, drawing only¹ | 63.2 % [54.4–71.8] | $13.06 | 12.9 |
 | Claude Haiku 5.5, drawing only¹ | 60.6 % [51.5–69.3] | $1.21 | 28.6 |
@@ -46,9 +46,9 @@ tolerance: counts exact, areas / lengths / volumes within 2 %. An abstention cou
 
 **By source (ours):** Swiss apartment plans 100.0 % (8,214 questions: counts 100.0 %, room areas 99.9 %),
 IFC models 100 % on all 600 numeric questions (counts, areas, volumes, lengths), Finnish raster plans
-(CubiCasa) 84.2 % (16,496 counts, YOLO11m detector), IFC-Bench free text 36.4 % (110 questions, LLM judge;
-our weakest area). On the same 400 sampled questions, Sonnet with sibling files is right on 5 that we miss; we
-are right on 59 that it misses. Per-source tables for every system: [docs/RESULTS.md](docs/RESULTS.md) §2.
+(CubiCasa) 84.2 % (16,496 counts, YOLO11m detector), IFC-Bench free text 38.2 % (110 questions, LLM judge;
+our weakest area). On the same 400 sampled questions, Sonnet with sibling files is right on 3 that we miss; we
+are right on 57 that it misses. Per-source tables for every system: [docs/RESULTS.md](docs/RESULTS.md) §2.
 
 ¹ **Frontier numbers come from a 400-question sample of the test split, stratified by source × type**
 (~54 per cell, so each cell is ±~13 pp), **re-weighted to the true test-split mix**, CI from a stratified bootstrap. Cost is the API list
@@ -57,8 +57,8 @@ answer. Gemini cannot
 take a raw `.ifc` file inline, so the 61 sampled questions that come as an `.ifc` file (IFC-Bench text and some
 IFC counts) abstain and count as wrong, by design; they are 0.5 % of the test mix after re-weighting.
 
-Sources: ours = [`runs/router_full_test_v5.summary.md`](runs/router_full_test_v5.summary.md) (was 88.2 % in v4; the
-+1.3 points are the new CubiCasa detector, 82.2 % → 84.2 %); frontier =
+Sources: ours = [`runs/router_full_test_v6.summary.md`](runs/router_full_test_v6.summary.md) (was 88.2 % in v4; the
++1.3 points are the new CubiCasa detector, 82.2 % → 84.2 %; v6 adds the richer IFC fact sheet, free text 36.4 % → 38.2 %); frontier =
 `runs/baseline_{sonnetfair,sonnet,haiku,gemini,nemotron}_full400.jsonl`; all tables rebuilt by
 `analysis/run_all.sh` into [docs/RESULTS.md](docs/RESULTS.md) and `analysis/out/*.csv`.
 
@@ -78,7 +78,7 @@ plus an audit of the whole evaluation and a robustness suite:
 2. **Calibrated confidence.** Measured on the test split, not asserted ([RESULTS.md](docs/RESULTS.md) §3,
    fig. 3; the demo states it per answer from [`app/calibration.json`](app/calibration.json)). Raster-plan
    answers at confidence ≥ 0.95 are right 98.3 % of the time. If the router answers only at confidence ≥ 0.5 and
-   says "not sure" otherwise, it answers 87.5 % of all questions at 95.4 % accuracy, turning 1,664 wrong answers
+   says "not sure" otherwise, it answers 87.5 % of all questions at 95.4 % accuracy, turning 1,658 wrong answers
    into honest abstentions. Known weak spot: a symbol the detector misses entirely cannot lower its confidence.
 3. **Independent cross-check.** A second, independent method re-derives the answer
    ([`runs/crosscheck_test.summary.md`](runs/crosscheck_test.summary.md), `bp/crosscheck.py`): Swiss answers are
@@ -97,11 +97,11 @@ plus an audit of the whole evaluation and a robustness suite:
 4. **Provenance of LLM-written numbers.** Free-text answers are the least verifiable part, so
    `bp/provenance.py` traces every number and quoted name in an LLM answer to the fact lines it cited (sums,
    counts and group totals of cited lines included) and flags the answer when they don't match
-   ([`docs/PROVENANCE.md`](docs/PROVENANCE.md)): 93 % of 3,714 claims on test trace; verified answers are
-   judge-correct more often than unverified ones (57 % vs 38 % on dev; 43 % vs 17 % on test, where only 6 are
-   unverified), so the flag is shown, not hidden.
+   ([`docs/PROVENANCE.md`](docs/PROVENANCE.md)): 97 % of 4,328 claims on test trace; verified answers are
+   judge-correct more often than the rest (63 % vs 52 % on dev, 28 % for unverified ones; 42 % vs 39 % on test,
+   where only 1 is unverified), so the flag is shown, not hidden.
 
-**Robustness** ([`docs/ROBUSTNESS.md`](docs/ROBUSTNESS.md)): the 12,654 language-twin pairs (same question in
+**Robustness** ([`docs/ROBUSTNESS.md`](docs/ROBUSTNESS.md)): the 12,651 language-twin pairs (same question in
 English and Finnish / German / ...) agree 100 %; typed paraphrases go through a question normaliser (one cheap
 Haiku call, only for questions no parser understands, constrained to names that exist in the drawing) and score
 85.9 % vs 57.7 % before it, equal to the original wording; 50 of 50 must-abstain questions (unknown storeys,
@@ -120,7 +120,7 @@ labels) for **every** system alike, ours and the baselines.
 
 ## Costs
 
-**$0.014 per 1,000 questions** in API fees, measured on all 25,420 test questions: numeric answers make no
+**$0.013 per 1,000 questions** in API fees, measured on all 25,420 test questions: numeric answers make no
 paid calls at all; only the 110 free-text IFC questions call Claude Haiku. In the demo, typed questions that
 no parser understands add one cached Haiku call for the normaliser (~$0.0003-0.003). Local compute (CAD / IFC parsing on
 CPU, the detector on one GPU, ~0.13 s per drawing) prices at about $0.005 per 1,000 questions at $0.50 per
@@ -179,7 +179,7 @@ answer + confidence + evidence + cross-check ──► web app: numbered boxes /
 - **Free text about IFC** ([`bp/solvers/ifctext.py`](bp/solvers/ifctext.py), [`bp/judge.py`](bp/judge.py)).
   A fact sheet is extracted from the model, each line with an id that maps back to GlobalIds; rules answer the
   common question shapes and a cheap LLM answers the rest citing those ids. Free text is our weakest area
-  (36.4 %), and we say so.
+  (38.2 %), and we say so.
 
 ## Run it
 
@@ -210,7 +210,7 @@ deterministic (hash of path + question), and `--ids-from` re-runs exactly the qu
 every baseline answers the same 400 questions.
 
 ```bash
-python eval.py --solver router --split test --jobs 8 --judge --name router_full_test_v5      # 89.5 %, all 25,420
+python eval.py --solver router --split test --jobs 8 --judge --name router_full_test_v6      # 89.5 %, all 25,420
 python eval.py --solver claude@sonnet --split test --sample 400 --jobs 6 --name baseline_sonnet_full400
 S=runs/baseline_sonnet_full400.jsonl
 python eval.py --solver claude@sonnet+twins --split test --ids-from $S --jobs 6 --name baseline_sonnetfair_full400
@@ -220,7 +220,7 @@ python eval.py --solver nemotron      --split test --ids-from $S --jobs 6 --name
 python eval.py --solver prior  --split test --name prior_full_test                                   # 41.6 %
 python eval.py --solver router --split test --source swiss_dwellings --source ifc_models --source cubicasa5k \
   --crosscheck --name crosscheck_test                                                         # cross-check
-BP_OURS_RUN=router_full_test_v5 bash analysis/run_all.sh   # judge baseline text answers, re-weighting, CIs,
+BP_OURS_RUN=router_full_test_v6 bash analysis/run_all.sh   # judge baseline text answers, re-weighting, CIs,
                                                            # figures, docs/RESULTS.md, analysis/out/*.csv
 .venv/bin/python analysis/costs.py                          # docs/COSTS.md
 ```

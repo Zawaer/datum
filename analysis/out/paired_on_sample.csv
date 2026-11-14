@@ -1,6 +1,6 @@
 baseline,n,ours_raw,ours_reweighted,ours_lo,ours_hi,baseline_raw,both_right,only_ours_right,only_baseline_right
-"Claude Sonnet, direct",400,0.8925,0.891135,0.831669,0.950131,0.3425,132,225,5
-"Claude Haiku, direct",400,0.8925,0.891135,0.831669,0.950131,0.31,119,238,5
-"Gemini 3.1 Pro, direct",400,0.8925,0.891135,0.820578,0.950208,0.28,108,249,4
-"Nemotron 3.5 Super VL (open), direct",400,0.8925,0.891135,0.820578,0.950208,0.225,89,268,1
-Claude Sonnet + sibling CAD/IFC files,400,0.8925,0.891135,0.831669,0.950131,0.7575,298,59,5
+"Claude Sonnet, direct",400,0.8925,0.891135,0.831745,0.950129,0.3425,134,223,3
+"Claude Haiku, direct",400,0.8925,0.891135,0.831745,0.950129,0.31,121,236,3
+"Gemini 3.1 Pro, direct",400,0.8925,0.891135,0.820578,0.950208,0.28,109,248,3
+"Nemotron 3.5 Super VL (open), direct",400,0.8925,0.891135,0.820578,0.950208,0.225,90,267,0
+Claude Sonnet + sibling CAD/IFC files,400,0.8925,0.891135,0.831745,0.950129,0.7575,300,57,3

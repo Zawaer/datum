@@ -122,9 +122,9 @@
   <div class="stats">
     <div class="stat"><div class="n">89.5&nbsp;%</div><div class="l">correct on all 25,420 held-out<br>test questions</div></div>
     <div class="stat"><div class="n">69.8&nbsp;%</div><div class="l">Claude Sonnet 5.5 given<br>the same CAD / IFC files</div></div>
-    <div class="stat"><div class="n">$0.014</div><div class="l">per 1,000 questions<br>(Sonnet: $25.76)</div></div>
+    <div class="stat"><div class="n">$0.013</div><div class="l">per 1,000 questions<br>(Sonnet: $25.76)</div></div>
   </div>
-  <div class="foot">Toivo and Rene · held-out test split of the Junction dataset, evaluation independently audited · ours: <code>runs/router_full_test_v5</code>; Sonnet: 400-question stratified sample re-weighted to the test mix, API list price</div>
+  <div class="foot">Toivo and Rene · held-out test split of the Junction dataset, evaluation independently audited · ours: <code>runs/router_full_test_v6</code>; Sonnet: 400-question stratified sample re-weighted to the test mix, API list price</div>
 </section>
 
 <!-- 2 · problem -->
@@ -149,7 +149,7 @@
       <div class="a"><span>Ours, from the IFC model</span><span class="good">353.715 m²</span></div>
     </div>
   </div>
-  <div class="foot">Question ids 122272 and 89286 in <code>runs/baseline_sonnet_full400.jsonl</code>, <code>runs/baseline_sonnetfair_full400.jsonl</code> and <code>runs/router_full_test_v5.jsonl</code>. Drawings: Swiss Dwellings v3.0.0 (Archilyse AG, CC BY 4.0); BIM-Speed Warmond demo site (Garcia &amp; Hartmann 2022, TU Berlin, doi:10.14279/depositonce-16441.2, CC BY 4.0).</div>
+  <div class="foot">Question ids 122272 and 89286 in <code>runs/baseline_sonnet_full400.jsonl</code>, <code>runs/baseline_sonnetfair_full400.jsonl</code> and <code>runs/router_full_test_v6.jsonl</code>. Drawings: Swiss Dwellings v3.0.0 (Archilyse AG, CC BY 4.0); BIM-Speed Warmond demo site (Garcia &amp; Hartmann 2022, TU Berlin, doi:10.14279/depositonce-16441.2, CC BY 4.0).</div>
 </section>
 
 <!-- 3 · frontier fails -->
@@ -226,7 +226,7 @@
 <section class="slide">
   <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">7</div>
   <div class="kicker">Results · held-out test split · accuracy and cost</div>
-  <h2 style="margin-bottom:30px">+20 points over the fair frontier baseline, at 1/1,800 of the cost.</h2>
+  <h2 style="margin-bottom:30px">+20 points over the fair frontier baseline, at 1/1,900 of the cost.</h2>
   <div class="row" style="gap:64px">
     <div style="flex:1.9">
       <table class="res">
@@ -236,17 +236,17 @@
         <tr><td>IFC models · counts</td><td>136</td><td class="o">100.0&nbsp;%</td><td>96.3&nbsp;%</td><td>42.6&nbsp;%</td></tr>
         <tr><td>IFC · areas, volumes, lengths</td><td>464</td><td class="o">100.0&nbsp;%</td><td>91–98&nbsp;%</td><td>4–14&nbsp;%</td></tr>
         <tr><td>Finnish raster plans · counts</td><td>16,496</td><td class="o">84.2&nbsp;%</td><td>63.6&nbsp;%</td><td>63.6&nbsp;%</td></tr>
-        <tr><td>IFC-Bench · free text**</td><td>110</td><td class="o">36.4&nbsp;%</td><td>9.1&nbsp;%</td><td>9.1&nbsp;%</td></tr>
+        <tr><td>IFC-Bench · free text**</td><td>110</td><td class="o">38.2&nbsp;%</td><td>9.1&nbsp;%</td><td>9.1&nbsp;%</td></tr>
         <tr class="tot"><td>All test questions</td><td>25,420</td><td class="o">89.5&nbsp;%</td><td>69.8&nbsp;%</td><td>63.2&nbsp;%</td></tr>
       </table>
     </div>
     <div class="tiles" style="flex:1">
-      <div class="tile ours"><div class="n">$0.014</div><div class="l">ours, per 1,000 questions · 0.17&nbsp;s each</div></div>
+      <div class="tile ours"><div class="n">$0.013</div><div class="l">ours, per 1,000 questions · 0.04&nbsp;s each</div></div>
       <div class="tile"><div class="n" style="color:var(--frontier)">$25.76</div><div class="l">Sonnet 5.5 + files, per 1,000 · ~16&nbsp;s each</div></div>
       <div class="tile"><div class="n" style="color:var(--ink2)">$13.06</div><div class="l">Sonnet 5.5, drawing only · Haiku 5.5: $1.21, 60.6&nbsp;%</div></div>
     </div>
   </div>
-  <div class="foot">Ours: all 25,420 test questions, 95&nbsp;% CI 89.1–89.8 (<code>runs/router_full_test_v5</code>). Split by drawing (all formats and language twins together); counts exact, measures within 2&nbsp;%, abstentions wrong.
+  <div class="foot">Ours: all 25,420 test questions, 95&nbsp;% CI 89.1–89.8 (<code>runs/router_full_test_v6</code>). Split by drawing (all formats and language twins together); counts exact, measures within 2&nbsp;%, abstentions wrong.
     * 400-question stratified sample re-weighted to the test-split mix (Sonnet + files CI 60.9–78.4); API list price. Gemini 3.1 Pro: 64.2&nbsp;% at $52.47 per 1,000; Nemotron 3.5 Super VL (open weights): 49.0&nbsp;% at $2.59 per 1,000.
     ** LLM judge with a fixed rubric, same for every system. Only these 110 questions make paid calls on our side (Claude Haiku). Full tables: <code>docs/RESULTS.md</code>.</div>
 </section>
@@ -306,7 +306,7 @@
     </div>
     <div class="col">
       <ul class="points">
-        <li><b>Unit economics:</b> $0.014 per 1,000 questions: no paid calls for numbers, a small local model on scans, a cheap LLM only for free text.</li>
+        <li><b>Unit economics:</b> $0.013 per 1,000 questions: no paid calls for numbers, a small local model on scans, a cheap LLM only for free text.</li>
         <li><b>Trust:</b> answers a human can verify in seconds, and an honest “not sure” instead of a guess.</li>
         <li><b>Open code:</b> MIT-licensed, every number reproducible with one command.</li>
       </ul>

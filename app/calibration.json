@@ -1,5 +1,5 @@
 {
- "run": "router_full_test_v5.jsonl",
+ "run": "router_full_test_v6.jsonl",
  "split": "test",
  "min_n": 200,
  "bins": [
@@ -35,38 +35,38 @@
      "right": 1340
     },
     "0.6": {
-     "n": 4176,
-     "right": 3730
+     "n": 4172,
+     "right": 3726
     },
     "0.4": {
-     "n": 1732,
-     "right": 1202
+     "n": 1734,
+     "right": 1206
     },
     "0.0": {
-     "n": 2254,
+     "n": 2256,
      "right": 888
     }
    }
   },
   "ifc-llm": {
    "label": "LLM on an IFC fact sheet",
-   "n": 91,
-   "right": 35,
+   "n": 92,
+   "right": 37,
    "abstained": 0,
    "bins": {
     "0.6": {
-     "n": 84,
-     "right": 34
+     "n": 91,
+     "right": 37
     },
     "0.0": {
-     "n": 7,
-     "right": 1
+     "n": 1,
+     "right": 0
     }
    }
   },
   "ifc-rule": {
    "label": "rule-based IFC report",
-   "n": 19,
+   "n": 18,
    "right": 5,
    "abstained": 0,
    "bins": {
@@ -75,7 +75,7 @@
      "right": 2
     },
     "0.4": {
-     "n": 15,
+     "n": 14,
      "right": 3
     }
    }

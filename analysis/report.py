@@ -286,7 +286,8 @@ def main():
     w(md(["language"] + [label_of(s) for s in [OURS] + fr] + ["sources of our questions in this language"], rows))
     w("")
     w(f"**Reading.** Language is detected from the question text (`langdetect`). The test split holds English, "
-      "Finnish, German, French, Italian and Dutch questions; there are no Estonian or Danish questions in it. "
+      "Finnish, German, French, Italian and Dutch questions; there are no Estonian, Polish or Danish questions in it "
+      "(the few 'et'/'pl' rows are `langdetect` misreading short English or Finnish CubiCasa questions). "
       f"Our solvers parse the question template in either language, so language itself changes nothing: all "
       f"{fmt_n(tw['pairs'])} Finnish/English CubiCasa twins (same drawing, same question) get the same answer "
       f"({fmt_n(tw['same_answer'])} identical). The per-language gaps are a source mix effect: every Finnish "
