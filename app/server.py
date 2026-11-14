@@ -95,7 +95,7 @@ def _with_root(text: str) -> str:
     """Prefix root-relative app URLs in a page or script with BP_ROOT_PATH."""
     if not ROOT_PATH:
         return text
-    text = re.sub(r"""(["'`])/(api/|static/|results\b)""", lambda m: f"{m.group(1)}{ROOT_PATH}/{m.group(2)}", text)
+    text = re.sub(r"""(["'`])/(api/|static/|results\b|how\b)""", lambda m: f"{m.group(1)}{ROOT_PATH}/{m.group(2)}", text)
     text = text.replace('href="/"', f'href="{ROOT_PATH}/"')
     text = re.sub(r'<meta (?:property|name)="(?:og|twitter):[^>]*>\n?', "", text)  # no link previews of a private URL
     shim = (f'<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">'
@@ -1522,6 +1522,11 @@ def index():
 @app.get("/results")
 def results_page():
     return HTMLResponse(_with_root((STATIC / "results.html").read_text()))
+
+
+@app.get("/how")
+def how_page():
+    return HTMLResponse(_with_root((STATIC / "how.html").read_text()))
 
 
 @app.get("/static/{name}")

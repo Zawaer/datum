@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How it works · Blueprints that talk</title>
+<meta name="description" content="How Blueprints that talk answers a question about a construction drawing: routing, evidence on the drawing, four checks, and the cost against a frontier model.">
+<meta property="og:title" content="Blueprints that talk · how it works">
+<meta property="og:image" content="/static/og.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233e9bff'/%3E%3Cpath d='M7 7h18v18H7z M7 15h9 M16 7v18' fill='none' stroke='%23001' stroke-width='2.6'/%3E%3Ccircle cx='21' cy='20' r='3' fill='%23ff3b6b'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/how.css">
+</head>
+<body class="hw">
+<a class="hw-skip" href="#route">Skip to the walkthrough</a>
+<header>
+  <a class="brand" href="/"><span class="logo">▦</span> Blueprints <em>that talk</em></a>
+  <nav class="links" style="margin-left:auto" aria-label="Pages">
+    <a class="linkbtn" href="/">Try it</a>
+    <a class="linkbtn" href="/results">Score<span class="only-desk">board</span></a>
+  </nav>
+</header>
+
+<nav class="hw-toc" aria-label="Chapters">
+  <a href="#route" data-chap="route"><span>1</span> Route<span class="hw-long"> the question</span></a>
+  <a href="#proof" data-chap="proof"><span>2</span> Proof<span class="hw-long"> on the drawing</span></a>
+  <a href="#checks" data-chap="checks"><span>3</span> <span class="hw-long">Four </span>checks</a>
+  <a href="#cost" data-chap="cost"><span>4</span> Cost</a>
+  <i class="hw-toc-bar" aria-hidden="true"></i>
+</nav>
+
+<div class="hw-page">
+
+<section class="hw-hero" aria-labelledby="hw-title">
+  <p class="hw-kicker">How it works · Junction 2026 · Stoa: Make Blueprints Talk</p>
+  <h1 id="hw-title">Ask a drawing a question.<br>Get the answer <em>with its proof</em>.</h1>
+  <p class="hw-lede">What happens between the question and the answer, in four steps, with the real numbers from all
+    25,420 held-out test questions. About two minutes; scroll, or use the chapter bar above.</p>
+  <dl class="hw-facts">
+    <div><dt>right on every held-out test question</dt><dd>90.0&nbsp;%</dd></div>
+    <div><dt>API fees per 1,000 questions</dt><dd>$0.013</dd></div>
+    <div><dt>question languages tested</dt><dd>6</dd></div>
+  </dl>
+  <a class="hw-down" href="#route">Start <span aria-hidden="true">↓</span></a>
+  <ol class="hw-glance" aria-label="The four steps at a glance">
+    <li><a href="#route"><span>01</span><span class="t"><b>Route</b> each question to the cheapest exact method: geometry, our detector, or (0.4&nbsp;%) a small LLM.</span></a></li>
+    <li><a href="#proof"><span>02</span><span class="t"><b>Prove</b> it on the drawing: the marked items add up to the answer.</span></a></li>
+    <li><a href="#checks"><span>03</span><span class="t"><b>Check</b> it four ways: arithmetic, calibrated confidence, a second method, traced LLM numbers.</span></a></li>
+    <li><a href="#cost"><span>04</span><span class="t"><b>Cost</b>: 90.0&nbsp;% vs 69.8&nbsp;% for the best frontier model, at about 1/1,900 of its API price.</span></a></li>
+  </ol>
+</section>
+
+<!-- ============================================================ 1 · routing -->
+<section class="hw-chap" id="route" aria-labelledby="h-route" data-step="0">
+  <header class="hw-chead"><span class="hw-num">01</span><h2 id="h-route">A question comes in, in any of six languages</h2></header>
+  <div class="hw-scrolly">
+    <div class="hw-steps">
+      <article class="hw-step" data-step="0">
+        <p><b>English, Finnish, German, French, Italian or Dutch.</b> The question is about one drawing: a CAD plan, a
+          BIM model or a scanned plan. These are real test questions. Pick a language to see one.</p>
+      </article>
+      <article class="hw-step" data-step="1">
+        <p><b>A router picks the method</b> from the file kind, and reads the question type from keywords in ten
+          languages. Each question goes to the cheapest method that can answer it <i>exactly</i>.</p>
+      </article>
+      <article class="hw-step" data-step="2">
+        <p><b>Who answers the 25,420 test questions.</b> Exact CAD or IFC geometry takes 34.7&nbsp;%. Our own trained
+          detector, with a fine-tuned vision model as second opinion, takes 64.9&nbsp;%. Claude Haiku 5.5 is called
+          only for the 110 free-text questions: 0.4&nbsp;%.</p>
+      </article>
+      <article class="hw-step" data-step="3">
+        <p><b>The model only chooses <i>what</i> to measure. Geometry does the measuring.</b> 99.6&nbsp;% of questions
+          make no paid model call. When a method is unsure, it says “not sure” instead of guessing.</p>
+      </article>
+    </div>
+    <div class="hw-graphic hw-route" id="routeG">
+      <div class="hw-q" aria-live="polite">
+        <div class="hw-qmeta"><span class="hw-tag" id="qLang">EN</span><span id="qKind">raster plan</span></div>
+        <p id="qText">How many separate WC rooms (toilet rooms marked WC) are on this floor plan?</p>
+        <div class="hw-langs" role="group" aria-label="Show a real test question in">
+          <button type="button" data-i="0" aria-pressed="false" title="English">EN</button>
+          <button type="button" data-i="1" aria-pressed="false" title="Finnish">FI</button>
+          <button type="button" data-i="2" aria-pressed="false" title="German">DE</button>
+          <button type="button" data-i="3" aria-pressed="false" title="French">FR</button>
+          <button type="button" data-i="4" aria-pressed="false" title="Italian">IT</button>
+          <button type="button" data-i="5" aria-pressed="false" title="Dutch">NL</button>
+          <button type="button" data-i="6" aria-pressed="false" title="English, free text about a BIM model">EN · text</button>
+        </div>
+      </div>
+      <div class="hw-router" id="router"><b>Router</b><span>file kind · question keywords</span></div>
+      <div class="hw-routes">
+        <div class="hw-rt" data-r="0">
+          <h3>Exact geometry</h3>
+          <p>CAD layers and IFC models, read and measured</p>
+          <div class="hw-share"><b>34.7&nbsp;%</b><span><span class="hw-count" data-to="8814">8,814</span> questions</span></div>
+          <div class="hw-sbar"><i style="--w:34.7%"></i></div>
+          <div class="hw-paid">no model call</div>
+        </div>
+        <div class="hw-rt" data-r="1">
+          <h3>Our detector</h3>
+          <p>trained symbol detector; a fine-tuned vision model as second opinion</p>
+          <div class="hw-share"><b>64.9&nbsp;%</b><span><span class="hw-count" data-to="16496">16,496</span> questions</span></div>
+          <div class="hw-sbar"><i style="--w:64.9%"></i></div>
+          <div class="hw-paid">our own models, local</div>
+        </div>
+        <div class="hw-rt hw-rt-llm" data-r="2">
+          <h3>Claude Haiku</h3>
+          <p>free text only, citing facts from the model</p>
+          <div class="hw-share"><b>0.4&nbsp;%</b><span><span class="hw-count" data-to="110">110</span> questions</span></div>
+          <div class="hw-sbar"><i style="--w:0.4%"></i></div>
+          <div class="hw-paid hw-paid-yes">paid call</div>
+        </div>
+      </div>
+      <svg class="hw-wires" id="wires" aria-hidden="true"></svg>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 2 · proof on the drawing -->
+<section class="hw-chap" id="proof" aria-labelledby="h-proof" data-step="0">
+  <header class="hw-chead"><span class="hw-num">02</span><h2 id="h-proof">The answer is counted out on the drawing</h2></header>
+  <div class="hw-scrolly">
+    <div class="hw-steps">
+      <article class="hw-step" data-step="0">
+        <p><b>Asked in German</b> about a Swiss apartment plan: “Wie gross ist die Nettowohnfläche von Wohnung A in m²?”
+          (the net living area of apartment A). The plan comes with its CAD file, so the answer can be read exactly.</p>
+      </article>
+      <article class="hw-step" data-step="1">
+        <p><b>Every room that counts is outlined</b> from the CAD layers and gets a row with its own m². The list is the
+          answer: the rows add up to the total.</p>
+      </article>
+      <article class="hw-step" data-step="2">
+        <p><b>62.74&nbsp;m², the dataset’s answer.</b> A second method re-reads the PDF alone and agrees. Claude Sonnet 5.5,
+          given the drawing and its CAD file, said 73.8&nbsp;m². No model call here: $0.</p>
+      </article>
+      <article class="hw-step" data-step="3">
+        <p><b>Disagree? Untick a room.</b> The total recomputes on the spot and the correction is kept as feedback.
+          Try it in the list.</p>
+      </article>
+    </div>
+    <div class="hw-graphic hw-proof" id="proofG">
+      <figure class="hw-sheet">
+        <div class="hw-paper">
+          <svg id="plan" role="img" aria-label="Apartment A on a Swiss floor plan, with the counted rooms outlined and numbered"></svg>
+          <p class="hw-noimg" id="noimg" hidden>The drawing could not be loaded here; the outlines are the solver’s real output.</p>
+        </div>
+        <figcaption class="hw-credit">Drawing: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0 (rendered by the dataset authors). Outlines: our solver’s output for this question.</figcaption>
+      </figure>
+      <div class="hw-takeoff">
+        <div class="hw-tq">Net living area, apartment A</div>
+        <table class="hw-list" id="rooms">
+          <caption class="hw-sr">Rooms counted, with their areas</caption>
+          <thead><tr><th scope="col"><span class="hw-sr">counted</span></th><th scope="col">#</th><th scope="col">room</th><th scope="col" class="hw-r">m²</th></tr></thead>
+          <tbody></tbody>
+          <tfoot><tr><td></td><td></td><th scope="row">total</th><td class="hw-r"><output id="total">0.00</output>&nbsp;m²</td></tr></tfoot>
+        </table>
+        <ul class="hw-verdict" id="verdict">
+          <li class="ok"><span aria-hidden="true">✓</span> dataset answer: 62.74&nbsp;m²</li>
+          <li class="alt"><span aria-hidden="true">✓</span> second method (PDF outlines) agrees: 62.74&nbsp;m²</li>
+          <li class="mut">answers like this were right 8,014 of 8,018 times on test</li>
+          <li class="bad"><span aria-hidden="true">✗</span> Sonnet 5.5 + CAD file: 73.8&nbsp;m²</li>
+        </ul>
+        <p class="hw-changed" id="changed" hidden>You changed it. The solver said 62.74&nbsp;m².</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 3 · four checks -->
+<section class="hw-chap" id="checks" aria-labelledby="h-checks" data-step="0">
+  <header class="hw-chead"><span class="hw-num">03</span><h2 id="h-checks">Four ways to check it</h2></header>
+  <div class="hw-scrolly">
+    <div class="hw-steps">
+      <article class="hw-step" data-step="0">
+        <p><b>1 · Evidence that adds up.</b> Boxes, room outlines and BIM elements sum to the answer, so a reviewer checks
+          arithmetic, not a picture. We measured the boxes themselves, not only the totals.</p>
+      </article>
+      <article class="hw-step" data-step="1">
+        <p><b>2 · Confidence you can take literally.</b> If the router answers only at confidence ≥&nbsp;0.5 and says
+          “not sure” otherwise, it answers 87.6&nbsp;% of all questions at 95.8&nbsp;% accuracy, turning 1,594 wrong
+          answers into honest abstentions. Hover or use the arrow keys on the curve.</p>
+      </article>
+      <article class="hw-step" data-step="2">
+        <p><b>3 · A second opinion.</b> A different method re-derives every answer. On scanned plans it is our
+          fine-tuned Qwen3-VL-8B. When it agrees, the detector is right 94.9&nbsp;%. On a conflict the confidence is
+          halved and both sets of marks are shown, never silently swapped.</p>
+      </article>
+      <article class="hw-step" data-step="3">
+        <p><b>4 · Every LLM number traced.</b> In free-text answers, each number and name must appear in the fact lines
+          the model cited, or the answer is flagged. 97&nbsp;% of 4,328 claims on test trace.</p>
+      </article>
+    </div>
+    <div class="hw-graphic hw-checks" id="checksG">
+      <ol class="hw-ptabs" aria-hidden="true"><li>adds up</li><li>confidence</li><li>second opinion</li><li>traced</li></ol>
+
+      <div class="hw-panel" data-p="0">
+        <div class="hw-sum" aria-label="17.10 plus 4.57 plus 16.93 plus 8.77 plus 4.42 plus 10.95 equals 62.74 square metres">
+          <span>17.10</span><i>+</i><span>4.57</span><i>+</i><span>16.93</span><i>+</i><span>8.77</span><i>+</i><span>4.42</span><i>+</i><span>10.95</span><i>=</i><b>62.74&nbsp;m²</b>
+        </div>
+        <div class="hw-stats">
+          <div><b>&gt;&nbsp;90&nbsp;%</b><span>precision and recall of scanned-plan boxes against independent gold instances (box centres matched)</span></div>
+          <div><b>91&nbsp;% / 86&nbsp;%</b><span>the same at IoU ≥&nbsp;0.5</span></div>
+          <div><b>~2.3&nbsp;%</b><span>of correct counts are right by luck: a missed object and a false box cancelling out</span></div>
+        </div>
+      </div>
+
+      <div class="hw-panel" data-p="1">
+        <div class="hw-chart" id="curveWrap">
+          <svg id="curve" viewBox="0 0 560 330" tabindex="0" role="img"
+               aria-label="Accuracy against the share of questions answered. Answering everything: 90.0 percent right. Answering 87.6 percent of questions at confidence 0.5 or more: 95.8 percent right."></svg>
+          <div class="hw-tip" id="tip" hidden></div>
+        </div>
+        <p class="hw-note">All 25,420 test questions, ranked by the confidence the app shows. Raster-plan answers at
+          confidence ≥&nbsp;0.95 are right 98.7&nbsp;% of the time.</p>
+      </div>
+
+      <div class="hw-panel" data-p="2">
+        <div class="hw-agree">
+          <p class="hw-alab">Swiss CAD plans and IFC models · 8,184 test questions where both methods agree</p>
+          <div class="hw-arow"><div class="hw-abar"><i class="ok" style="--w:99.98%"></i></div><b>99.98&nbsp;%</b></div>
+          <p class="hw-asub">right: all but 2. The check caught a real error: an area read as 86.72&nbsp;m² from the CAD file,
+            95.38&nbsp;m² from the PDF (gold 95.36).</p>
+          <p class="hw-alab">Scanned Finnish plans · 16,496 test questions, detector vs fine-tuned vision model</p>
+          <div class="hw-split" role="img" aria-label="They agree on 73.8 percent of questions, where the detector is right 94.9 percent; they conflict on 26.2 percent, where it is right 57.3 percent.">
+            <div class="hw-seg" style="--w:73.8%">
+              <span class="hw-segl">agree · 73.8&nbsp;%</span>
+              <div class="hw-abar tall"><i class="ok" style="--w:94.9%"></i></div>
+              <span class="hw-segv"><b>94.9&nbsp;%</b> right</span>
+            </div>
+            <div class="hw-seg" style="--w:26.2%">
+              <span class="hw-segl">conflict · 26.2&nbsp;%</span>
+              <div class="hw-abar tall"><i class="warn" style="--w:57.3%"></i></div>
+              <span class="hw-segv"><b>57.3&nbsp;%</b> right</span>
+            </div>
+          </div>
+          <p class="hw-asub">On a conflict the vision model itself is right only 18.6&nbsp;%, so it never overrides: it lowers
+            the confidence and shows its own marks.</p>
+        </div>
+      </div>
+
+      <div class="hw-panel" data-p="3">
+        <div class="hw-prov">
+          <p class="hw-pq">“Which types of curtain walls are installed?” <small>free text about an IFC model, answered by Claude Haiku 5.5</small></p>
+          <div class="hw-pans">Curtain wall types in the model:<br>
+            – Curtain Wall:Alufassade <mark style="--i:0">1000<sup>f73</sup></mark> x <mark style="--i:1">2100<sup>f73</sup></mark> - Standardprofile:
+            <mark style="--i:2">9<sup>f22</sup></mark> elements (all on <mark style="--i:3">3rd<sup>f22</sup></mark> Floor, all external)<br>
+            – Total: <mark style="--i:4">9<sup>f22</sup></mark> curtain walls, one type</div>
+          <ul class="hw-facts2">
+            <li><code>[f22]</code> IfcCurtainWall: <mark>9</mark> (by level: <mark>3rd</mark> Floor: 9)</li>
+            <li><code>[f73]</code> IfcCurtainWall type 'Curtain Wall:Alufassade <mark>1000</mark> x <mark>2100</mark> - Standardprofile': 9; level 3rd Floor; external True: 9</li>
+          </ul>
+          <p class="hw-pstat"><span aria-hidden="true">✓</span> verified · all 5 numbers traced to the cited fact lines</p>
+          <p class="hw-credit">Test question 85938 · IFC-Bench v2 questions, © 2025 Sylvain Hellin (TUM), CC BY 4.0</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 4 · cost -->
+<section class="hw-chap" id="cost" aria-labelledby="h-cost" data-step="0">
+  <header class="hw-chead"><span class="hw-num">04</span><h2 id="h-cost">About 1,900× cheaper, and more often right</h2></header>
+  <div class="hw-scrolly">
+    <div class="hw-steps">
+      <article class="hw-step" data-step="0">
+        <p><b>90.0&nbsp;% vs 69.8&nbsp;%.</b> The fair comparison is Claude Sonnet 5.5 given the drawing <i>and</i> its
+          CAD / IFC files, the same inputs our methods read: +20 points for us. Lines show 95&nbsp;% intervals; the frontier
+          models answered a 400-question sample re-weighted to the test mix.</p>
+      </article>
+      <article class="hw-step" data-step="1">
+        <p><b>$0.013 vs $25.76 per 1,000 questions</b> in API fees. Numeric answers make no paid call at all; only the 110
+          free-text questions call Claude Haiku. The scale is logarithmic: each gridline is ten times the last.</p>
+      </article>
+      <article class="hw-step" data-step="2">
+        <p><b>One dot is our API bill for 1,000 questions.</b> Sonnet with the files costs about 1,900 of them for the same
+          1,000. Our local compute adds ~$0.006, and we answer in 0.04&nbsp;s instead of 15.7&nbsp;s.</p>
+      </article>
+    </div>
+    <div class="hw-graphic hw-cost" id="costG">
+      <div class="hw-panel" data-p="0">
+        <p class="hw-ctitle">Accuracy on the held-out test split</p>
+        <div class="hw-acc" id="acc" role="img" aria-label="Accuracy: ours 90.0 percent; Claude Sonnet 5.5 with the CAD and IFC files 69.8; Gemini 3.1 Pro 64.2; Claude Sonnet 5.5 drawing only 63.2; Claude Haiku 5.5 60.6; Nemotron 3.5 Super VL 49.0."></div>
+      </div>
+      <div class="hw-panel" data-p="1">
+        <p class="hw-ctitle">API $ per 1,000 questions (log scale)</p>
+        <svg id="logcost" viewBox="0 0 600 300" role="img" aria-label="API cost per 1,000 questions: ours 0.013 dollars; Claude Haiku 5.5 1.21; Nemotron 2.59; Sonnet 13.06; Sonnet with files 25.76; Gemini 3.1 Pro 52.47."></svg>
+      </div>
+      <div class="hw-panel" data-p="2">
+        <div class="hw-dots">
+          <canvas id="dots" role="img" aria-label="One blue dot for our cost against about 1,900 grey dots for Claude Sonnet 5.5 with the files"></canvas>
+          <div class="hw-dkey"><span class="hw-d2" aria-hidden="true"></span><span><b>Sonnet 5.5 + files</b> · $25.76 ≈ <output id="dotn">0</output> dots</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="hw-cta" aria-labelledby="h-cta">
+  <h2 id="h-cta">Now ask one yourself.</h2>
+  <p>Every answer in the demo comes with these checks. The tour shows seven of them in about a minute.</p>
+  <div class="hw-btns">
+    <a class="hw-btn hw-btn-pri" href="/">Try it</a>
+    <a class="hw-btn" href="/?tour" data-href="/?tour">Take the 60-second tour</a>
+    <a class="hw-btn" href="/results">Scoreboard</a>
+  </div>
+</section>
+
+<footer class="hw-foot">
+  <p>Numbers: README and <code>docs/RESULTS.md</code>; ours from <code>runs/router_full_test_v7</code> (all 25,420 test questions, split by
+    whole drawing); frontier models on a 400-question stratified sample re-weighted to the test mix, API list price; curve from
+    <code>analysis/out/selective_all_curve.csv</code>; second opinion from <code>runs/crosscheck_test.summary.md</code>, <code>runs/crosscheck_vlm_test_v7.summary.md</code>;
+    provenance from <code>docs/PROVENANCE.md</code>.</p>
+  <p>Drawings: Swiss Dwellings v3.0.0, M. Standfest et al. (Archilyse AG), doi:10.5281/zenodo.7788422, CC BY 4.0. Questions: Junction 2026
+    dataset by Stoa (non-commercial, per-file licences); IFC-Bench v2, © 2025 Sylvain Hellin (TUM), CC BY 4.0.</p>
+</footer>
+</div>
+<script src="/static/how.js"></script>
+</body>
+</html>
