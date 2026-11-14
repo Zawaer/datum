@@ -23,6 +23,26 @@ Datum answers questions about construction drawings and BIM models, typed or spo
 
 _(579 characters)_
 
+## Description, short (used in the form, ~1,640 chars)
+
+**Ask a construction drawing a question, and see where the answer came from.**
+
+Quantity takeoff is still done by hand, because a general AI that gets a room area wrong sounds exactly as sure as when it's right. Datum answers questions about floor plans, slab and piping sheets and BIM models, typed or spoken, in any language, and **shows the proof on the drawing**: every counted door numbered, every room outlined with its m², every table value it read highlighted. A short replay works the answer out on the drawing, and you can untick a wrong item to fix the total. When it isn't sure, it says so instead of guessing.
+
+**Results**
+- **90.7 %** right on 25,420 held-out questions (drawings it never saw), vs 69.8 % for Claude Sonnet 5.5 given the same files.
+- **$0.013 per 1,000 questions**, vs $25.76: most answers are read exactly from the drawing with no AI call.
+- **Stoa's complex example sheets:** 40 of 41 right from the PDF, 37 from a scan. Closet doors not counted, per Stoa's rule.
+
+**For real projects:** upload a whole drawing set or several floors and ask about the whole building; ambiguous questions get one-tap follow-ups; any plan tilts into 3D with the answer painted on it.
+
+**Honest limits:** small low-res images with unreadable room names (Datum asks which room), window counts on dense plans, and free-text BIM questions (38 %).
+
+Technical details (models, routing, costs, licences, evaluation): [ARCHITECTURE.md](https://github.com/Zawaer/datum/blob/main/docs/ARCHITECTURE.md) · [RESULTS.md](https://github.com/Zawaer/datum/blob/main/docs/RESULTS.md)
+
+Built by Toivo and Rene at Junction 2026. MIT licensed.
+
+
 ## Description (≤ 5000 chars, markdown)
 
 _Character count of the block between the rules below: 4,545 (limit 5,000)._
