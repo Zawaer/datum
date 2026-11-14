@@ -54,7 +54,14 @@ def h(s):
 
 
 def load_run(path=None):
-    return [json.loads(l) for l in open(path or RUN)]
+    """Rows of a run, with `lang` replaced by the one label per question text (see analysis/common.py
+    question_lang: eval.py's per-row langdetect tags are not stable across runs)."""
+    from common import _detect_lang
+
+    rows = [json.loads(l) for l in open(path or RUN)]
+    for r in rows:
+        r["lang"] = _detect_lang(r["question"])
+    return rows
 
 
 def same_answer(qtype, a, b):
@@ -541,7 +548,7 @@ FINDINGS = """## Summary
 - **Dataset questions do not change.** All 127,043 dataset questions parse as before except 3 (quote fix,
   below), none reaches the normaliser, and the full test run `runs/router_full_test_v6.summary.md` scores
   **89.5 %** (v4: 88.2 %; the +1.3 points are the new CubiCasa detector, 82.2 % → 84.2 %; Swiss 100.0 %,
-  ifc_models 100.0 %, ifc_bench 38.2 %). Language twins: still 100 % agreement on 12,651 pairs.
+  ifc_models 100.0 %, ifc_bench 38.2 %). Language twins: still 100 % agreement on 12,654 pairs.
 - **Cost:** the normaliser runs only on questions no parser understands: one Haiku call (~$0.0003-0.003, cached
   per question and drawing). Dataset questions stay $0.
 """

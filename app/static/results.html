@@ -12,7 +12,7 @@
 <style>
   /* scoreboard: same design system as the app (app.css); series colours are Okabe-Ito, the prior is neutral grey */
   body { display: block; overflow: auto; background: var(--bg); }
-  .viz-root { --ours: #0072b2; --frontier: #d55e00; --fair: #cc79a7; --gemini: #009e73; --haiku: #e69f00; --prior: #8a929d; }
+  .viz-root { --ours: #0072b2; --frontier: #d55e00; --fair: #cc79a7; --gemini: #009e73; --haiku: #e69f00; --nemotron: #56b4e9; --prior: #8a929d; }
   .wrap { max-width: 1120px; margin: 0 auto; padding: 24px 24px 64px; }
   h1 { font-size: 28px; font-weight: 600; letter-spacing: -.3px; margin: 0 0 8px; }
   .lede { color: var(--mut); margin: 0 0 16px; max-width: 780px; font-size: 14px; }
@@ -22,6 +22,7 @@
   .legend b { color: var(--text); font-weight: 600; }
   .legend i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: 0; }
   .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0; margin-bottom: 24px; background: var(--panel); border: 1px solid var(--line2); border-radius: var(--r2); }
+  #hero { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }  /* all seven systems on one row on a laptop */
   .tile { padding: 12px 16px 14px; border-left: 1px solid var(--line); }
   .tile:first-child { border-left: 0; }
   .tile h4 { margin: 0 0 6px; font-size: 11px; color: var(--mut); font-weight: 600; text-transform: uppercase; letter-spacing: .6px; }
@@ -33,7 +34,7 @@
   td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
   tr:last-child td { border-bottom: 0; }
   td.g { white-space: nowrap; }
-  .cell { display: grid; grid-template-columns: 1fr 52px; gap: 8px; align-items: center; min-width: 120px; }
+  .cell { display: grid; grid-template-columns: 1fr 48px; gap: 6px; align-items: center; min-width: 96px; }
   .bar { height: 6px; background: var(--panel3); position: relative; }
   .bar i { position: absolute; left: 0; top: 0; bottom: 0; }
   .cell b { text-align: right; font-weight: 600; }
@@ -43,6 +44,15 @@
   h2 { font-size: 16px; font-weight: 600; margin: 28px 0 8px; }
   .note { color: var(--mut); font-size: 12px; margin: 4px 0 0; max-width: 780px; }
   .money { text-align: right; white-space: nowrap; }
+  /* wide tables on narrow screens: a shadow on the edge that has more columns behind it, and a note */
+  .card2.scrolls { background:
+      linear-gradient(to right, var(--panel) 30%, transparent) left / 24px 100% no-repeat local,
+      linear-gradient(to left, var(--panel) 30%, transparent) right / 24px 100% no-repeat local,
+      radial-gradient(farthest-side at 0 50%, rgba(0,0,0,.3), transparent) left / 12px 100% no-repeat scroll,
+      radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,.3), transparent) right / 12px 100% no-repeat scroll,
+      var(--panel); }
+  .scrollhint { display: none; color: var(--mut); font-size: 11px; margin: 0 0 4px; text-align: right; }
+  .scrollhint.on { display: block; }
   details summary { cursor: pointer; color: var(--ev-ink); margin: 6px 0; }
   @media (max-width: 640px) {
     .wrap { padding: 16px 12px 40px; } h1 { font-size: 24px; }
@@ -67,7 +77,7 @@
   <h1>Scoreboard</h1>
   <p class="headl" id="headl"><b>89.5 %</b> right on all 25,420 held-out test questions: every question in every language, not a sample (95 % CI 89.1–89.8).</p>
   <p class="lede">Accuracy on the held-out test split (split by drawing, so no drawing seen during development is scored).
-    Ours and the prior answer all <b id="ntest">25,420</b> test questions; the frontier models were asked 400 questions sampled
+    Ours and the prior answer all <b id="ntest">25,420</b> test questions; the frontier and open-weights models were asked 400 questions sampled
     across every source and type, re-weighted to the test mix (so each source counts as much as it does in the test split).
     Counts must be exact; areas, lengths and volumes within 2 %; an abstention counts as wrong; IFC-bench free text is judged.
     The brackets are 95 % intervals. Same numbers as the README, read from <code>analysis/out/</code>.</p>
@@ -99,13 +109,13 @@ const SYS = [['router_full_test', 'Ours', 'routed solvers, full test split', 'va
              ['baseline_sonnetfair_full400', 'Sonnet + files', 'Sonnet given the drawing and its CAD / IFC files', 'var(--fair)'],
              ['baseline_gemini_full400', 'Gemini 3.1 Pro', 'frontier VLM asked directly', 'var(--gemini)'],
              ['baseline_haiku_full400', 'Claude Haiku', 'smaller frontier VLM asked directly', 'var(--haiku)'],
+             ['baseline_nemotron_full400', 'Nemotron 3.5 Super VL', 'open-weights VLM asked directly', 'var(--nemotron)'],
              ['prior_full_test', 'Prior', 'most common answer, never looks', 'var(--prior)']];
 const NICE = {swiss_dwellings: 'Swiss apartments', cubicasa5k: 'Finnish plans (CubiCasa)', ifc_models: 'IFC models', ifc_bench: 'IFC bench (free text)',
               opening_design: 'US drawing sets'};
 const LANG = {en: 'English', fi: 'Finnish', de: 'German', fr: 'French', it: 'Italian', da: 'Danish', nl: 'Dutch', et: 'Estonian', sv: 'Swedish', es: 'Spanish', no: 'Norwegian', pl: 'Polish'};
 const pct = v => (100 * v).toFixed(1) + '%';
 const num = v => Number(v).toLocaleString('en-US');
-const usd = v => '$' + (+v).toFixed(2);
 const usd3 = v => '$' + (+v).toFixed(+v > 0 && +v < 0.1 ? 3 : 2);  // $0.013, not $0.01
 
 (async () => {
@@ -126,7 +136,7 @@ const usd3 = v => '$' + (+v).toFixed(+v > 0 && +v < 0.1 ? 3 : 2);  // $0.013, no
   }
   $('#hero').innerHTML = SYS.map(([k, l, , c]) => { const r = ov[k]; if (!r) return '';
     return `<div class="tile" style="box-shadow:inset 0 3px ${c}"><h4>${l}</h4><div class="hero">${pct(r.accuracy)}</div>
-      <div class="vs">[${pct(r.ci_lo)} – ${pct(r.ci_hi)}] · n=${num(r.n)}<br>${(+r.api_usd_per_1k) < 0.1 ? '$' + (+r.api_usd_per_1k).toFixed(3) : usd(r.api_usd_per_1k)} API + ${usd(r.compute_usd_per_1k)} compute per 1k questions ·
+      <div class="vs">[${pct(r.ci_lo)} – ${pct(r.ci_hi)}] · n=${num(r.n)}<br>${usd3(r.api_usd_per_1k)} API + ${usd3(r.compute_usd_per_1k)} compute per 1k questions ·
       ${(+r.mean_latency_s) < 1 ? (r.mean_latency_s * 1000).toFixed(0) + ' ms' : (+r.mean_latency_s).toFixed(1) + ' s'} each</div></div>`; }).join('');
 
   const rows = A.by_source_type || [];
@@ -187,7 +197,23 @@ const usd3 = v => '$' + (+v).toFixed(+v > 0 && +v < 0.1 ? 3 : 2);  // $0.013, no
       return `<tr><td>${esc(r.name)}</td><td>${esc(r.solver)}</td><td>${esc(r.split)}${r.note ? ' · ' + esc(r.note) : ''}</td><td>${r.n}</td>
         <td>${a ? a.accuracy.toFixed(1) + '%' : '—'}</td><td class="money">${a ? '$' + a.usd_per_1k.toFixed(2) : '—'}</td></tr>`;
     }).join('');
+  markScroll();
 })();
+
+// tables wider than their card scroll sideways: say so, and shade the edge that hides columns
+function markScroll() {
+  for (const box of document.querySelectorAll('.card2')) {
+    let hint = box.previousElementSibling;
+    if (!hint || !hint.classList.contains('scrollhint')) {
+      hint = document.createElement('p'); hint.className = 'scrollhint'; hint.textContent = 'scroll sideways for more columns →';
+      box.before(hint);
+    }
+    const over = box.scrollWidth > box.clientWidth + 1;
+    box.classList.toggle('scrolls', over); hint.classList.toggle('on', over);
+  }
+}
+addEventListener('resize', markScroll);
+document.addEventListener('toggle', markScroll, true);  // the "every run" table is inside <details>
 </script>
 </body>
 </html>

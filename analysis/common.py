@@ -116,11 +116,36 @@ def judge_index():
 
 
 @lru_cache(maxsize=None)
+def _detect_lang(text: str) -> str:
+    from langdetect import DetectorFactory, detect
+
+    DetectorFactory.seed = 0
+    try:
+        return detect(text)
+    except Exception:  # noqa: BLE001
+        return "?"
+
+
+@lru_cache(maxsize=None)
+def question_lang():
+    """Question id -> language, detected once per question text (single-threaded, seeded).
+
+    eval.py tags each row with a language at run time, but langdetect run from worker threads is not stable, so
+    the same question could carry different tags in different runs (a Finnish question read as Estonian in one,
+    an English one as Polish in another). Language is a property of the question, so every run is relabelled
+    from this one table; the full test split (our run) defines it.
+    """
+    return {r["id"]: _detect_lang(r["question"]) for r in _read(RUNS / f"{OURS}.jsonl")}
+
+
+@lru_cache(maxsize=None)
 def load(name: str):
     """Rows of runs/<name>.jsonl with text answers re-scored by the LLM judge where a verdict exists."""
     rows = _read(RUNS / f"{name}.jsonl")
     idx = judge_index()
+    langs = question_lang()
     for r in rows:
+        r["lang"] = langs.get(r["id"]) or _detect_lang(r.get("question", ""))
         r["proxy_correct"] = r.get("proxy_correct", r["correct"])
         r["text_scoring"] = None
         if r["type"] in ("text", "other"):

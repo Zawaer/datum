@@ -93,10 +93,10 @@
   }
  ],
  "twins": {
-  "pairs": 8244,
-  "same_answer": 8244,
-  "en_acc": 0.8420669577874818,
-  "fi_acc": 0.8420669577874818
+  "pairs": 8248,
+  "same_answer": 8248,
+  "en_acc": 0.8421435499515034,
+  "fi_acc": 0.8421435499515034
  },
  "confident_zero": {
   "high_conf": 1974,
