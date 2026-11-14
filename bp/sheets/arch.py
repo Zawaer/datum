@@ -90,7 +90,7 @@ def scale(meta) -> dict | None:
         for c in cs:
             cy = (c[2]["bbox"][1] + c[2]["bbox"][3]) / 2
             row = [d for d in cs if abs((d[2]["bbox"][1] + d[2]["bbox"][3]) / 2 - cy) < 0.006]
-            zeros = [w for w in ws if re.fullmatch(r"0\s*('|’|m)?", w["text"].strip())
+            zeros = [w for w in ws if re.fullmatch(r"[0Oo]\s*('|’|m)?", w["text"].strip())
                      and abs((w["bbox"][1] + w["bbox"][3]) / 2 - cy) < 0.006 and w["bbox"][2] < c[2]["bbox"][0]]
             if not zeros or not row:
                 continue
@@ -388,9 +388,12 @@ def colour_areas(meta):
         lx0, ly0 = int(min(t[2][0] for t in leg) * W) - 200, int(min(t[2][1] for t in leg) * H) - 40
         lx1, ly1 = int(max(t[2][2] for t in leg) * W) + 10, int(max(t[2][3] for t in leg) * H) + 40
         m[max(0, ly0):ly1, max(0, lx0):lx1] = 0
-        k = max(3, int(ppm * 0.35))  # close furniture / wall lines drawn over the fill
-        mc = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
+        k = max(3, int(ppm * 1.0))  # close furniture / fixtures / wall lines drawn over the fill (~1 m)
+        mc = cv2.morphologyEx(m, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
         mc = cv2.morphologyEx(mc, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+        cs, _ = cv2.findContours(mc, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        mc = np.zeros_like(mc)
+        cv2.drawContours(mc, cs, -1, 1, -1)  # white furniture inside a zone is still that zone's floor
         n, lab, st, _ = cv2.connectedComponentsWithStats(mc, 8)
         polys, tot = [], 0.0
         for i in range(1, n):
@@ -452,7 +455,9 @@ def answer(path, question, meta):
 def _answer_builtin(path, question, meta, it):
     if it in ("doors", "windows", "doors_windows"):
         return _answer_count(meta, it)
-    if it == "area" or it == "text" or it == "rooms_count":
+    if it == "text":
+        return None  # notes / dimensions / title block: the generic reader (text layer or grounded vision) is better
+    if it == "area" or it == "rooms_count":
         # a printed table / schedule / dimension answers first when the sheet has one
         if it != "rooms_count" or (meta.get("classify") or {}).get("has_tables"):
             r = textqa.answer(meta, question)
@@ -523,7 +528,7 @@ def _answer_area(meta, question):
             tot = sum(c["area_m2"] for c in hit)
             v, u = _fmt_area(tot, is_metric)
             ans = (v if is_metric else f"{v:,} SF") if len(hit) == 1 else "; ".join(rows)
-            return {"answer": ans, "confidence": 0.45, "evidence": ev + _scale_ev(sc), "cost_usd": 0.0,
+            return {"answer": ans, "confidence": 0.25, "evidence": ev + _scale_ev(sc), "cost_usd": 0.0,
                     "method": "sheets-arch-colour",
                     "explanation": f"area of the legend colour(s), measured from the coloured pixels (furniture lines "
                                    f"closed) at {sc['px_per_m']:.2f} px/m ({sc['how']}); measured on the drawing, so "
