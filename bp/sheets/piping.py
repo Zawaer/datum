@@ -31,6 +31,8 @@ from pathlib import Path
 
 METHOD = "sheets-piping"
 CACHE = Path(os.environ.get("BP_PIPING_CACHE", "cache/sheets/piping"))
+VOTES = max(1, int(os.environ.get("BP_PIPING_VOTES", "1") or 1))  # readings of each tile (see _vision_items)
+VOTE_MIN = max(1, int(os.environ.get("BP_PIPING_VOTE_MIN", "2") or 2))
 VISION = os.environ.get("BP_PIPING_VISION", "1") != "0"  # the Haiku tile transcription (~$0.03-0.1 per sheet)
 MAX_TILES = 40
 FAMSCAN_TILES = 24
@@ -282,7 +284,8 @@ def _vision_items(image_path: str) -> tuple[list[dict], float]:
     W, H = im.size
     tiles, up = _vision_tiles(W, H)
 
-    def one(tb):
+    def one(job):
+        tb, _pass = job
         crop = im.crop(tb)
         if up != 1.0:
             crop = crop.resize((round(crop.width * up), round(crop.height * up)), Image.LANCZOS)
@@ -310,9 +313,51 @@ def _vision_items(image_path: str) -> tuple[list[dict], float]:
                 break
         return got, spent
 
-    with ThreadPoolExecutor(min(16, len(tiles))) as ex:  # one wave: each call is ~7 s of waiting on the API
-        res = list(ex.map(one, tiles))
-    return [it for g, _ in res for it in g], sum(c for _, c in res)
+    # the model can't be run at temperature 0 (Haiku 5.5 rejects sampling parameters): on a scan one reading of a
+    # tile misses a tag another one gets (FSCV 6 / 6 / 7, PG 18 / 20 over three cold runs of the same file). Each
+    # tile is read VOTES times at once and a tag kept when at least VOTE_MIN of the readings agree on it.
+    jobs = [(tb, k) for k in range(VOTES) for tb in tiles]
+    with ThreadPoolExecutor(min(24, len(jobs))) as ex:  # one wave: each call is ~7 s of waiting on the API
+        res = list(ex.map(one, jobs))
+    cost = sum(c for _, c in res)
+    if VOTES == 1:
+        return [it for g, _ in res for it in g], cost
+    by_tile: dict = {}
+    for (tb, k), (g, _) in zip(jobs, res):
+        by_tile.setdefault(tb, []).append(g)
+    out = []
+    for tb, reads in by_tile.items():
+        out += _vote(reads, W, H)
+    return out, cost
+
+
+def _vote(reads: list[list[dict]], W: int, H: int) -> list[dict]:
+    """Items read in at least VOTE_MIN of one tile's readings (same text, folded, at about the same place); the
+    first reading's box. A reading that came back empty (a failed call) doesn't vote."""
+    reads = [r for r in reads if r]
+    if not reads:
+        return []
+    need = min(VOTE_MIN, len(reads))
+    tol = 0.006  # share of the sheet: two boxes of one tag land within a few characters of each other
+    clusters: list[dict] = []
+    for ri, r in enumerate(reads):
+        for it in r:
+            key = _norm_txt(it["text"])
+            cx, cy = (it["bbox"][0] + it["bbox"][2]) / 2, (it["bbox"][1] + it["bbox"][3]) / 2
+            c = next((c for c in clusters if c["key"] == key and ri not in c["reads"]
+                      and abs(c["cx"] - cx) < tol + (it["bbox"][2] - it["bbox"][0]) / 2 and abs(c["cy"] - cy) < tol * W / H + (it["bbox"][3] - it["bbox"][1]) / 2),
+                     None)
+            if c is None:
+                clusters.append({"key": key, "cx": cx, "cy": cy, "item": it, "reads": {ri}})
+            else:
+                c["reads"].add(ri)
+    out = []
+    for c in clusters:
+        if len(c["reads"]) >= need:
+            it = dict(c["item"])
+            it["votes"] = f"{len(c['reads'])}/{len(reads)}"
+            out.append(it)
+    return out
 
 
 def _norm_txt(t: str) -> str:
@@ -498,7 +543,7 @@ def read_sheet(path: str, meta: dict | None = None, vision: bool | None = None) 
     """{"items": [{"text", "bbox", "src", "conf"}], "readers": [...], "cost_usd": first-read cost} (cached)."""
     meta = meta or {}
     page = int(meta.get("page", 0) or 0)
-    key = f"{_sha(path)}_p{page}"
+    key = f"{_sha(path)}_p{page}" + (f"_v{VOTES}{VOTE_MIN}" if VOTES > 1 else "")
     with _lock:
         if key in _mem:
             return _mem[key]
@@ -902,6 +947,40 @@ def own_sheet_id(items: list[dict], meta: dict) -> str:
     return best or (m.group(0) if m else "")
 
 
+def _join_rows(body: list[dict]) -> list[dict]:
+    """One line per printed row: a scan's tile reads cut a row into pieces (the note number '4.' on one tile, its
+    text on the next) and two readers repeat a piece; pieces sharing a row are joined left to right, and a piece
+    inside another piece of the row (same text read twice) dropped."""
+    rows: list[list[dict]] = []
+    for ln in sorted(body, key=lambda l: (l["bbox"][1] + l["bbox"][3]) / 2):
+        b = ln["bbox"]
+        for r in rows:
+            rb = _union([x["bbox"] for x in r])
+            ov = min(b[3], rb[3]) - max(b[1], rb[1])
+            if ov >= 0.5 * min(b[3] - b[1], rb[3] - rb[1]):
+                r.append(ln)
+                break
+        else:
+            rows.append([ln])
+    out = []
+    for r in rows:
+        r.sort(key=lambda l: l["bbox"][0])
+        keep = []
+        for ln in r:
+            t = _norm_txt(ln["text"])
+            if any(t and t in _norm_txt(o["text"]) and _overlap(ln["bbox"], o["bbox"]) > 0.3 for o in r if o is not ln
+                   and len(_norm_txt(o["text"])) > len(t)):
+                continue
+            if keep and _overlap(ln["bbox"], keep[-1]["bbox"]) > 0.6:
+                if len(ln["text"]) > len(keep[-1]["text"]):
+                    keep[-1] = ln
+                continue
+            keep.append(ln)
+        out.append({**keep[0], "text": " ".join(x["text"].strip() for x in keep),
+                    "bbox": _union([x["bbox"] for x in keep])})
+    return sorted(out, key=lambda l: l["bbox"][1])
+
+
 def notes(items: list[dict]) -> dict | None:
     """The numbered notes block: {"heading", "bbox", "notes": {n: {"text", "bbox"}}} or None."""
     lines = dedupe_items(items)
@@ -927,6 +1006,7 @@ def notes(items: list[dict]) -> dict | None:
     if not best:
         return None
     h, body = best
+    body = _join_rows(body)
     # paragraphs: a new note starts at a printed number ('4.' / a lone '4') or after a wider line gap
     hs = sorted(ln["bbox"][3] - ln["bbox"][1] for ln in body)
     med_h = hs[len(hs) // 2]

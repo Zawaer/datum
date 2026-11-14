@@ -177,3 +177,31 @@ def test_ink_on_yellowed_paper(tmp_path):
     ink = P._inked(str(f))
     assert ink([100 / 400, 90 / 200, 200 / 400, 110 / 200]) > 0.9
     assert ink([300 / 400, 20 / 200, 380 / 400, 60 / 200]) < 0.03
+
+
+def test_notes_rows_joined_across_tiles():
+    """A scan's tile reads cut each notes row in two (the number on one tile, the text on the next) and repeat a piece:
+    the pieces of a row join before the notes are numbered, so 'note 4' is the fourth printed note."""
+    def it(x0, y0, x1, text, src="vision"):
+        return {"text": text, "bbox": [x0, y0, x1, y0 + 0.006], "src": src, "conf": 80.0}
+
+    items = [it(0.10, 0.700, 0.16, "NOTES TO DESIGNER:")]
+    texts = ["LARGE FILLED DOTS ON PIPING", "ALL PIPE MATERIALS PER UFC", "SYSTEMS OTHER THAN 2400 GPM",
+             "MICRONIC FILTER MAY BE NECESSARY", "PROVIDE FLOW METER"]
+    for i, t in enumerate(texts):
+        y = 0.712 + i * 0.012
+        items.append(it(0.100, y, 0.106, f"{i + 1}.", "tesseract:raw"))
+        items.append(it(0.108, y, 0.145, t[:12]))
+        items.append(it(0.140, y, 0.200, t[10:]))
+        items.append(it(0.108, y, 0.145, t[:12], "tesseract:raw"))  # the same piece read twice
+    nb = P.notes(items)
+    assert sorted(nb["notes"]) == [1, 2, 3, 4, 5]
+    assert "MICRONIC" in nb["notes"][4]["text"] and "FLOW" not in nb["notes"][4]["text"]
+
+
+def test_vote_keeps_tags_most_readings_agree_on():
+    a = {"text": "FSCV-3", "bbox": [0.50, 0.50, 0.53, 0.51]}
+    b = {"text": "FSCV-8", "bbox": [0.50, 0.50, 0.53, 0.51]}  # a misreading in one pass
+    c = {"text": "CV-1", "bbox": [0.20, 0.20, 0.22, 0.21]}
+    got = P._vote([[a, c], [dict(a), dict(c)], [b]], 1000, 700)
+    assert sorted(x["text"] for x in got) == ["CV-1", "FSCV-3"]

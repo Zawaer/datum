@@ -222,6 +222,8 @@ def _parse_type(text: str) -> dict | None:
         g1 = m.group(1)
         if re.search(r"\"|IN", g1):
             thk_in = int(re.match(r"\d+", g1).group(0))
+            if thk_in < 4:  # no slab is under 4": OCR lost the leading 1 of a 12" / 10" on a small scan
+                thk_in += 10
             thk_mm = round(thk_in * 25.4)
         else:
             thk_mm = int(g1)
@@ -248,10 +250,50 @@ def _type_name(ty: dict) -> str:
 
 
 # ----------------------------------------------------------------------------------------------- geometry
+_INK_FREE: dict = {}  # path -> grey (the last two sheets: analyse() reads it three times)
+
+
+def _ink_free_gray(path):
+    key = (path, os.path.getmtime(path) if os.path.exists(path) else 0)
+    if key in _INK_FREE:
+        return _INK_FREE[key].copy()
+    g = _ink_free_gray_read(path)
+    while len(_INK_FREE) >= 2:
+        _INK_FREE.pop(next(iter(_INK_FREE)))
+    _INK_FREE[key] = g
+    return g.copy()
+
+
+def _ink_free_gray_read(path):
+    """The sheet in greyscale with coloured hand markings (red / green / blue pen: check marks, circles, underlines on a
+    marked-up scan) inpainted away: in plain grey they are dark strokes, and one across a room splits its slab zone
+    in two. Only when the colour is sparse (a few marks over a black-ink drawing); a drawing printed in colour is
+    left alone."""
+    import cv2
+    import numpy as np
+
+    c = cv2.imread(path, cv2.IMREAD_COLOR)
+    if c is None:
+        return cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+    g = cv2.cvtColor(c, cv2.COLOR_BGR2GRAY)
+    sat = (c.max(axis=2).astype(np.int16) - c.min(axis=2)) > 45
+    dark = g < 200
+    n_col = int((sat & (g < 235)).sum())
+    if not n_col or n_col > 0.25 * max(1, int(dark.sum())):
+        return g
+    S = max(g.shape)
+    r = max(1, round(S / 2500))
+    m = cv2.dilate(sat.astype(np.uint8), np.ones((2 * r + 1, 2 * r + 1), np.uint8)) > 0
+    # what lies under a marking is filled in from around it (inpainting): a wall line crossed by a pen stroke
+    # stays continuous instead of getting a paper-coloured gap the slab zone would leak through
+    keep = (c.max(axis=2) < 110) & ~sat  # black ink next to the stroke is never touched
+    return cv2.inpaint(g, (m & ~keep).astype(np.uint8), max(3, 2 * r), cv2.INPAINT_TELEA)
+
+
 def _gray(meta, max_side=2000, stretch=True):
     import cv2
 
-    g = cv2.imread(meta["image"], cv2.IMREAD_GRAYSCALE)
+    g = _ink_free_gray(meta["image"])
     f = 1.0
     if max(g.shape) > max_side:
         f = max_side / max(g.shape)
@@ -261,6 +303,21 @@ def _gray(meta, max_side=2000, stretch=True):
 
     paper = float(np.percentile(g, 60))
     ink = float(np.percentile(g, 0.5))
+    if stretch == "paper":
+        # gain only (grey paper -> light grey 235, ink kept dark, noise not amplified): on unscaled grey paper (~220)
+        # the segmentation's ink threshold (200) sits just under the paper, so a blurred thin line (a dimension line
+        # across a room) reads several pixels wide and closes off the paper between dimension lines; scaled to
+        # pure white, faint wall lines drop under the threshold and rooms leak
+        if ink > 120 and paper - ink > 30:
+            # faded scan (the darkest ink is mid-grey): lines sit above the threshold and rooms leak. Stretch the
+            # ink to dark and the paper to 235, smoothing the amplified noise first
+            import cv2
+
+            g = cv2.medianBlur(g, 3)
+            g = np.clip((g.astype(np.float32) - ink) * (195.0 / (paper - ink)) + 40, 0, 255).astype(np.uint8)
+        elif 120 < paper < 235:
+            g = np.clip(g.astype(np.float32) * (235.0 / paper), 0, 255).astype(np.uint8)
+        return g, f
     if stretch and (paper < 245 or ink > 40):
         if paper - ink > 30:
             g = np.clip((g.astype(np.float32) - ink) * 255.0 / (paper - ink), 0, 255).astype(np.uint8)
@@ -340,6 +397,33 @@ def _erase_pdf_shading(meta, g):
         return g
 
 
+def _erase_raster_shading(g):
+    """Raster (no vector paths): erase the diagonal hatch strokes (the shaded bottom-reinforcement areas) inside the
+    hatched blobs of _shade_mask before segmenting, keeping long straight lines (walls, joints, outlines) and the
+    stipple of wall bands. On a scan the hatch strokes read as solid ink, so a hatched strip along a wall was cut out
+    of its slab zone. Scans only (grey paper): on a clean render the thin hatch never blocks the flood fill."""
+    import cv2
+    import numpy as np
+
+    try:
+        sh = _shade_mask(g)
+        if not sh.any():
+            return g
+        S = max(g.shape)
+        dark = (g < 200).astype(np.uint8)
+        L = max(15, round(S * 0.02))
+        lines = (cv2.morphologyEx(dark, cv2.MORPH_OPEN, np.ones((1, L), np.uint8))
+                 | cv2.morphologyEx(dark, cv2.MORPH_OPEN, np.ones((L, 1), np.uint8)))
+        lines = cv2.dilate(lines, np.ones((3, 3), np.uint8))
+        out = g.copy()
+        diag = cv2.dilate(_diag_strokes(dark, S), np.ones((3, 3), np.uint8))
+        out[(sh > 0) & (diag > 0) & (dark > 0) & (lines == 0)] = 255
+        return out
+    except Exception as e:  # noqa: BLE001
+        log.warning("slab: could not erase raster shading: %s", e)
+        return g
+
+
 def _chains_px(spans, vertical, tol=3.0, gap=0.0):
     """Dimension lines as (cross coordinate, lo, hi) runs: all spans on one line merged (outliers included: their
     ends may be off, but the line's extent is right)."""
@@ -369,7 +453,16 @@ def _dimension_zones(out_zones, types, used, dims, W, H, S):
         return
     xt = sorted({c for d in hs if d.get("inlier") for c in (d["span"][0], d["span"][2])})
     yt = sorted({c for d in vs if d.get("inlier") for c in (d["span"][1], d["span"][3])})
-    hch, vch = _chains_px(hs, False, gap=0.025 * S), _chains_px(vs, True, gap=0.025 * S)
+    # a chain may only extend a zone when its strings measure true at the sheet's scale: a misread span (a scan's
+    # blurred tick merging two stacked dimensions outside the wall) otherwise stretched a room past its wall
+    ks = sorted(d["k"] for d in dims if d.get("inlier") and d.get("k"))
+    kmed = ks[len(ks) // 2] if ks else None
+
+    def true(d):
+        return d.get("inlier") or kmed is None or (d.get("k") and abs(d["k"] / kmed - 1) < 0.12)
+
+    hch = _chains_px([d for d in hs if true(d)], False, gap=0.025 * S)
+    vch = _chains_px([d for d in vs if true(d)], True, gap=0.025 * S)
     tol = 0.012 * S
     snap_tol = 0.004 * S
 
@@ -432,6 +525,54 @@ def _dimension_zones(out_zones, types, used, dims, W, H, S):
                           "type_how": "room spanned by the dimension strings around the note",
                           "dim_note": "the traced outline missed this room: built from the dimension strings"})
         used.add(ti)
+
+
+def _merge_untyped(out_zones, S):
+    """A zone left without any slab note that lies across one thin line (a joint, a dimension or hidden line the
+    flood fill could not bridge, typical of a blurred scan) from a zone with a note is the rest of that slab: merged
+    into it. Zones apart by a wall band (a gap wider than a line) stay separate."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    gap = max(4.0, 0.004 * S)
+    for z in [z for z in out_zones if z["type"] is None and (z.get("walled") or 0) >= 0.95]:
+        try:
+            pz = Polygon(z["inner"]).buffer(0)
+        except Exception:  # noqa: BLE001
+            continue
+        if pz.is_empty:
+            continue
+        x0, y0, x1, y1 = pz.bounds
+        side = min(x1 - x0, y1 - y0)
+        best = None
+        for t in out_zones:
+            if t is z or t["type"] is None:
+                continue
+            pt = Polygon(t["inner"]).buffer(0)
+            if pt.is_empty or pz.distance(pt) > gap or pz.area > pt.area:
+                continue
+            shared = pz.buffer(gap, join_style=2).intersection(pt.buffer(gap, join_style=2)).area / (2 * gap)
+            if shared >= 0.5 * side and (best is None or shared > best[0]):
+                best = (shared, t, pt)
+        if best is None:
+            continue
+        _, t, pt = best
+        h = gap / 2 + 1
+        u = unary_union([pz.buffer(h, join_style=2), pt.buffer(h, join_style=2)]).buffer(-h, join_style=2)
+        g = unary_union([Polygon(z["gross"]).buffer(h, join_style=2),
+                         Polygon(t["gross"]).buffer(h, join_style=2)]).buffer(-h, join_style=2)
+        if u.geom_type != "Polygon" or g.geom_type != "Polygon":
+            continue
+        u, g = u.simplify(1.5), g.simplify(1.5)
+        t["inner"] = [(float(x), float(y)) for x, y in list(u.exterior.coords)[:-1]]
+        t["gross"] = [(float(x), float(y)) for x, y in list(g.exterior.coords)[:-1]]
+        t["inner_px"], t["gross_px"] = u.area, g.area
+        t["panels"] = (t.get("panels") or 1) + (z.get("panels") or 1)
+        t["cuts"] = list(t.get("cuts") or []) + list(z.get("cuts") or [])
+        t["stair_parts"] = list(t.get("stair_parts") or []) + list(z.get("stair_parts") or [])
+        t["centroid"] = [float(u.centroid.x), float(u.centroid.y)]
+        t["merged_note"] = "a part with no note of its own across a thin line was added"
+        out_zones.remove(z)
 
 
 def _bbox_pts(pts):
@@ -1125,9 +1266,15 @@ def _scale_from_sheet(text, W, H):
     size (title block "SIZE: ANSI D" / "ISO A1"), assuming the image is the whole sheet. (k, how) or None."""
     t = text.upper()
     m = re.search(r"\b(ANSI|ARCH|ISO)\s*([A-E]|A[0-4])\b", t)
-    if not m:
-        return None
-    key = f"{m.group(1)} {m.group(2)}"
+    if m:
+        key = f"{m.group(1)} {m.group(2)}"
+    else:
+        # the size box unread (a small screenshot): the common full-size sheet of the image's proportions
+        ar = max(W, H) / max(1, min(W, H))
+        key = next((k for k, a in (("ANSI D", 34 / 22), ("ARCH D", 36 / 24), ("ISO A1", 841 / 594))
+                    if abs(ar / a - 1) < 0.008), None)
+        if key is None:
+            return None
     paper = _PAPER_MM.get(key)
     sm = re.search(r"SCALE\s*:?\s*1\s*:\s*(\d{1,4})\b", t)
     if sm:
@@ -1324,13 +1471,16 @@ def analyse(meta) -> dict:
     g, rot = _deskew(g)  # a scan's slight rotation breaks straight-line tests (joints, ticks): measure level
     # the flood fill works on the unstretched grey (a stretched scan turns paper noise into barriers); the line
     # tests (dimension ticks, joints) on the stretched one
-    g_raw = _gray(meta, stretch=False)[0]
+    g_raw = _gray(meta, stretch="paper")[0]
+    scan_like = float(np.percentile(_gray(meta, stretch=False)[0], 60)) < 240  # grey paper: a scan or a photo
     if rot is not None:
         import cv2
 
         g_raw = cv2.warpAffine(g_raw, cv2.invertAffineTransform(rot), (g_raw.shape[1], g_raw.shape[0]),
                                flags=cv2.INTER_NEAREST, borderValue=255)  # nearest: thin wall lines stay dark
     g_seg = _erase_pdf_shading(meta, g_raw)
+    if g_seg is g_raw and scan_like and os.environ.get("BP_SLAB_RASTER_HATCH", "1") == "1":
+        g_seg = _erase_raster_shading(g_raw)
     H, W = g.shape
     lines = ocr_lines(hor) if hor else []
     blocks = _blocks(lines)
@@ -1380,7 +1530,8 @@ def analyse(meta) -> dict:
     k, dims, n_scale = _scale_from_dims(hor, ver, W, H, g)
     scale_src = f"{n_scale} dimension-string pairs" if k else None
     if not k:
-        k2 = _scale_from_sheet(full_text + " " + " ".join(w["text"] for w in hor + ver), W, H)
+        k2 = _scale_from_sheet(full_text + " " + " ".join(w["text"] for w in hor + ver)
+                               + (f" SCALE: {meta['scale']}" if meta.get("scale") else ""), W, H)
         if k2:
             k, scale_src = k2
 
@@ -1483,6 +1634,7 @@ def analyse(meta) -> dict:
         for z in out_zones:
             if z["type"] is None:
                 z["type"], z["type_how"] = default, "the U.N.O. (unless noted otherwise) slab note"
+    _merge_untyped(out_zones, S)
     if k and os.environ.get("BP_SLAB_DIMZONES", "1") == "1":
         _dimension_zones(out_zones, types, used, dims, W, H, S)
     union = np.zeros_like(g, dtype=np.uint8)

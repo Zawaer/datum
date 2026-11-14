@@ -193,3 +193,23 @@ def test_intent_and_volume(meta):
     assert "m³" in r["answer"] and "D13" in r["answer"]
     tot = ask(meta, "How much concrete is in the slabs in total?")["answer"]
     assert tot == pytest.approx(sum(float(e["value"]) for e in r["evidence"] if e["kind"] == "polygon"), rel=1e-3)
+
+
+def test_thickness_misread_and_pen_marks(tmp_path):
+    import cv2
+    import numpy as np
+
+    # OCR lost the leading 1 of 12" on a small scan: no slab is 2" thick
+    assert slab._parse_type('2" SLAB-ON-GRADE U.N.O. W/ #4 @ 12" O.C.E.W.')["thickness_in"] == 12
+    assert slab._parse_type('6" SLAB-ON-GRADE W/ #4 @ 18" O.C.')["thickness_in"] == 6
+    # a green pen stroke across a room is painted out; the black wall it crosses stays
+    im = np.full((400, 600, 3), 225, np.uint8)
+    im[:, 300:304] = 30  # wall
+    for y in range(20, 400, 40):  # the rest of the drawing: black ink outweighs the pen
+        im[y:y + 3, :] = 30
+    cv2.line(im, (100, 210), (500, 210), (50, 150, 30), 5)  # pen stroke (BGR green)
+    f = tmp_path / "marked.png"
+    cv2.imwrite(str(f), im)
+    g = slab._ink_free_gray(str(f))
+    assert g[210, 150] > 200 and g[210, 450] > 200  # the stroke over paper is gone
+    assert g[110, 301] < 80 and g[210, 301] < 150  # the wall stays, also where the stroke crossed it
