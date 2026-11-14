@@ -93,5 +93,11 @@ class Router:
         if self.crosscheck:
             from bp.crosscheck import crosscheck
 
-            res["crosscheck"] = crosscheck(q, res)
+            res["crosscheck"] = cc = crosscheck(q, res)
+            # Rule chosen on dev (runs/crosscheck_test.summary.md): on a conflict never switch answers; halve the
+            # confidence so the UI flags it for a human (and the 0.5 threshold turns most raster conflicts into
+            # "not sure"). Agreement is shown as "2 independent methods agree".
+            if cc.get("status") == "conflict" and res.get("confidence") is not None:
+                res["confidence_before_conflict"] = res["confidence"]
+                res["confidence"] = round(res["confidence"] * 0.5, 4)
         return res
