@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Blueprints that talk · ask a construction drawing, see the evidence</title>
 <meta name="description" content="Ask a floor plan or BIM model a question in any language. Every answer is counted out on the drawing (or lit up in 3D) so you can check it in seconds, mostly at $0 per question.">
-<meta name="theme-color" content="#111a28">
+<meta name="theme-color" content="#ffffff">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Blueprints that talk">
 <meta property="og:description" content="Ask a construction drawing in any language; the answer is counted out on the drawing, mostly at $0 per question.">
 <meta property="og:image" content="/static/og.png">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233e9bff'/%3E%3Cpath d='M7 7h18v18H7z M7 15h9 M16 7v18' fill='none' stroke='%23001' stroke-width='2.6'/%3E%3Ccircle cx='21' cy='20' r='3' fill='%23ff3b6b'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%2316191d'/%3E%3Cpath d='M7 7h18v18H7z M7 15h9 M16 7v18' fill='none' stroke='%23fff' stroke-width='2.2'/%3E%3Ccircle cx='21' cy='20' r='3' fill='%230072b2' stroke='%23fff' stroke-width='1.2'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
@@ -19,7 +19,7 @@
   <button class="iconbtn only-phone" id="drawerbtn" aria-label="Drawings">☰</button>
   <a class="brand" href="/"><span class="logo">▦</span> Blueprints <em>that talk</em></a>
   <nav class="links">
-    <button class="linkbtn" id="tourbtn" title="A guided 7-step tour (Esc to leave, ← → to step)">▶ <span class="only-desk">Demo </span>tour</button>
+    <button class="linkbtn" id="tourbtn" title="A guided 7-step tour (Esc to leave, ← → to step)"><span class="only-desk">Demo </span>tour</button>
     <a class="linkbtn" href="/results">Score<span class="only-desk">board</span></a>
   </nav>
   <div class="meter" id="meter" data-short="ours $0 vs frontier $0" title="What this session's questions cost us vs what a frontier vision model would have cost (measured on our baseline run)">
@@ -33,7 +33,7 @@
   <nav id="list">
     <label class="upload" id="uploadbox">
       <input type="file" id="file" accept=".pdf,.png,.jpg,.jpeg,.dxf,.ifc" hidden>
-      <b>⬆ Upload your drawing</b><small>PDF · PNG · JPG · DXF · IFC, or drop it anywhere</small>
+      <b>Upload a drawing</b><small>PDF · PNG · JPG · DXF · IFC, or drop it anywhere</small>
     </label>
     <div class="tabs" id="tabs"></div>
     <input class="search" id="search" placeholder="filter by file name…">
@@ -48,7 +48,7 @@
       <label>Storey <select id="storey"></select></label>
       <label class="cut">Section <input type="range" id="cut" min="0" max="1000" value="1000"></label>
     </div>
-    <div class="zoom"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button><button id="zfit" aria-label="Fit">⤢</button></div>
+    <div class="zoom"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button><button id="zfit" aria-label="Fit drawing" title="Fit drawing (f)">⤢</button></div>
     <div class="hint" id="hint" hidden></div>
     <div class="loading" id="loading" hidden><span class="spin big"></span><div id="loadmsg">Loading…</div></div>
     <div class="empty" id="empty" hidden></div>

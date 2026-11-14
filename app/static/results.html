@@ -10,42 +10,48 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233e9bff'/%3E%3Cpath d='M7 7h18v18H7z M7 15h9 M16 7v18' fill='none' stroke='%23001' stroke-width='2.6'/%3E%3Ccircle cx='21' cy='20' r='3' fill='%23ff3b6b'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/app.css">
 <style>
-  body { display: block; overflow: auto; }
-  .viz-root { --ours: #3987e5; --frontier: #d95926; --prior: #199e70; --haiku: #d9a23a; --grid: #24334b; }
-  .wrap { max-width: 1100px; margin: 0 auto; padding: 22px 18px 60px; }
-  h1 { font-size: 28px; letter-spacing: -.5px; margin: 6px 0 4px; }
-  .lede { color: var(--mut); margin: 0 0 18px; max-width: 760px; }
-  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: #c5d0de; margin: 10px 0 16px; }
-  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 26px; }
-  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
-  .tile h4 { margin: 0 0 10px; font-size: 13px; color: var(--mut); font-weight: 600; text-transform: uppercase; letter-spacing: .6px; }
-  .tile .hero { font-size: 40px; font-weight: 800; letter-spacing: -1px; line-height: 1; font-variant-numeric: tabular-nums; }
-  .tile .hero small { font-size: 14px; color: var(--mut); font-weight: 500; letter-spacing: 0; }
-  .tile .vs { margin-top: 8px; font-size: 13px; color: #c5d0de; font-variant-numeric: tabular-nums; }
-  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13px; }
-  th { text-align: left; color: var(--mut); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .5px; padding: 8px 8px; border-bottom: 1px solid var(--line); }
-  td { padding: 7px 8px; border-bottom: 1px solid rgba(36,51,75,.6); vertical-align: middle; }
+  /* scoreboard: same design system as the app (app.css); series colours are Okabe-Ito, the prior is neutral grey */
+  body { display: block; overflow: auto; background: var(--bg); }
+  .viz-root { --ours: #0072b2; --frontier: #d55e00; --fair: #cc79a7; --gemini: #009e73; --haiku: #e69f00; --prior: #8a929d; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 24px 24px 64px; }
+  h1 { font-size: 28px; font-weight: 600; letter-spacing: -.3px; margin: 0 0 8px; }
+  .lede { color: var(--mut); margin: 0 0 16px; max-width: 780px; font-size: 14px; }
+  .lede b { color: var(--text); font-weight: 600; }
+  .legend { display: flex; gap: 8px 20px; flex-wrap: wrap; font-size: 13px; color: var(--mut); margin: 8px 0 16px; }
+  .legend b { color: var(--text); font-weight: 600; }
+  .legend i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: 0; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0; margin-bottom: 24px; background: var(--panel); border: 1px solid var(--line2); border-radius: var(--r2); }
+  .tile { padding: 12px 16px 14px; border-left: 1px solid var(--line); }
+  .tile:first-child { border-left: 0; }
+  .tile h4 { margin: 0 0 6px; font-size: 11px; color: var(--mut); font-weight: 600; text-transform: uppercase; letter-spacing: .6px; }
+  .tile .hero { font-size: 32px; font-weight: 600; letter-spacing: -.5px; line-height: 1.1; }
+  .tile .hero small { font-size: 13px; color: var(--mut); font-weight: 400; letter-spacing: 0; }
+  .tile .vs { margin-top: 6px; font-size: 12px; color: var(--mut); border: 0; border-radius: 0; overflow: visible; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--mut); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; padding: 8px; border-bottom: 1px solid var(--line2); white-space: nowrap; }
+  td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tr:last-child td { border-bottom: 0; }
   td.g { white-space: nowrap; }
-  .cell { display: grid; grid-template-columns: 1fr 52px; gap: 8px; align-items: center; min-width: 150px; }
-  .bar { height: 8px; background: #1a2638; border-radius: 4px; position: relative; }
-  .bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 0 4px 4px 0; }
+  .cell { display: grid; grid-template-columns: 1fr 52px; gap: 8px; align-items: center; min-width: 120px; }
+  .bar { height: 6px; background: var(--panel3); position: relative; }
+  .bar i { position: absolute; left: 0; top: 0; bottom: 0; }
   .cell b { text-align: right; font-weight: 600; }
-  .cell.na { color: #56657a; }
-  .nsub { color: #6d7c92; font-size: 11px; display: block; }
-  .card2 { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 6px 12px 10px; margin-bottom: 26px; overflow-x: auto; }
-  h2 { font-size: 17px; margin: 22px 0 8px; }
-  .note { color: var(--mut); font-size: 12.5px; margin: 6px 0 0; }
+  .cell.na { color: var(--faint); }
+  .nsub { color: var(--mut); font-size: 11px; display: block; }
+  .card2 { background: var(--panel); border: 1px solid var(--line2); border-radius: var(--r2); padding: 4px 8px 6px; margin-bottom: 8px; overflow-x: auto; }
+  h2 { font-size: 16px; font-weight: 600; margin: 28px 0 8px; }
+  .note { color: var(--mut); font-size: 12px; margin: 4px 0 0; max-width: 780px; }
   .money { text-align: right; white-space: nowrap; }
-  details summary { cursor: pointer; color: #c5d0de; margin: 6px 0; }
+  details summary { cursor: pointer; color: var(--ev-ink); margin: 6px 0; }
   @media (max-width: 640px) {
-    .wrap { padding: 14px 12px 40px; } h1 { font-size: 24px; }
-    .tile .hero { font-size: 34px; }
-    .card2 { padding: 4px 6px 8px; }
+    .wrap { padding: 16px 12px 40px; } h1 { font-size: 24px; }
+    .tile { border-left: 0; border-top: 1px solid var(--line); } .tile:first-child { border-top: 0; }
+    .tile .hero { font-size: 28px; }
+    .card2 { padding: 2px 4px 6px; }
     table { font-size: 12px; }
-    th, td { padding: 6px 4px; } th { font-size: 10px; letter-spacing: .3px; }
+    th, td { padding: 6px 4px; } th { font-size: 10px; letter-spacing: .3px; white-space: normal; }
     td.g { white-space: normal; min-width: 84px; }
-    .cell { grid-template-columns: 1fr; gap: 2px; min-width: 64px; }
+    .cell { grid-template-columns: 1fr; gap: 2px; min-width: 56px; }
     .cell b { text-align: left; order: -1; }
     .nsub { font-size: 10px; }
   }
@@ -88,6 +94,8 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 const SYS = [['router_full_test', 'Ours', 'routed solvers, full test split', 'var(--ours)'],
              ['baseline_sonnet_full400', 'Claude Sonnet', 'frontier VLM asked directly', 'var(--frontier)'],
+             ['baseline_sonnetfair_full400', 'Sonnet + files', 'Sonnet given the drawing and its CAD / IFC files', 'var(--fair)'],
+             ['baseline_gemini_full400', 'Gemini 3.1 Pro', 'frontier VLM asked directly', 'var(--gemini)'],
              ['baseline_haiku_full400', 'Claude Haiku', 'smaller frontier VLM asked directly', 'var(--haiku)'],
              ['prior_full_test', 'Prior', 'most common answer, never looks', 'var(--prior)']];
 const NICE = {swiss_dwellings: 'Swiss apartments', cubicasa5k: 'Finnish plans (CubiCasa)', ifc_models: 'IFC models', ifc_bench: 'IFC bench (free text)',
@@ -99,11 +107,16 @@ const usd = v => '$' + (+v).toFixed(2);
 
 (async () => {
   const A = await (await fetch('/api/analysis')).json();
-  $('#legend').innerHTML = SYS.map(([, l, d, c]) => `<span><i style="background:${c}"></i>${l}: ${d}</span>`).join('');
+  // our run is re-run under new names (router_full_test_v4, ...): use the newest one the analysis has, and drop systems it lacks
+  const runs0 = (A.overall || []).map(r => r.run);
+  const oursRun = runs0.filter(r => r.startsWith('router_full_test')).sort().pop();
+  if (oursRun) SYS[0][0] = oursRun;
+  for (let i = SYS.length - 1; i >= 0; i--) if (!runs0.includes(SYS[i][0])) SYS.splice(i, 1);
+  $('#legend').innerHTML = SYS.map(([, l, d, c]) => `<span><i style="background:${c}"></i><b>${l}</b> ${d}</span>`).join('');
   const ov = Object.fromEntries((A.overall || []).map(r => [r.run, r]));
   if (ov.router_full_test) $('#ntest').textContent = num(ov.router_full_test.n);
   $('#hero').innerHTML = SYS.map(([k, l, , c]) => { const r = ov[k]; if (!r) return '';
-    return `<div class="tile" style="border-top:3px solid ${c}"><h4>${l}</h4><div class="hero">${pct(r.accuracy)}</div>
+    return `<div class="tile" style="box-shadow:inset 0 3px ${c}"><h4>${l}</h4><div class="hero">${pct(r.accuracy)}</div>
       <div class="vs">[${pct(r.ci_lo)} – ${pct(r.ci_hi)}] · n=${num(r.n)}<br>${usd(+r.api_usd_per_1k + +r.compute_usd_per_1k)} per 1k questions ·
       ${(+r.mean_latency_s) < 1 ? (r.mean_latency_s * 1000).toFixed(0) + ' ms' : (+r.mean_latency_s).toFixed(1) + ' s'} each</div></div>`; }).join('');
 
@@ -114,9 +127,10 @@ const usd = v => '$' + (+v).toFixed(2);
   $('#tiles').innerHTML = sources.map(src => {
     const rs = rows.filter(r => r.source === src), N = rs.reduce((a, r) => a + +r.n_test, 0);
     const acc = k => { let w = 0, v = 0; for (const r of rs) { const c = cellv(r, k); if (c) { w += +r.n_test; v += c.acc * +r.n_test; } } return w ? v / w : null; };
-    const [o, so, ha, pr] = SYS.map(([k]) => acc(k));
+    const [o, ...rest] = SYS.map(([k]) => acc(k));
+    const others = SYS.slice(1).map(([, l], i) => `${esc(l)} ${rest[i] == null ? '—' : pct(rest[i])}`).join(' · ');
     return `<div class="tile"><h4>${esc(NICE[src] || src)}</h4><div class="hero">${o == null ? '—' : pct(o)} <small>ours</small></div>
-      <div class="vs">Sonnet ${so == null ? '—' : pct(so)} · Haiku ${ha == null ? '—' : pct(ha)} · prior ${pr == null ? '—' : pct(pr)}<br>${num(N)} test questions</div></div>`;
+      <div class="vs">${others}<br>${num(N)} test questions</div></div>`;
   }).join('');
 
   const cell = (c, color) => !c ? `<td><div class="cell na"><span class="bar"></span><b>—</b></div></td>`

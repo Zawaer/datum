@@ -24,7 +24,7 @@ export function init(el, callbacks = {}) {
   renderer.localClippingEnabled = true;
   el.appendChild(renderer.domElement);
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xf3f5f8);
+  scene.background = new THREE.Color(0xe3e6ea);
   camera = new THREE.PerspectiveCamera(45, 1, 0.1, 5000);
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
@@ -170,7 +170,7 @@ export function highlight(items, animate = true, onStep = null, reframe = true, 
   if (!on.length) { onDone && onDone(); return; }
   // rooms are volumes: draw them see-through so what's inside (and the rooms behind) stays visible
   const volumes = on.filter(e => e.type === 'IfcSpace').length > on.length / 2;
-  hl = subMesh(on, new THREE.MeshLambertMaterial({ color: 0xff3b6b, emissive: 0x5a0010,
+  hl = subMesh(on, new THREE.MeshLambertMaterial({ color: 0x0072b2, emissive: 0x002a44,
     side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, clippingPlanes: [clip],
     transparent: volumes, opacity: volumes ? 0.42 : 1, depthWrite: !volumes }));
   hl.renderOrder = 2;
@@ -194,7 +194,7 @@ export function hot(guids) {
   if (hotMesh) { scene.remove(hotMesh); hotMesh.geometry.dispose(); hotMesh = null; }
   const list = (guids || []).map(g => byGuid.get(g)).filter(Boolean);
   if (!list.length || !model) return;
-  hotMesh = subMesh(list, new THREE.MeshLambertMaterial({ color: 0xffc400, emissive: 0x664400, side: THREE.DoubleSide,
+  hotMesh = subMesh(list, new THREE.MeshLambertMaterial({ color: 0xf0e442, emissive: 0x5a5200, side: THREE.DoubleSide,
     polygonOffset: true, polygonOffsetFactor: -2, clippingPlanes: [clip], depthTest: false, transparent: true, opacity: 0.9 }));
   hotMesh.renderOrder = 3;
   scene.add(hotMesh);
