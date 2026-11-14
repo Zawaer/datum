@@ -1327,6 +1327,11 @@ def answer(path, question, meta):
         lw = lambda r: {SYN.get(w, w) for w in _norm(r["label"])}  # noqa: E731
         sel = [r for r in sel if r.get("label_source") == "vision" and
                all(any(_close(w, x) for x in lw(r)) for w in set(qw))]
+        if len(sel) >= 3:  # one type of room has one size and shape: a long corridor crop misread as one is dropped
+            asp = [max(r["bbox"][2] - r["bbox"][0], r["bbox"][3] - r["bbox"][1]) /
+                   max(1e-6, min(r["bbox"][2] - r["bbox"][0], r["bbox"][3] - r["bbox"][1])) for r in sel]
+            ma, mm = float(np.median(asp)), float(np.median([r["area_m2"] for r in sel]))
+            sel = [r for r, a in zip(sel, asp) if a <= max(2.5, 2 * ma) and 0.4 * mm <= r["area_m2"] <= 2.5 * mm]
         if not sel:
             return None
         names = sorted({r["label"] for r in sel})
