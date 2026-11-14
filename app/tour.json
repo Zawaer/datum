@@ -74,7 +74,7 @@
   },
   {
     "title": "Rooms inside the building",
-    "caption": "Click any element in 3D, or untick its row, to drop it from the answer. When you agree, mark it as checked and download the whole session as a takeoff CSV.",
+    "caption": "Click any element in 3D, or untick its row, to drop it from the answer; mark it as checked and download the session as a takeoff CSV. Your turn: type a question, or pick another drawing on the left.",
     "source": "ifc_models",
     "path": "data/ifc_models/bsc-molio_molio-with-uris_plan-03-grundplan.pdf",
     "question": "How many rooms (spaces) are shown on the floor plan of 'Grundplan'?",

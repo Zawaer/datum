@@ -509,6 +509,8 @@ function renderAnswer(shownSoFar) {
   const counting = shownSoFar !== null && items.length && typeof res.answer === 'number';
   let val = res.answer;
   if (counting) val = items.slice(0, shownSoFar).reduce((s, e) => s + (e.value ?? 1), 0);
+  // a correction (items dropped / added) changes the headline number too; the line under it keeps the solver's value
+  else if (typeof val === 'number' && items.some(e => !e.on || e.added)) val = items.filter(e => e.on).reduce((s, e) => s + (e.value ?? 1), 0);
   const conf = res.confidence ?? 0;
   const confCls = conf >= 0.8 ? 'ok' : conf >= 0.5 ? 'warn' : 'bad';
   let gold = '', oursOk = null;
@@ -523,7 +525,7 @@ function renderAnswer(shownSoFar) {
   const baseS = res.baseline_latency_s || 8;
   a.innerHTML = `
     <div class="qecho">${esc(res.question)}</div>
-    ${res.normalized_question && res.normalized_question !== res.question ? `<div class="readas" style="font-size:12px;color:var(--mut);margin:-4px 0 6px">read as: <i>${esc(res.normalized_question)}</i></div>` : ''}
+    ${res.normalized_question && res.normalized_question !== res.question ? `<div class="readas" style="order:1;font-size:12px;color:var(--mut);margin:-2px 0 6px">read as: <i>${esc(res.normalized_question)}</i></div>` : ''}
     ${typeof res.answer === 'string' ? '' : `<div class="big ${abst ? 'abstain' : ''} ${counting ? 'counting' : ''}">${abst ? 'Not sure, so no guess' : num ? fmt(val, t) : ''} <small>${abst ? '' : unitOf(t)}</small></div>`}
     ${typeof res.answer === 'string' ? `<div class="textans">${esc(res.answer.trim().split('\n').map(l => l.replace(/^\s{1,4}(?=\S)/, '')).join('\n'))}</div>` : ''}
     ${(() => { const h = howOf(res); return `<div class="how ${h.cls}"><b>${h.cls === 'geo' ? '✓ ' : ''}${esc(h.t)}</b><span>${esc(h.how)}</span></div>`; })()}
@@ -920,7 +922,7 @@ async function doAction(act) {
 function endTour() { tour = null; $('#caption').hidden = true; document.body.classList.remove('touring'); }
 $('#tourbtn').onclick = () => startTour(false);
 $('#ctatour').onclick = () => startTour(false);
-$('#tnext').onclick = () => { if (!tour) return; if (tourI < tour.length - 1) { tourI++; runStep(); } else endTour(); };
+$('#tnext').onclick = () => { if (!tour) return; if (tourI < tour.length - 1) { tourI++; runStep(); } else { endTour(); if (!PHONE.matches) { $('#q').focus(); $('#q').select(); } } };
 $('#tprev').onclick = () => { if (tour && tourI > 0) { tourI--; runStep(); } };
 $('#texit').onclick = endTour;
 window.bpTour = {start: startTour, next: () => $('#tnext').click(), get step() { return tourI; }, get steps() { return tour; }};
