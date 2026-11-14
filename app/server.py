@@ -319,6 +319,63 @@ def mesh(path: str):
                     headers={"Content-Encoding": "gzip", "Cache-Control": "max-age=3600"})
 
 
+_PLAN3D: dict[str, dict] = {}
+_FIXTURE_H = {"toilet": 0.4, "washbasin": 0.85, "bathtub": 0.55, "shower": 0.04, "stove": 0.9, "sink": 0.9}
+
+
+@app.get("/api/plan3d")
+def plan3d(path: str):
+    """A Swiss plan's CAD twin as extrudable geometry (metres): wall footprints, door / window / fixture outlines,
+    numbered rooms, and the DXF -> page transform so the client can place the answer's evidence in 3D."""
+    if path.startswith("uploads/") or "swiss_dwellings/" not in path:
+        raise HTTPException(404, "3D plans exist for the Swiss CAD plans only")
+    if path in _PLAN3D:
+        return _PLAN3D[path]
+    dxf = resolve(path).with_suffix(".dxf")
+    if not dxf.exists():
+        raise HTTPException(404, "no CAD twin for this drawing")
+    import ezdxf
+    from shapely.ops import unary_union
+
+    from bp.solvers.swiss import SwissSolver
+    from bp.swiss.parse import _poly
+
+    try:
+        fl = SwissSolver().floor_for({"path": path})
+        msp = ezdxf.readfile(str(dxf)).modelspace()
+        walls = unary_union([g for g in (_poly(e) for e in msp.query('LWPOLYLINE[layer=="WALL"]')) if g is not None])
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"could not read the CAD twin: {type(e).__name__}")
+    if fl is None or not fl.to_page:
+        raise HTTPException(404, "no CAD twin for this drawing")
+
+    def ring(r):
+        return [[round(x, 3), round(y, 3)] for x, y in list(r.coords)[:-1]]
+
+    def polys(g):
+        g = g.simplify(0.004)
+        return [{"outer": ring(p.exterior), "holes": [ring(h) for h in p.interiors]}
+                for p in getattr(g, "geoms", [g]) if p.geom_type == "Polygon" and p.area > 1e-3]
+
+    syms = []
+    for s in fl.symbols:
+        if s.kind in ("door", "window") or s.kind in _FIXTURE_H:
+            r = s.geom.minimum_rotated_rectangle
+            if r.geom_type == "Polygon" and r.area > 1e-4:
+                syms.append({"kind": s.kind, "pts": ring(r.exterior), "h": _FIXTURE_H.get(s.kind)})
+    rooms = [{"number": r.number, "name": r.name or "", "area": round(r.area, 2), "unit": r.unit,
+              "outdoor": bool(r.outdoor), "pts": ring(r.poly.exterior if r.poly.geom_type == "Polygon"
+                                                       else max(r.poly.geoms, key=lambda p: p.area).exterior),
+              "label": [round(c, 3) for c in r.label_pos] if r.label_pos else None}
+             for r in fl.rooms if r.number and r.poly.area > 0.05]
+    out = {"walls": polys(walls), "symbols": syms, "rooms": rooms, "to_page": list(fl.to_page),
+           "bounds": [round(c, 3) for c in walls.bounds]}
+    if len(_PLAN3D) >= 64:
+        _PLAN3D.pop(next(iter(_PLAN3D)))
+    _PLAN3D[path] = out
+    return out
+
+
 @app.get("/api/file")
 def raw_file(path: str):
     p = resolve(path)
