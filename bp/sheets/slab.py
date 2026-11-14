@@ -995,7 +995,7 @@ def _scale_from_dims(hor, ver, W, H, g=None):
             sp = _tick_span(gT, (y0 + y1) / 2, (x0 + x1) / 2, y0, y1, x1 - x0)
             if sp:
                 d["span"] = [sp[2], sp[0], sp[2], sp[1]]
-        if sp:
+        if sp and sp[1] - sp[0] > 0 and d["v"] > 0:  # a zero-length span or a "0" read would divide by zero
             d["k"] = d["v"] / (sp[1] - sp[0])
             if sp[1] - sp[0] >= 0.015 * max(g.shape):  # short spans: a 1 px tick error or a stray match decides
                 est.append(d["k"])
@@ -1014,6 +1014,8 @@ def _scale_from_dims(hor, ver, W, H, g=None):
             and abs(d["span"][2] - d["span"][0]) + abs(d["span"][3] - d["span"][1]) >= 0.015 * max(g.shape)]
     for d in dims:
         d["inlier"] = d in good
+    if not good:
+        return None, dims, 0
     # long dimensions dominate (a 1 px tick error matters less on 12,000 mm than on 600 mm)
     k = sum(d["v"] ** 2 * d["k"] for d in good) / sum(d["v"] ** 2 for d in good)
     return k, dims, len(good)
