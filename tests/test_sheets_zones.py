@@ -282,3 +282,32 @@ def test_ocr_split_words_joined():
     assert Z._join_split_words("EXTERIC XTERIOR STAIR (1/2 SF)") == "EXTERIOR STAIR (1/2 SF)"
     for keep in ("WEST WING DORMITORY", "COMMON SPACE CIRCULATION", "TOTAL EAST WING", "THIRD FLOOR"):
         assert Z._join_split_words(keep) == keep
+
+
+def test_cut_labels_completed_from_their_group():
+    """Rough scan of A-2: the label column read from mid-word on some rows."""
+    labs = [("WEST WING DORMITORY", 6095), ("WEST WING CIRCULATION", 914), ("TOTAL WEST WING", 7009),
+            ("EAST WING DORMITORY", 6092), ("WING CIRCULAT ION", 913), ("TOTAL EAST WING", 7005),
+            ("DORMITORY", 6285), ("NORTH WING CIRCULATION", 1403), ("TOTAL NO", 7688),
+            ("ON SPACE", 2911), ("MON SPACE CIRCULATION", 1240), ("UTILITY", 328), ("TOTAL COMMON SPACE", 4479),
+            ("SUBTOTAL", 26181), ("EXTERIOR STAIR (1/2 SF)", 381), ("TOTAL SECOND FLOOR", 26562)]
+    rs = [_row(i, lab, v, 0.2 + 0.015 * i, total=lab.startswith(("TOTAL", "SUBTOTAL"))) for i, (lab, v) in enumerate(labs)]
+    Z._repair_labels(rs)
+    got = [r["label"] for r in rs]
+    assert got[4] == "EAST WING CIRCULATION" and got[6] == "NORTH WING DORMITORY" and got[8] == "TOTAL NORTH WING"
+    assert got[9] == "COMMON SPACE" and got[10] == "COMMON SPACE CIRCULATION" and got[11] == "UTILITY"
+    assert got[13:] == ["SUBTOTAL", "EXTERIOR STAIR (1/2 SF)", "TOTAL SECOND FLOOR"]
+
+
+def test_named_row_needs_no_model(monkeypatch):
+    rs = [_row(0, "WEST WING DORMITORY", 6095, 0.2), _row(1, "WEST WING CIRCULATION", 914, 0.21),
+          _row(2, "TOTAL WEST WING", 7009, 0.22, True)]
+
+    def no_model(*a, **k):
+        raise AssertionError("no model pick for an exactly named row")
+
+    monkeypatch.setattr(Z, "_pick_llm", no_model)
+    monkeypatch.setattr(Z, "rows", lambda meta: rs)
+    monkeypatch.setattr(Z, "zones", lambda meta: None)
+    r = Z.answer("x.png", "What is the area of the west wing dormitory?", {"w": 2000, "h": 1400})
+    assert r["answer"] == 6095

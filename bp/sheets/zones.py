@@ -613,6 +613,49 @@ def _join_split_words(label: str) -> str:
     return " ".join(out)
 
 
+def _complete_groups(tr: list[dict]) -> None:
+    """Labels that lost their first words on a scan (the label column read from mid-word), completed from their
+    group: rows up to a 'TOTAL <stem>' row are '<stem> <suffix>' (WEST WING DORMITORY / WEST WING CIRCULATION /
+    TOTAL WEST WING). 'DORMITORY' -> NORTH WING DORMITORY, 'WING CIRCULATION' -> EAST WING CIRCULATION,
+    'ON SPACE' -> COMMON SPACE, 'TOTAL NO' -> TOTAL NORTH WING."""
+    groups, cur = [], []
+    for r in tr:
+        cur.append(r)
+        if re.match(r"\s*TOTAL\b", r["label"], re.I):
+            groups.append(cur)
+            cur = []
+    stems = [re.sub(r"^\s*TOTAL\s*", "", g[-1]["label"].upper()).strip() for g in groups]
+    full = [s_ for s_ in stems if len(s_.split()) >= 2]
+    suffixes = set()
+    for g, st in zip(groups, stems):
+        for r in g[:-1]:
+            lab = r["label"].upper().strip()
+            if st and lab.startswith(st + " "):
+                suffixes.add(lab[len(st) + 1:])
+    if not full or not suffixes:
+        return
+    for g, st in zip(groups, stems):
+        if len(g) < 2:
+            continue
+        if st not in full:  # a cut total ("TOTAL NO"): the stem of a member that reads whole
+            cands = {m.upper()[: -len(sfx) - 1] for r in g[:-1] for sfx in suffixes
+                     for m in [r["label"].strip()] if m.upper().endswith(" " + sfx)}
+            cands = {c for c in cands if st and c.startswith(st) and len(c.split()) >= 2}
+            if len(cands) != 1:
+                continue
+            st = cands.pop()
+            g[-1]["label_read"], g[-1]["label"] = g[-1]["label"], f"TOTAL {st}"
+        wholes = [st] + [f"{st} {sfx}" for sfx in suffixes]
+        for r in g[:-1]:
+            lab = r["label"].upper().strip()
+            if lab in wholes or not lab:
+                continue
+            hit = [w for w in wholes if w.endswith(lab) and (len(w) == len(lab) or w[-len(lab) - 1] in " " or
+                                                                   len(lab) >= 4)]
+            if len(hit) == 1:
+                r["label_read"], r["label"] = r["label"], hit[0]
+
+
 def _split_words(w: str, vocab: set) -> str:
     """'EASTWINGCIRCULATION' -> 'EAST WING CIRCULATION' when it is made of vocabulary words, else unchanged."""
     u = w.upper()
@@ -648,6 +691,14 @@ def _repair_labels(rs: list[dict]) -> None:
         for r in tr:  # "NORTH WING.CIRCULATION", "EASTWINGCIRCULATION": words run together on a scan
             lab = re.sub(r"(?<=[A-Za-z])[.,_](?=[A-Za-z])", " ", r["label"])
             lab = re.sub(r"[A-Za-z]{9,}", lambda m: _split_words(m.group(0), vocab), lab)
+            # a word cut in two by a space ("CIRCULAT ION")
+            ws, out_w = lab.split(), []
+            for w in ws:
+                if out_w and (out_w[-1] + w).upper() in vocab and out_w[-1].upper() not in vocab:
+                    out_w[-1] = out_w[-1] + w
+                else:
+                    out_w.append(w)
+            lab = " ".join(out_w)
             if lab != r["label"]:
                 r["label_read"], r["label"] = r["label"], lab
         for r in tr:
@@ -656,11 +707,16 @@ def _repair_labels(rs: list[dict]) -> None:
                 if w.upper() in vocab or len(w) < 3:
                     return w
                 best = min(vocab, key=lambda v: (_lev(w.upper(), v), abs(len(v) - len(w))))
-                return best if _lev(w.upper(), best) <= (1 if len(w) <= 4 else 2) else w
+                if _lev(w.upper(), best) <= (1 if len(w) <= 4 else 2):
+                    return best
+                # the start of a word lost ("ULATION" of CIRCULATION): the one vocabulary word it ends
+                ends = [v for v in vocab if len(w) >= 5 and v.endswith(w.upper()) and len(v) > len(w)]
+                return ends[0] if len(ends) == 1 else w
             lab = re.sub(r"[A-Za-z]{3,}", fix, r["label"])
             if lab != r["label"]:
                 r["label_read"], r["label"] = r["label"], lab
                 r["total"] = bool(re.search(r"\b(sub)?total\b", lab, re.I))
+        _complete_groups(tr)
         # a total whose label lost its first words ("SPACE = 4,499" for TOTAL COMMON SPACE): its value is the sum of
         # the rows since the last total, the first of which it names
         start = 0
@@ -1144,7 +1200,9 @@ areas of the different areas / zones / types, give one group per category (e.g. 
 rows, circulation = all circulation rows, common space, utility, ...) and nothing for totals. Counts (rooms, dorms)
 come from count rows. What the question excludes ("excluding / without / except / not counting the exterior
 stair") is left out: pick the printed row that already leaves it out (a SUBTOTAL above it), never the excluded row
-itself. If the tables do not answer it, "groups": []."""
+itself. A question about the area shown in a legend colour on the plan ("coloured as 2nd floor common area (pink)")
+is answered by the schedule's row for that category when there is one (TOTAL COMMON SPACE). If the tables do not
+answer it, "groups": []."""
 
 
 def _pick_llm(meta, question, rs):
@@ -1385,10 +1443,17 @@ def answer(path, question, meta):
     want_measure = bool(re.search(r"\bmeasur|colou?r|legend|zone|module type|shaded|highlight", ql))
     pick = None
     if rs and not (want_measure and re.search(r"\bmeasur", ql)):
-        pick, c = _pick_llm(meta, question, rs)
+        kw = _pick_kw(question, rs)
+        if kw and kw.get("confidence") == "high" and len(kw["groups"]) == 1 and len(kw["groups"][0]["ids"]) == 1 \
+                and not rs[kw["groups"][0]["ids"][0]]["total"] and not TOTAL_RX.search(question):
+            # the question names one row exactly ("area of the west wing dormitory"): that row, no model pick
+            # (the model once took TOTAL WEST WING for it)
+            pick, c = kw, 0.0
+        else:
+            pick, c = _pick_llm(meta, question, rs)
         cost += c
         if pick is None:
-            pick = _pick_kw(question, rs)
+            pick = kw
         if pick and pick["groups"]:
             pick = _guard_pick(question, rs, pick)
             if not pick["groups"]:
