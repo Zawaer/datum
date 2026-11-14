@@ -1,0 +1,7 @@
+family,label,n,accuracy_all,threshold,answered,accuracy_answered,declined
+swiss_counts,Swiss apartment plans: counts,5580,0.999642,0.5,5580,0.999642,0.0
+swiss_areas,Swiss apartment plans: room areas,2634,0.999241,0.5,2634,0.999241,0.0
+ifc_numeric,"IFC models: counts, areas, volumes, lengths",600,1.0,0.5,600,1.0,0.0
+cubicasa,Finnish raster plans (CubiCasa),16496,0.842144,0.5,13344,0.928207,0.191077
+ifc_text,IFC-Bench free text (LLM judge),110,0.381818,0.5,95,0.410526,0.136364
+all,all,25420,0.894729,0.5,22253,0.954253,0.124587

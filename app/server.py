@@ -1369,7 +1369,7 @@ def analysis():
     import csv
 
     out = {}
-    for name in ("overall", "by_source_type", "by_language"):
+    for name in ("overall", "by_source_type", "by_language", "selective_by_family"):
         f = Path("analysis/out") / f"{name}.csv"
         if f.exists():
             with open(f, newline="") as fh:

@@ -65,6 +65,7 @@
     .cell { grid-template-columns: 1fr; gap: 2px; min-width: 56px; }
     .cell b { text-align: left; order: -1; }
     .nsub { font-size: 10px; }
+    #sel th.money { white-space: normal; }  /* "test questions" / "declines" wrap so the table fits a phone */
   }
 </style>
 </head>
@@ -76,7 +77,8 @@
 <div class="wrap">
   <h1>Scoreboard</h1>
   <p class="headl" id="headl"><b>89.5 %</b> right on all 25,420 held-out test questions: every question in every language, not a sample (95 % CI 89.1–89.8).</p>
-  <p class="lede">Accuracy on the held-out test split (split by drawing, so no drawing seen during development is scored).
+  <p class="lede">Accuracy on the held-out test split, split by whole drawing: each drawing goes to test or dev by a SHA-1 hash of its id
+    (20 % test), so every format of a drawing lands on the same side and no drawing seen during development is scored.
     Ours and the prior answer all <b id="ntest">25,420</b> test questions; the frontier and open-weights models were asked 400 questions sampled
     across every source and type, re-weighted to the test mix (so each source counts as much as it does in the test split).
     Counts must be exact; areas, lengths and volumes within 2 %; an abstention counts as wrong; IFC-bench free text is judged.
@@ -85,6 +87,10 @@
   <div class="tiles" id="hero"></div>
   <h2>By source</h2>
   <div class="tiles" id="tiles"></div>
+  <h2>By source: answer everything, or only when confident (ours)</h2>
+  <div class="card2"><table id="sel"></table></div>
+  <p class="note" id="selnote">“Answer everything” counts a “not sure” as wrong (the headline). The app also says how far to trust each
+    answer; accepting only answers with confidence ≥ 0.5 gives the accuracy when answered, and the rest are declined.</p>
   <h2>By source and question type</h2>
   <div class="card2"><table id="tbl"></table></div>
   <p class="note">Each cell: accuracy and the number of questions it is measured on (n). Frontier cells rest on few questions; hover for the interval.</p>
@@ -115,6 +121,9 @@ const NICE = {swiss_dwellings: 'Swiss apartments', cubicasa5k: 'Finnish plans (C
               opening_design: 'US drawing sets'};
 const LANG = {en: 'English', fi: 'Finnish', de: 'German', fr: 'French', it: 'Italian', da: 'Danish', nl: 'Dutch', et: 'Estonian', sv: 'Swedish', es: 'Spanish', no: 'Norwegian', pl: 'Polish'};
 const pct = v => (100 * v).toFixed(1) + '%';
+// two decimals only where one would round a near-perfect score up to 100 % (99.96 %, not 100.0 %)
+const pct2 = v => v === 1 ? '100%' : v > 0.995 ? (100 * v).toFixed(2) + '%' : pct(v);
+const pctd = v => v === 0 ? '0%' : pct(v);
 const num = v => Number(v).toLocaleString('en-US');
 const usd3 = v => '$' + (+v).toFixed(+v > 0 && +v < 0.1 ? 3 : 2);  // $0.013, not $0.01
 
@@ -151,6 +160,19 @@ const usd3 = v => '$' + (+v).toFixed(+v > 0 && +v < 0.1 ? 3 : 2);  // $0.013, no
     return `<div class="tile"><h4>${esc(NICE[src] || src)}</h4><div class="hero">${o == null ? '—' : pct(o)} <small>ours</small></div>
       <div class="vs">${others}<br>${num(N)} test questions</div></div>`;
   }).join('');
+
+  const sel = A.selective_by_family || [];
+  if (sel.length) {
+    const th = +sel[0].threshold;
+    const bar = (v, c) => `<td><div class="cell"><span class="bar"><i style="width:${100 * v}%;background:${c}"></i></span><b>${pct2(v)}</b></div></td>`;
+    $('#sel').innerHTML = `<tr><th>family</th><th class="money">test questions</th><th>answer everything</th><th>accuracy when answered (≥ ${th})</th><th class="money">declines</th></tr>` +
+      sel.map(r => { const all = r.family === 'all', w = s => all ? `<b>${s}</b>` : s;
+        return `<tr><td class="g">${w(esc(r.label))}</td><td class="money">${w(num(r.n))}</td>${bar(+r.accuracy_all, 'var(--prior)')}
+        ${bar(+r.accuracy_answered, 'var(--ours)')}<td class="money">${w(pctd(+r.declined))}</td></tr>`; }).join('');
+    $('#selnote').innerHTML = `“Answer everything” counts a “not sure” as wrong (the headline). The app also says how far to trust each
+      answer; accepting only answers with confidence ≥ ${th} gives the accuracy when answered, and the rest are declined. Read from
+      <code>analysis/out/selective_by_family.csv</code>.`;
+  }
 
   const cell = (c, color) => !c ? `<td><div class="cell na"><span class="bar"></span><b>—</b></div></td>`
     : `<td title="95 % interval ${pct(c.lo)} – ${pct(c.hi)}, n=${c.n}"><div class="cell"><span class="bar"><i style="width:${100 * c.acc}%;background:${color}"></i></span>
@@ -197,7 +219,7 @@ const usd3 = v => '$' + (+v).toFixed(+v > 0 && +v < 0.1 ? 3 : 2);  // $0.013, no
       return `<tr><td>${esc(r.name)}</td><td>${esc(r.solver)}</td><td>${esc(r.split)}${r.note ? ' · ' + esc(r.note) : ''}</td><td>${r.n}</td>
         <td>${a ? a.accuracy.toFixed(1) + '%' : '—'}</td><td class="money">${a ? '$' + a.usd_per_1k.toFixed(2) : '—'}</td></tr>`;
     }).join('');
-  markScroll();
+  markScroll(); document.fonts?.ready.then(markScroll);  // widths change once the web font arrives
 })();
 
 // tables wider than their card scroll sideways: say so, and shade the edge that hides columns

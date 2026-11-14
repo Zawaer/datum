@@ -121,6 +121,32 @@ def selective():
     return out
 
 
+FAMILIES = [("swiss_counts", "Swiss apartment plans: counts",
+             lambda r: r["source"] == "swiss_dwellings" and r["type"] == "count"),
+            ("swiss_areas", "Swiss apartment plans: room areas",
+             lambda r: r["source"] == "swiss_dwellings" and r["type"] == "area"),
+            ("ifc_numeric", "IFC models: counts, areas, volumes, lengths", lambda r: r["source"] == "ifc_models"),
+            ("cubicasa", "Finnish raster plans (CubiCasa)", lambda r: r["source"] == "cubicasa5k"),
+            ("ifc_text", "IFC-Bench free text (LLM judge)", lambda r: r["source"] == "ifc_bench"),
+            ("all", "all", lambda r: True)]
+
+
+def selective_by_family(th=ROUTER_MIN_CONF):
+    """Ours per question family: answer everything vs answer only when confidence >= th (the rest declined)."""
+    rows = load(OURS)
+    out = []
+    for key, label, filt in FAMILIES:
+        rs = [r for r in rows if filt(r)]
+        if not rs:
+            continue
+        ans = [r for r in rs if (r["confidence"] or 0) >= th]
+        out.append(dict(family=key, label=label, n=len(rs), accuracy_all=sum(r["ok"] for r in rs) / len(rs),
+                        threshold=th, answered=len(ans),
+                        accuracy_answered=sum(r["ok"] for r in ans) / len(ans) if ans else float("nan"),
+                        declined=1 - len(ans) / len(rs)))
+    return out
+
+
 BINS = [(0, .5), (.5, .7), (.7, .9), (.9, .95), (.95, .99), (.99, 1.01)]
 
 
@@ -271,6 +297,7 @@ def main():
         _csv(f"selective_{k}_thresholds", v["thresholds"])
         t, cov, acc = v["curve"]
         _csv(f"selective_{k}_curve", [dict(threshold=a, coverage=b, accuracy=c) for a, b, c in zip(t, cov, acc)])
+    _csv("selective_by_family", selective_by_family())
     _csv("reliability", reliability())
     _csv("cubicasa_templates", by_template())
     _csv("cubicasa_error_hist", error_histogram())
