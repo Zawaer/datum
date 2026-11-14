@@ -2057,13 +2057,23 @@ def answer(path, question, meta) -> dict | None:
         if not tys:
             # no "<thk> SLAB W/ <bar> @ <s>" note (e.g. a tank slab detailed bar by bar): list the bar callouts
             calls = []
-            pat = (rf"\b(?:\d+\s*-\s*)?{_BAR}\s*(?:(?:HOOP|RADIAL BARS|BARS)\s*)?(?:@|X|x)\s*\d{{2,5}}"
+            pat = (rf"\b(?:\d+\s*-\s*)?{_BAR}\s*(?:(?:HOOP|RADIAL BARS|BARS|CLOSED TIES|TIES|STIRRUPS)\s*)?"
+                   r"(?:@|X|x)\s*\d{2,5}"
                    r"(?:\s*(?:E\.?\s?W\.?|EACH WAY|TOP AND BOTTOM|TOP|BOTTOM|LONG|O\.?C\.?))*"
                    rf"|\b{_BAR}\s*(?:RADIAL|HOOP|STIRRUP|DOWEL)S?(?:\s*BARS?)?\b")
-            for m in re.finditer(pat, A.get("text", ""), re.I):
-                c = re.sub(r"\s+", " ", m.group(0)).strip()
-                if c not in calls:
-                    calls.append(c)
+            # OCR reads a metric bar's D as 0 ("TYP ROOF REINF. 022 @ 300")
+            text = re.sub(r"(?<![\w.])0([1-3]\d)(?=\s*@)", r"D\1", A.get("text", ""))
+            typ = bool(re.search(r"\btyp(?:ical)?\b", ql))
+            for line in text.split("\n"):
+                for m in re.finditer(pat, line, re.I):
+                    c = re.sub(r"\s+", " ", m.group(0)).strip()
+                    if typ and re.search(r"\bTYP", line, re.I):
+                        c = "TYP " + c
+                    if c not in calls:
+                        calls.append(c)
+            if typ and any(c.startswith("TYP ") for c in calls):  # "the typical reinforcement": the TYP callout
+                calls = [c[4:] for c in calls if c.startswith("TYP ")]
+            calls = [c[4:] if c.startswith("TYP ") else c for c in calls]
             if not calls or not re.search(r"bars?|reinforc|rebar", ql):
                 return None
             kind = re.search(r"\b(radial|hoop|stirrup|dowel)", ql)
