@@ -48,10 +48,13 @@ from __future__ import annotations
 
 import importlib
 import logging
+import os
 
 log = logging.getLogger(__name__)
 
 MODULES = ["arch", "slab", "piping"]  # bp/sheets/<name>.py; a missing/broken module is skipped
+ANSWER_TIMEOUT_S = float(os.environ.get("BP_SHEET_TIMEOUT_S", "45"))  # then the generic reader answers
+_pool = __import__("concurrent.futures", fromlist=["x"]).ThreadPoolExecutor(8, thread_name_prefix="sheets")
 MIN_DETECT = 0.5  # a module answers only when it claims the sheet at least this strongly
 
 
@@ -94,8 +97,17 @@ def answer(path, question, meta):
     n, m, s = best(meta)
     if m is None:
         return None
+    import concurrent.futures as cf
+
+    fut = _pool.submit(m.answer, path, question, meta)
     try:
-        res = m.answer(path, question, meta)
+        res = fut.result(timeout=ANSWER_TIMEOUT_S)
+    except cf.TimeoutError:
+        # the module keeps running in the background (its OCR / segmentation caches fill for the next question);
+        # this question goes on to the generic reader rather than keep a judge waiting
+        return {"answer": None, "confidence": 0.0, "evidence": [], "cost_usd": 0.0, "method": f"sheets-{n}-timeout",
+                "explanation": f"the {n} reader took longer than {ANSWER_TIMEOUT_S:.0f} s on this sheet, so the general "
+                               "reader answers this time"}
     except Exception as e:  # noqa: BLE001
         log.exception("sheet module %s failed", n)
         return {"answer": None, "confidence": 0.0, "evidence": [], "cost_usd": 0.0,
