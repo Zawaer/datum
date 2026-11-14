@@ -30,7 +30,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "analysis"))
-from judge_forms import FORMS, build, form_path  # noqa: E402
+from judge_forms import FORMS, SCAN_FORMS, build, form_path  # noqa: E402
 
 QFILE = ROOT / "analysis/judge_questions.jsonl"
 SHOTS = Path("/data/attachments/s_YTlo5xSrle/judge-qa/shots")
@@ -303,6 +303,8 @@ def main():
         keep = set(a.only.split(","))
         qs = [q for q in qs if q["id"] in keep or q["sheet"] in keep]
     build()
+    if a.forms == "scan":
+        a.forms = ",".join(SCAN_FORMS)
     forms = a.forms.split(",") if a.forms else (["lowres", "png2500", "pdf"] if a.live else list(FORMS))
     if a.live:
         a.jobs = 1  # one upload / ask at a time against the shared demo

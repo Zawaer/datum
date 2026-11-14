@@ -13,7 +13,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-FORMS = ("lowres", "png2500", "pdf", "hires")
+FORMS = ("scanpdf", "roughscan", "lowres", "png2500", "pdf", "hires")
 
 
 def load(p):
@@ -47,7 +47,7 @@ def main():
         L += [Path(a.notes).read_text().strip(), ""]
     acc = acc_by_form(rows)
     prev = acc_by_form(load(a.prev)) if a.prev else {}
-    L += ["## Accuracy per upload form (40 questions each)", "",
+    L += ["## Accuracy per upload form", "",
           "| form | strict | lenient 15 % |" + (" previous strict |" if prev else ""),
           "|---|---|---|" + ("---|" if prev else "")]
     for f in FORMS:
@@ -55,8 +55,10 @@ def main():
             v = acc[f]
             L.append(f"| {f} | {v[0]}/{v[2]} | {v[1]}/{v[2]} |" + (f" {prev[f][0]}/{prev[f][2]} |" if f in prev else ""))
     tot = sum(r["ok"] for r in rows)
-    L += ["", f"Total {tot}/{len(rows)} strict. Forms: lowres = ~2000 px JPG, png2500 = ~2500 px PNG, pdf = single-page "
-              "vector PDF, hires = full-resolution PNG (asked through the real UI with Playwright).", ""]
+    L += ["", f"Total {tot}/{len(rows)} strict. Forms: scanpdf = image-only PDF of a clean ~200 dpi "
+              "office scan (no text layer), roughscan = ~2500 px JPEG of a poor scan (1.5 deg skew, blur, noise, yellow "
+              "paper, q55), lowres = ~2000 px JPG, png2500 = ~2500 px PNG, pdf = single-page vector PDF, hires = "
+              "full-resolution PNG (asked through the real UI with Playwright).", ""]
     if a.prev:
         old = {(r["id"], r["form"]): r for r in load(a.prev)}
         fixed = [(r["id"], r["form"]) for r in rows if r["ok"] and not old.get((r["id"], r["form"]), {}).get("ok", 1)]

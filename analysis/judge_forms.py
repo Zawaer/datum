@@ -29,13 +29,51 @@ SHEETS = {
     "schedA601": (A28 / "us_aw_078-24-28_march_2020_p094.png", None, A28 / "AW_078-24-28_march_2020.pdf", 94, "A-601_door_schedule"),
     "schoolL01": (UK / "uk_dfe_sen-dfe-xx-01-d-x-0202-special_school_plan_level_01-a-c01_p001.png", None, UK / "SEN-DFE-XX-01-D-X-0202-Special_School_Plan_Level_01-A-C01.pdf", 1, "SEN_level_01"),
 }
-FORMS = ("lowres", "png2500", "pdf", "hires")
+FORMS = ("lowres", "png2500", "pdf", "hires", "scanpdf", "roughscan")
+SCAN_FORMS = ("scanpdf", "roughscan", "lowres", "png2500")
 
 
 def form_path(key: str, form: str) -> Path:
     stem = SHEETS[key][4]
-    ext = {"lowres": "jpg", "png2500": "png", "pdf": "pdf", "hires": "png"}[form]
+    ext = {"lowres": "jpg", "png2500": "png", "pdf": "pdf", "hires": "png", "scanpdf": "pdf", "roughscan": "jpg"}[form]
     return OUT / key / f"{stem}_{form}.{ext}"
+
+
+def _scan(im, long_px: int, skew: float, blur: float, noise: float, tint, contrast: float, seed: int):
+    """A printed-and-scanned look: greyscale paper tint, lost contrast, slight rotation, blur, sensor noise."""
+    import cv2
+    import numpy as np
+
+    rng = np.random.default_rng(seed)
+    t = im.copy(); t.thumbnail((long_px, long_px), Image.LANCZOS)
+    g = np.asarray(t.convert("L"), dtype=np.float32)
+    g = 255 - (255 - g) * contrast  # toner never quite black
+    h, w = g.shape
+    M = cv2.getRotationMatrix2D((w / 2, h / 2), skew, 1.0)
+    g = cv2.warpAffine(g, M, (w, h), flags=cv2.INTER_LINEAR, borderValue=255)
+    if blur:
+        g = cv2.GaussianBlur(g, (0, 0), blur)
+    g = g + rng.normal(0, noise, g.shape) + np.linspace(-6, 6, w)[None, :]  # noise + uneven illumination
+    g = np.clip(g, 0, 255)
+    rgb = np.stack([g * tint[0], g * tint[1], g * tint[2]], -1).clip(0, 255).astype(np.uint8)
+    return Image.fromarray(rgb)
+
+
+def build_scans(key, im, pdf, page):
+    """scanpdf: a 200 dpi-ish image-only PDF (no text layer) of a clean office scan; roughscan: a ~2500 px JPEG of a
+    poor scan (1.5 deg skew, blur, noise, yellowed paper, JPEG q55)."""
+    import io
+
+    if not form_path(key, "scanpdf").exists():
+        s = _scan(im, 4200, 0.4, 0.6, 3.0, (1.0, 1.0, 1.0), 0.92, 1)
+        buf = io.BytesIO(); s.convert("L").save(buf, "JPEG", quality=75)
+        src = pymupdf.open(pdf)[page - 1]
+        o = pymupdf.open(); pg = o.new_page(width=src.rect.width, height=src.rect.height)
+        pg.insert_image(pg.rect, stream=buf.getvalue(), keep_proportion=True)
+        o.save(form_path(key, "scanpdf"), garbage=4, deflate=True)
+    if not form_path(key, "roughscan").exists():
+        s = _scan(im, 2500, -1.5, 1.1, 7.0, (1.0, 0.97, 0.88), 0.8, 2)
+        s.save(form_path(key, "roughscan"), quality=55)
 
 
 def build():
@@ -55,6 +93,7 @@ def build():
         if not form_path(key, "pdf").exists():
             src = pymupdf.open(pdf); o = pymupdf.open(); o.insert_pdf(src, from_page=page - 1, to_page=page - 1)
             o.save(form_path(key, "pdf"), garbage=4, deflate=True)
+        build_scans(key, im, pdf, page)
         print(key, [f"{form_path(key, f).stat().st_size / 1e6:.1f}MB" for f in FORMS])
 
 
