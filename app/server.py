@@ -710,6 +710,44 @@ def _upload_question(req: Ask) -> dict:
             "typo_fixed": question if question != req.question else None}
 
 
+# sources whose specialist answers exactly from a CAD/BIM twin: a typed question it cannot read is never handed
+# to the general (vision) reader, whose answers vary between asks
+EXACT_SOURCES = {"swiss_dwellings", "ifc_models"}
+FB_CACHE = Path("cache/typed_fallback.jsonl")
+_fb_lock = threading.Lock()
+_fb_mem: dict | None = None
+
+
+def _fb_cache_get(key: str) -> dict | None:
+    """A general-reader answer to a typed question on a dataset drawing, from an earlier ask (cost $0 now)."""
+    global _fb_mem
+    with _fb_lock:
+        if _fb_mem is None:
+            _fb_mem = {}
+            if FB_CACHE.exists():
+                for line in FB_CACHE.read_text().splitlines():
+                    try:
+                        r = json.loads(line)
+                        _fb_mem[r["k"]] = r["res"]
+                    except (json.JSONDecodeError, KeyError):
+                        pass
+        hit = _fb_mem.get(key)
+    return None if hit is None else {**json.loads(json.dumps(hit)), "cost_usd": 0.0, "cached": True}
+
+
+def _fb_cache_put(key: str, res: dict):
+    try:
+        rec = json.loads(json.dumps(res, default=str))
+    except (TypeError, ValueError):
+        return
+    with _fb_lock:
+        if _fb_mem is not None:
+            _fb_mem[key] = rec
+        FB_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        with open(FB_CACHE, "a") as f:
+            f.write(json.dumps({"k": key, "res": rec}, ensure_ascii=False) + "\n")
+
+
 def _run_router(q: dict, timeout: float = SOLVER_TIMEOUT_S) -> dict:
     try:
         fut = _pool.submit(router, q)
@@ -1016,15 +1054,27 @@ def ask(req: Ask, request: Request):
                            max(20.0, UPLOAD_TIMEOUT_S - (time.time() - t0)))
         if res2.get("answer") is not None:
             res = res2
-    if known is None and q["source"] != "upload" and res.get("answer") is None and q["ext"] in ("pdf", "png", "jpg") \
+    if known is None and q["source"] in EXACT_SOURCES and res.get("answer") is None \
+            and res.get("method") not in ("timeout", "error"):
+        # an exact CAD/BIM solver exists for this drawing: its honest abstention (with the plan's labels or the
+        # model's storeys) beats a vision guess that changes from one ask to the next
+        res["explanation"] = (res.get("explanation") or "not recognised") + \
+            " (nothing was guessed: this drawing has an exact CAD/BIM twin, so the general vision reader is not used)"
+    elif known is None and q["source"] != "upload" and res.get("answer") is None and q["ext"] in ("pdf", "png", "jpg") \
             and res.get("method") not in ("timeout", "error"):
         # a free-typed question the specialist does not recognise: let the general drawing reader try it,
-        # exactly as for an upload (text layer first, then grounded vision), instead of a bare abstention
+        # exactly as for an upload (text layer first, then grounded vision), instead of a bare abstention.
+        # Cached per (drawing, question) so asking again gives the same answer.
         why = res.get("explanation") or "not recognised"
-        fb = _run_router({**q, "source": "upload", "kind": "pdf-vector" if q["ext"] == "pdf" else "raster"},
-                         timeout=FALLBACK_TIMEOUT_S)
-        fb["route"] = f"{res.get('route', '-')} -> {fb.get('route', 'generic')}"
-        fb["cost_usd"] = (fb.get("cost_usd") or 0.0) + (res.get("cost_usd") or 0.0)
+        fb_key = hashlib.sha1(f"{req.path}\x00{' '.join(req.question.casefold().split())}".encode()).hexdigest()
+        fb = _fb_cache_get(fb_key)
+        if fb is None:
+            fb = _run_router({**q, "source": "upload", "kind": "pdf-vector" if q["ext"] == "pdf" else "raster"},
+                             timeout=FALLBACK_TIMEOUT_S)
+            fb["route"] = f"{res.get('route', '-')} -> {fb.get('route', 'generic')}"
+            fb["cost_usd"] = (fb.get("cost_usd") or 0.0) + (res.get("cost_usd") or 0.0)
+            if fb.get("method") not in ("timeout", "error"):
+                _fb_cache_put(fb_key, fb)
         if fb.get("answer") is not None:
             fb["explanation"] = f"the specialist solver passed ({why}), so the general drawing reader answered: " + \
                 (fb.get("explanation") or "")

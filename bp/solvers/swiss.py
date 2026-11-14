@@ -16,7 +16,9 @@ import unicodedata
 from pathlib import Path
 
 from bp.data import data_root
+from bp.swiss import rooms as RK
 from bp.swiss.parse import FILL_COMMON, parse_floor
+from bp.swiss.rooms import kind_match
 from bp.templates import _SQ
 
 SYMBOL_PATTERNS = [
@@ -47,18 +49,60 @@ def _quoted(q: str) -> str | None:
     return m.group(0)[1:-1] if m else None
 
 
+_TOTAL_KW = (r"\b(?:total\w*|all|combined|together|altogether|sum\w*|gesamt\w*|insgesamt|alle[nrs]?|zusammen|tous|"
+             r"toutes|ensemble|tutt[ie]|complessiv\w*|somm\w*)\b")
+
+
+_PLURAL_WORDS = {"küchen", "bäder", "balkone", "räume", "flure", "korridore", "terrassen", "treppen", "bagni", "cucine",
+                 "camere", "balconi", "stanze", "logge", "corridoi", "terrazze"}
+
+
+def _apartment(q: str):
+    """'apartment B' / 'Wohnung A' / 'unit C' (an upper-case letter, so 'apartments are' is not one)."""
+    m = re.search(r"(?i:apartment|wohnung|appartement|appartamento|logement|unit)\s+([A-Z]{1,2}\d*)\b", q)
+    return m.group(1) if m else None
+
+
+def _kind_intent(q: str, what: str):
+    """Room-kind intents for free wording ("How many bathrooms?", "area of the kitchen"), from bp/swiss/rooms.py."""
+    # "... except balconies, loggias" names kinds the question is NOT about
+    text = re.sub(r"\b(?:except|excluding|exclusive of|without|not counting|apart from|ohne|ausser|außer|exkl\w*|hors|"
+                  r"sauf|sans|esclus[aeio]|escluso|eccetto|tranne|senza)\b.*", "", strip_quoted(q), flags=re.I | re.S)
+    km = kind_match(text)
+    if km is None:
+        return None
+    kind, word = km
+    if what == "count":
+        return ("count_kind", kind, _apartment(q))
+    plural = bool(re.search(_TOTAL_KW, q, re.I)) or word.endswith("s") or word in _PLURAL_WORDS
+    return ("area_kind", kind, _apartment(q), plural)
+
+
+def strip_quoted(q: str) -> str:
+    return re.sub(r"«[^»]*»|[\"“„][^\"”“]*[\"”“]", " ", q)
+
+
 def parse_question(q: str, qtype: str | None):
     ql = q.lower()
     if qtype == "count":
         if re.search(LABEL_KW, ql):
-            return ("count_label", _quoted(q))
+            lab = _quoted(q)
+            if lab is None and (ki := _kind_intent(q, "count")):
+                return ki  # "rooms labelled bathroom": no quoted label, but an everyday room word
+            return ("count_label", lab)
+        # "toilet rooms" / "separate WCs" are rooms, not the toilet symbol; "bathrooms in apartment B" are rooms,
+        # not apartments
+        ki = _kind_intent(q, "count")
+        if ki and (ki[1] == "toilet_room" or ki[2]):
+            return ki
         for kind, pat in SYMBOL_PATTERNS:
             if re.search(pat, ql):
                 return ("count_symbol", kind)
-        return None
+        return ki
     if qtype == "area":
         m = re.search(APT_RE, q, re.I)
-        if m and re.search(r"apartment|wohnung|appartement|appartamento", ql):
+        if m and re.search(r"apartment|wohnung|appartement|appartamento", ql) and not (
+                (ki := _kind_intent(q, "area")) and ki[1] != "room" and _apartment(q)):
             return ("area_apartment", m.group(1).upper())
         m = re.search(ROOM_RE, q, re.I)
         if m:
@@ -72,7 +116,12 @@ def parse_question(q: str, qtype: str | None):
         if re.search(NUMBERED_KW, ql):
             return ("area_numbered", None)
         if re.search(LABEL_KW, ql):
-            return ("area_label", _quoted(q))
+            lab = _quoted(q)
+            if lab is None and (ki := _kind_intent(q, "area")):
+                return ki
+            return ("area_label", lab)
+        if _quoted(q) is None and (ki := _kind_intent(q, "area")) and ki[1] != "room":
+            return ki
     return None
 
 
@@ -110,9 +159,17 @@ class SwissSolver:
         if fl is None:
             return {**base, "explanation": "no DXF twin"}
         if intent is None:
-            return {**base, "explanation": "question not understood"}
+            labels = sorted({r.name for r in fl.rooms if r.number and r.name})
+            return {**base, "explanation": "question not understood; this plan can answer counts of rooms by label "
+                    "or kind (bathrooms, kitchens, bedrooms, balconies ...), of doors, windows, toilets, washbasins, "
+                    "bathtubs, showers and apartments, and room or apartment areas. Room labels on this plan: "
+                    + ", ".join(f"'{x}'" for x in labels)}
         try:
-            return self._answer(q, fl, intent, base)
+            out = self._answer(q, fl, intent, base)
+            if out.get("read_as"):  # a room word mapped onto the plan's own label: say how it was read
+                out["normalized_question"] = rq = out.pop("read_as")
+                out["explanation"] = f"read as: {rq} | {out.get('explanation') or ''}"
+            return out
         except Exception as e:  # noqa: BLE001
             return {**base, "explanation": f"solver error: {type(e).__name__}: {str(e)[:120]}"}
 
@@ -233,6 +290,9 @@ class SwissSolver:
             return done(len(hits), c, f"{len(hits)} rooms labelled '{intent[1]}'"
                         + (f": {', '.join(r.number for r in hits)}" if hits else ""))
 
+        if kind in ("count_kind", "area_kind"):
+            return self._kind(fl, intent, rooms_num, base, poly, area_text, done, room_conf)
+
         if kind == "area_room":
             num = intent[1]
             hits = [r for r in rooms_num if r.number == num]
@@ -300,3 +360,66 @@ class SwissSolver:
                 notes.append("room(s) without a PDF fill")
             return done(tot, c, f"apartment {letter}: {len(hits)} rooms = {tot:.2f} m²")
         return {**base, "explanation": "question not understood"}
+
+    @staticmethod
+    def _kind(fl, intent, rooms_num, base, poly, area_text, done, room_conf):
+        """Rooms of one everyday kind ("bathrooms") = rooms whose label means it (bp/swiss/rooms.py)."""
+        kind, letter = intent[1], intent[2]
+        name = RK.kind_name(kind)
+        if letter is not None and letter not in fl.units:
+            return {**base, "explanation": f"apartment {letter} not found; apartments are: "
+                                           + ", ".join(sorted(fl.units))}
+        pool = [r for r in rooms_num if letter is None or r.unit == letter]
+        where = f" in apartment {letter}" if letter else ""
+        hits = sorted((r for r in pool if r.name and RK.matches(kind, r.name)),
+                      key=lambda r: [int(x) if x.isdigit() else x for x in re.split(r"(\d+)", r.number)])
+        labels = sorted({r.name for r in hits})
+        all_labels = sorted({r.name for r in rooms_num if r.name})
+        word_labels = ", ".join(f"'{RK.display(x)}'" for x in RK.labels_for(kind)[:6])
+        listing = "labels on this plan: " + ", ".join(f"'{x}'" for x in all_labels)
+        lab_q = " or ".join(f"'{x}'" for x in labels)
+        if intent[0] == "count_kind":
+            if not hits:
+                known = all(RK.norm(x) in RK.VOCAB for x in all_labels)
+                if kind not in RK.ZERO_OK or not known or not pool:
+                    return {**base, "explanation": f"no room{where} is labelled as a {name} ({word_labels}); "
+                                                   f"{listing}. Ask for one of these labels"}
+                return {**done(0, 0.85, f"no room{where} carries a {name} label ({word_labels}); {listing}"),
+                        "read_as": f"How many rooms labelled as a {name} ({word_labels}) are there on this floor?"}
+            for i, r in enumerate(hits, 1):
+                poly(r, 1, f"{name} {i}: {r.number} {r.name}")
+            per = ", ".join(f"{r.number} '{r.name}'" for r in hits)
+            what = "the plan's label for a bedroom or other room" if kind == "room" else f"the plan's word for {name}"
+            expl = f"{len(hits)} room{'s' if len(hits) != 1 else ''}{where} labelled {lab_q} ({what}): {per}"
+            c = 0.97
+            if kind == "room":
+                # "rooms" is the plan's 'Zimmer'/'Pièce'/'Stanza' label; say how many spaces there are in all
+                c = 0.8
+                expl += f"; all numbered spaces{where} (kitchens, baths, corridors ... included): {len(pool)}"
+            rq = f"How many rooms labelled {lab_q} are there on this floor?" if not letter else \
+                f"How many rooms labelled {lab_q} are there in apartment {letter}?"
+            return {**done(len(hits), c, expl), "read_as": rq}
+        # area
+        if not hits:
+            return {**base, "explanation": f"no room{where} is labelled as a {name} ({word_labels}); {listing}"}
+        plural = intent[3]
+        if not plural and len(hits) > 1:
+            return {**base, "explanation": f"{len(hits)} rooms{where} are labelled {lab_q} ("
+                                           + ", ".join(r.number for r in hits) + "): ask for one by its number "
+                                           f"(e.g. 'area of room {hits[0].number}') or for the total of all of them"}
+        for r in hits:
+            poly(r, r.area)
+        if len(hits) == 1:
+            area_text(hits[0])
+        tot = round(sum(r.area for r in hits), 2)
+        c = room_conf(hits)
+        if len(hits) == 1:
+            r = hits[0]
+            rq = f"What is the net floor area of room {r.number} ('{r.name}') in m²?"
+            expl = f"room {r.number} '{r.name}' (the {name}{where}): {r.area:.2f} m²"
+        else:
+            rq = f"What is the total net area in m² of all rooms labelled {lab_q}" + \
+                (f" in apartment {letter}?" if letter else " on this floor?")
+            expl = f"{len(hits)} rooms labelled {lab_q}{where}: " + " + ".join(f"{r.area:.2f}" for r in hits) + \
+                f" = {tot:.2f} m²"
+        return {**done(tot, c, expl), "read_as": rq}

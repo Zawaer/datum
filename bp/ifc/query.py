@@ -1,9 +1,10 @@
 """Multilingual question -> typed IFC query (regex keyword rules, no LLM).
 
-A query is {kind, what, measure, slots, gross}:
+A query is {kind, what, measure, slots, gross, here, here_floor}:
   kind:    count | sum (a measure summed over elements) | room_area
   what:    element-class key from CLASSES (wall, door, ...)
   measure: area_floor | area_side | volume | length | None
+  here:    deictic scope ("this floor", "on this plan", "here"); here_floor: one that names a floor/plan/sheet
 Quoted names (storeys, rooms, the model) stay in `slots`; they are resolved against the model later.
 Keyword rules are matched on the question with the quoted names removed, so a room called 'Trappe'
 cannot turn the question into a stair question.
@@ -72,6 +73,21 @@ _GROSS = r"\bgross (?:floor|side|area|volume|internal)|\bbrutto\w*|\bbruto\w*|\b
 _TOTAL = r"total\w*|all\b|samlede?|alle\b|alles?\b|k(?:õ|o)ik\w*|k(?:õ|o)igi|kokku|gesamt\w*|insgesamt|summ\w*|yhteens(?:ä|a)|" \
          r"kaikk\w*|tous|toutes|totale?|totaal|todos?|todas?|tutti|tutte|zusammen"
 
+# deictic scope: "this floor / this plan / on this level" (and the same in the dataset's other languages). On a plan
+# sheet `<model>_plan-NN-<storey>.pdf` it means that sheet's storey; on the .ifc itself it names no storey.
+HERE_FLOOR = (r"\bth(?:is|e\s+current)\s+(?:floor|level|storey|story|plan|sheet|drawing|page)\b|"
+              r"\b(?:diese[mnrs]?|dieses)\s+(?:geschoss|stockwerk|etage|ebene|plan|grundriss|zeichnung|blatt)\w*|"
+              r"\b(?:cet|ce|cette)\s+(?:étage|etage|niveau|plan|dessin|feuille)\b|"
+              r"\b(?:questo|questa|quest')\s*(?:piano|livello|pianta|disegno|tavola)\b|"
+              r"\bt(?:ä|a)(?:ss|ll)(?:ä|a)\s+(?:kerrokse\w*|tasol\w*|tasos\w*|pohjapiirustukse\w*|piirustukse\w*)|"
+              r"\bselle(?:l|s)\s+(?:korruse\w*|plaani\w*|joonise\w*|tasandi\w*)|"
+              r"\b(?:esta|este)\s+(?:planta|piso|nivel|plano)\b|"
+              r"\b(?:deze|dit)\s+(?:verdieping|bouwlaag|niveau|plattegrond|tekening)\b|"
+              r"\b(?:tym|tej)\s+(?:pi(?:ę|e)trze|kondygnacji|rzucie|poziomie)\b|"
+              r"\b(?:acest|aceast(?:ă|a))\s+(?:etaj|nivel|plan)\w*|"
+              r"\b(?:denne|dette|denna|detta)\s+(?:etage|etasje|plan|v(?:å|a)ning)\w*")
+HERE_ANY = HERE_FLOOR + r"|\bhere\b|\bhier\b|\bici\b|\bsiin\b|\baqu(?:í|i)\b|\btutaj\b|\baici\b|\bh(?:ä|a)r\b"
+
 
 def norm(s) -> str:
     s = unicodedata.normalize("NFKC", str(s or "")).casefold()
@@ -100,7 +116,10 @@ def parse(q: dict) -> dict:
     side = bool(re.search(_SIDE, text, re.I))
     gross = bool(re.search(_GROSS, text, re.I))
     total = bool(re.search(_TOTAL, text, re.I))
-    out = {"type": qtype, "what": what, "slots": sl, "gross": gross, "total": total, "text": text}
+    here_floor = bool(re.search(HERE_FLOOR, text, re.I))
+    here = here_floor or bool(re.search(HERE_ANY, text, re.I))
+    out = {"type": qtype, "what": what, "slots": sl, "gross": gross, "total": total, "text": text,
+           "here": here, "here_floor": here_floor}
     if qtype == "count":
         out.update(kind="count", measure=None)
     elif qtype == "area":

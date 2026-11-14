@@ -225,4 +225,43 @@ Every must-abstain question and what the router did (after):
 | ifc_bench | information not in model / nonsense | Who won the architectural competition for this building in 1720? | said not available | This information is not available in the BIM model. |
 | ifc_bench | information not in model / nonsense | What is the average monthly rent per square metre? | said not available | Average monthly rent per square metre: not available  - Rent data: not in the model - Spaces: IfcSpace count is 0, so no |
 
-Paid usage (all runs of this analysis, from cache/llm_spend.jsonl): paraphrase generation $0.116, normaliser $0.037.
+## 4. Typed scope: room words and "this floor"
+
+19 questions of the kind the usability test (app/USABILITY.md) found judges typing: everyday room words on Swiss plans that print their labels in German/French/Italian ("How many bathrooms?" on a plan that says 'Bad'), "this floor" on an IFC plan sheet (= that sheet's storey), and "this floor" on the .ifc model itself (no storey: the right answer is to ask which one). Gold = the dataset's answer to the matching template question on the same drawing. Each question is asked three times (router only; the app's vision fallback is not part of this run). Set: `runs/robustness_typed_scope.jsonl`.
+
+| kind | n | right before | right after | abstained before → after | wrong before → after | stable over 3 asks (after) |
+|---|---|---|---|---|---|---|
+| swiss bathroom | 4 | 4 | **4** | 0 → 0 | 0 → 0 | 4/4 |
+| swiss kitchen | 2 | 2 | **2** | 0 → 0 | 0 → 0 | 2/2 |
+| swiss bedroom | 2 | 1 | **2** | 1 → 0 | 0 → 0 | 2/2 |
+| swiss balcony | 2 | 2 | **2** | 0 → 0 | 0 → 0 | 2/2 |
+| ifc sheet 'this floor' | 6 | 0 | **6** | 3 → 0 | 3 → 0 | 6/6 |
+| ifc model 'this floor' (must ask which storey) | 3 | 3 | **3** | 0 → 0 | 0 → 0 | 3/3 |
+| **ALL** | 19 | 12 | **19** | 4 → 0 | 3 → 0 | 19/19 |
+
+Paid calls: before $0.0119 (the Haiku normaliser, once per question, then cached: before this fix it was what mapped 'bathrooms' to 'Bad', and when it declined, the app handed the question to the uncached vision reader, which gave 0, 3 and 4 on three asks in the usability test); after $0.0000 (room words map to the plan's labels by a fixed table, `bp/swiss/rooms.py`; "this floor" on a sheet resolves to the storey in the sheet's title, `bp/solvers/ifc.py`; the app no longer sends Swiss or IFC drawings to the vision reader, and caches its answers to other typed questions per drawing).
+
+
+| question | drawing | gold | before | after | read as / explanation (after) |
+|---|---|---|---|---|---|
+| How many bathrooms are there? | site189_bldg376_floor11867.pdf | 1 ('Bad') | 1 right | 1 right | read as: How many rooms labelled 'Bad' are there on this floor? | 1 room labelled 'Bad' (the plan's word for bathroom): 3.06 'Bad' |
+| Wie viele Badezimmer gibt es? | site724_bldg1554_floor6748.pdf | 2 ('Bad') | 2 right | 2 right | read as: How many rooms labelled 'Bad' are there on this floor? | 2 rooms labelled 'Bad' (the plan's word for bathroom): 0.02 'Bad', 0.08 'Bad' |
+| Combien de salles de bains y a-t-il ? | site289_bldg536_floor2149.pdf | 8 ('Bain') | 8 right | 8 right | read as: How many rooms labelled 'Bain' are there on this floor? | 8 rooms labelled 'Bain' (the plan's word for bathroom): 2.07 'Bain', 2.08 'Bain', 2 |
+| how many bathrooms on this floor | site332_bldg689_floor2920.pdf | 6 ('Bad') | 6 right | 6 right | read as: How many rooms labelled 'Bad' are there on this floor? | 6 rooms labelled 'Bad' (the plan's word for bathroom): 0.01 'Bad', 0.09 'Bad', 0.16  |
+| How many kitchens are on this floor? | site189_bldg376_floor11867.pdf | 1 ('Küche') | 1 right | 1 right | read as: How many rooms labelled 'Küche' are there on this floor? | 1 room labelled 'Küche' (the plan's word for kitchen): 3.05 'Küche' |
+| Quante cucine ci sono? | site724_bldg1554_floor6748.pdf | 2 ('Küche') | 2 right | 2 right | read as: How many rooms labelled 'Küche' are there on this floor? | 2 rooms labelled 'Küche' (the plan's word for kitchen): 0.03 'Küche', 0.07 'Küche' |
+| How many bedrooms are there? | site189_bldg376_floor11867.pdf | 1 ('Zimmer') | None abstained | 1 right | read as: How many rooms labelled 'Zimmer' are there on this floor? | 1 room labelled 'Zimmer' (the plan's word for bedroom): 3.01 'Zimmer' |
+| Combien de chambres sur ce plan ? | site724_bldg1554_floor6748.pdf | 6 ('Zimmer') | 6 right | 6 right | read as: How many rooms labelled 'Zimmer' are there on this floor? | 6 rooms labelled 'Zimmer' (the plan's word for bedroom): 0.01 'Zimmer', 0.05 'Zim |
+| How many balconies does this floor have? | site289_bldg536_floor2149.pdf | 7 ('Balcon') | 7 right | 7 right | read as: How many rooms labelled 'Balcon' are there on this floor? | 7 rooms labelled 'Balcon' (the plan's word for balcony): 2.04 'Balcon', 2.14 'Bal |
+| Wie viele Balkone gibt es? | site332_bldg689_floor2920.pdf | 4 ('Balkon') | 4 right | 4 right | read as: How many rooms labelled 'Balkon' are there on this floor? | 4 rooms labelled 'Balkon' (the plan's word for balcony): 0.14 'Balkon', 0.18 'Bal |
+| total window count on this floor | kit-institute_ac20-institute-var-2_plan-04-2-obe | 54 (windows on '2. Obergeschoss') | Total Windows: 206     Window  wrong | 54 right | 54 IfcWindow elements on storey '2. Obergeschoss' (the storey of this plan sheet) (IFC spatial containment) |
+| How many doors are on this floor? | kit-institute_ac20-institute-var-2_plan-04-2-obe | 21 (doors on '2. Obergeschoss') | None abstained | 21 right | 21 IfcDoor elements on storey '2. Obergeschoss' (the storey of this plan sheet) (IFC spatial containment) |
+| Combien de murs y a-t-il sur cet étage ? | bimspeed-warmond_ar_plan-08-attic.pdf | 9 (walls on 'Attic') | 353 wrong | 9 right | 9 IfcWall elements on storey 'Attic' (the storey of this plan sheet) (IFC spatial containment) |
+| How many rooms are on this level? | bimspeed-warmond_ar_plan-08-attic.pdf | 8 (rooms (spaces) on 'Attic') | None abstained | 8 right | 8 IfcSpace elements on storey 'Attic' (the storey of this plan sheet) (IFC spatial containment) |
+| Wie viele Türen gibt es auf diesem Geschoss? | kit-institute_ac20-institute-var-2_plan-03-1-obe | 22 (doors on '1. Obergeschoss') | None abstained | 22 right | 22 IfcDoor elements on storey '1. Obergeschoss' (the storey of this plan sheet) (IFC spatial containment) |
+| Mitu ust on sellel korrusel? | kit-institute_ac20-institute-var-2_plan-03-1-obe | 22 (doors on '1. Obergeschoss') | 77 wrong | 22 right | 22 IfcDoor elements on storey '1. Obergeschoss' (the storey of this plan sheet) (IFC spatial containment) |
+| How many doors are on this floor? | bsc-duplex_duplex-m-20111024-rooms-and-spaces.if | None (-) | None abstained (right) | None abstained (right) | 'this floor' needs a storey, and this file is the whole model: which storey? storeys are: 'Level 1', 'Level 2', 'Roof' |
+| How many windows on this level? | rwth-digitalhub_fm-arc-digitalhub-with-sb-v1.ifc | None (-) | None abstained (right) | None abstained (right) | 'this floor' needs a storey, and this file is the whole model: which storey? storeys are: 'B01_OKRD', 'E00_OKRD', 'E01_OKRD' |
+| Wie viele Wände hat dieses Geschoss? | bsc-clinic_clinic-hvac.ifc | None (-) | None abstained (right) | None abstained (right) | 'this floor' needs a storey, and this file is the whole model: which storey? storeys are: 'TOF Footing', 'First Floor', 'Second Floor', 'Roof - Mech' |
+
+Paid usage (all runs of this analysis, from cache/llm_spend.jsonl): paraphrase generation $0.116, normaliser $0.053.

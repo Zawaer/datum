@@ -5,7 +5,9 @@
     .venv/bin/python analysis/robustness.py para-gen-fresh   # a second, held-out set: other originals, casual typing
     .venv/bin/python analysis/robustness.py para-run [orig|fresh] [before|after]   # router on originals + paraphrases
     .venv/bin/python analysis/robustness.py abstain-run [before|after]             # router on ~50 unanswerable questions
-    .venv/bin/python analysis/robustness.py report           # -> docs/ROBUSTNESS.md
+    .venv/bin/python analysis/robustness.py typed-gen        # ~25 typed room-word / "this floor" questions (no compute)
+.venv/bin/python analysis/robustness.py typed-run [before|after]               # router on them, 3 asks each
+.venv/bin/python analysis/robustness.py report           # -> docs/ROBUSTNESS.md
 
 "before" = the code before the parser fixes and the question normaliser (commit 9e091b7): run it with
 BP_CODE_ROOT=<a checkout of that commit> so `bp` is imported from there.
@@ -350,6 +352,179 @@ def abstain_run(tag="after"):
     print(f"-> {abst_file(tag)}")
 
 
+# ------------------------------------------------------------------ 4. typed scope
+# Questions a judge types (usability test, app/USABILITY.md): everyday room words on Swiss plans ("How many
+# bathrooms?" while the plan says 'Bad'), "this floor" on an IFC plan sheet (that sheet's storey, not the
+# building), and "this floor" on the .ifc itself (no storey: must ask which). Built once (`typed-gen`) on test-split
+# drawings; gold = the dataset's own answer to the matching template question ("How many rooms labelled 'Bad'
+# ...", "How many doors are shown on the floor plan of '<sheet storey>'?"), summed over the plan's labels of
+# that kind. Run with the code before (BP_CODE_ROOT=<checkout>) and after: `typed-run before|after`.
+TYPED = ROOT / "runs/robustness_typed_scope.jsonl"
+
+
+def typed_file(tag):
+    return ROOT / f"runs/robustness_typed_{tag}.jsonl"
+
+
+# kept here (not imported from bp/swiss/rooms.py) so the set does not depend on the code it measures
+TYPED_KINDS = {
+    "bathroom": ({"Bad", "Bain", "Bagno"},
+                 ["How many bathrooms are there?", "Wie viele Badezimmer gibt es?",
+                  "Combien de salles de bains y a-t-il ?", "how many bathrooms on this floor"]),
+    "kitchen": ({"Küche", "Cuisine", "Cucina", "Küche/Essen"},
+                ["How many kitchens are on this floor?", "Quante cucine ci sono?"]),
+    "bedroom": ({"Schlafzimmer", "Chambre à coucher", "Camera da letto", "Zimmer", "Pièce", "Stanza"},
+                ["How many bedrooms are there?", "Combien de chambres sur ce plan ?"]),
+    "balcony": ({"Balkon", "Balcon", "Balcone", "Loggia"},
+                ["How many balconies does this floor have?", "Wie viele Balkone gibt es?"]),
+}
+TYPED_IFC = [  # (element key in the dataset template, typed question)
+    ("windows", "total window count on this floor"),
+    ("doors", "How many doors are on this floor?"),
+    ("doors", "Wie viele Türen gibt es auf diesem Geschoss?"),
+    ("walls", "Combien de murs y a-t-il sur cet étage ?"),
+    ("rooms (spaces)", "How many rooms are on this level?"),
+    ("doors", "Mitu ust on sellel korrusel?"),
+]
+
+
+def typed_gen():
+    from bp.swiss.parse import parse_floor
+    from bp.data import data_root
+
+    qs = load_questions()
+    test = [q for q in qs if q["split"] == "test"]
+    gold = {(q["path"], q["question"]): q["answer"] for q in qs}
+    out = []
+    # Swiss: plans whose labels of the kind all have a dataset count question (so the gold is the dataset's)
+    sw = sorted({q["path"] for q in test if q["source"] == "swiss_dwellings" and q["ext"] == "pdf"}, key=h)
+    for kind, (labels, questions) in TYPED_KINDS.items():
+        got = 0
+        for p in sw:
+            fl = parse_floor(str(data_root() / Path(p).with_suffix(".dxf")), None)
+            on = {r.name for r in fl.rooms if r.number and r.name in labels}
+            if not on:
+                continue
+            g = [gold.get((p, f"How many rooms labelled '{lab}' are there on this floor?")) for lab in sorted(on)]
+            if any(x is None for x in g):
+                continue
+            out.append({"path": p, "source": "swiss_dwellings", "ext": "pdf", "split": "test",
+                        "question": questions[got % len(questions)], "gold": sum(g), "kind": f"swiss {kind}",
+                        "gold_from": " + ".join(f"'{lab}'" for lab in sorted(on))})
+            got += 1
+            if got == len(questions):
+                break
+    # IFC plan sheets: "this floor" = the sheet's storey (title of its SVG twin)
+    from bp.crosscheck import svg_sheet
+
+    sheets = sorted({q["path"] for q in test if q["source"] == "ifc_models" and "_plan-" in q["path"]}, key=h)
+    tmpl = {}
+    for q in qs:
+        m = re.fullmatch(r"How many (.+) are shown on the floor plan of '(.+)'\?", q["question"])
+        if m and q["source"] == "ifc_models":
+            tmpl[(q["path"].split("_plan-")[0].rsplit(".", 1)[0], m.group(1), m.group(2))] = q["answer"]
+    used = set()
+    for p in sheets:  # up to two typed questions per sheet, each typed question once
+        st = svg_sheet(str(data_root() / Path(p).with_suffix(".svg")))["storey"]
+        model = p.split("_plan-")[0]
+        n = 0
+        for j, (what, question) in enumerate(TYPED_IFC):
+            g = tmpl.get((model, what, st))
+            if j in used or g is None or n == 2:
+                continue
+            out.append({"path": p, "source": "ifc_models", "ext": "pdf", "split": "test", "question": question,
+                        "gold": g, "kind": "ifc sheet 'this floor'", "gold_from": f"{what} on '{st}'"})
+            used.add(j)
+            n += 1
+        if len(used) == len(TYPED_IFC):
+            break
+    # the .ifc itself: "this floor" names no storey -> must abstain and ask which
+    models = sorted({q["path"] for q in test if q["source"] == "ifc_models" and q["ext"] == "ifc"}, key=h)
+    for p, question in zip(models, ["How many doors are on this floor?", "How many windows on this level?",
+                                    "Wie viele Wände hat dieses Geschoss?"]):
+        out.append({"path": p, "source": "ifc_models", "ext": "ifc", "split": "test", "question": question,
+                    "gold": None, "kind": "ifc model 'this floor' (must ask which storey)", "gold_from": "-"})
+    with open(TYPED, "w") as f:
+        for it in out:
+            f.write(json.dumps(it, ensure_ascii=False) + "\n")
+    print(f"{len(out)} -> {TYPED}")
+
+
+def typed_run(tag="after"):
+    from bp.router import Router, guess_type
+
+    router = Router()
+    items = [json.loads(l) for l in open(TYPED)]
+    with open(typed_file(tag), "w") as f:
+        for it in items:
+            q = dict(it, type=guess_type(it["question"]), id=-1, answer=None)
+            runs = [_solve(router, q) for _ in range(3)]  # asked three times: the answer must not move
+            r = runs[0]
+            stable = len({json.dumps(x["pred"], default=str) for x in runs}) == 1
+            if it["gold"] is None:
+                verdict = "abstained (right)" if r["pred"] is None else "answered (wrong)"
+            elif r["pred"] is None:
+                verdict = "abstained"
+            else:
+                verdict = "right" if is_correct("count", r["pred"], it["gold"]) else "wrong"
+            f.write(json.dumps({**it, "type": q["type"], **r, "stable": stable, "verdict": verdict},
+                               ensure_ascii=False, default=str) + "\n")
+            print(verdict, "|", it["kind"], "|", it["question"][:60], "|", r["pred"], "gold", it["gold"],
+                  file=sys.stderr)
+    print(f"-> {typed_file(tag)}")
+
+
+def _typed_section():
+    B, A = _load(typed_file("before")), _load(typed_file("after"))
+    if not A:
+        return []
+    L = ["## 4. Typed scope: room words and \"this floor\"", "",
+         f"{len(A)} questions of the kind the usability test (app/USABILITY.md) found judges typing: everyday room "
+         "words on Swiss plans that print their labels in German/French/Italian (\"How many bathrooms?\" on a plan "
+         "that says 'Bad'), \"this floor\" on an IFC plan sheet (= that sheet's storey), and \"this floor\" on the "
+         ".ifc model itself (no storey: the right answer is to ask which one). Gold = the dataset's answer to the "
+         "matching template question on the same drawing. Each question is asked three times (router only; the "
+         "app's vision fallback is not part of this run). Set: `runs/robustness_typed_scope.jsonl`.", "",
+         "| kind | n | right before | right after | abstained before → after | wrong before → after | "
+         "stable over 3 asks (after) |", "|---|---|---|---|---|---|---|"]
+
+    def ok(v):
+        return v in ("right", "abstained (right)")
+    g = collections.defaultdict(list)
+    for a in A:
+        g[a["kind"]].append(a)
+    gb = collections.defaultdict(list)
+    for b in B or []:
+        gb[b["kind"]].append(b)
+    for k in list(g) + ["ALL"]:
+        a = A if k == "ALL" else g[k]
+        b = (B or []) if k == "ALL" else gb.get(k, [])
+        L.append(f"| {'**ALL**' if k == 'ALL' else k} | {len(a)} | {sum(ok(x['verdict']) for x in b) if B else '-'} | "
+                 f"**{sum(ok(x['verdict']) for x in a)}** | "
+                 f"{sum(x['verdict'] == 'abstained' for x in b) if B else '-'} → "
+                 f"{sum(x['verdict'] == 'abstained' for x in a)} | "
+                 f"{sum(x['verdict'] in ('wrong', 'answered (wrong)') for x in b) if B else '-'} → "
+                 f"{sum(x['verdict'] in ('wrong', 'answered (wrong)') for x in a)} | "
+                 f"{sum(x['stable'] for x in a)}/{len(a)} |")
+    cb, ca = (sum(x["cost_usd"] for x in v) for v in (B or [], A))
+    L += ["", f"Paid calls: before ${cb:.4f} (the Haiku normaliser, once per question, then cached: before this fix "
+          f"it was what mapped 'bathrooms' to 'Bad', and when it declined, the app handed the question to the "
+          f"uncached vision reader, which gave 0, 3 and 4 on three asks in the usability test); after ${ca:.4f} "
+          "(room words map to the plan's labels by a fixed table, `bp/swiss/rooms.py`; \"this floor\" on a sheet "
+          "resolves to the storey in the sheet's title, `bp/solvers/ifc.py`; the app no longer sends Swiss or IFC "
+          "drawings to the vision reader, and caches its answers to other typed questions per drawing).", ""]
+    L += ["", "| question | drawing | gold | before | after | read as / explanation (after) |",
+          "|---|---|---|---|---|---|"]
+    bq = {(b["path"], b["question"]): b for b in B or []}
+    for a in A:
+        b = bq.get((a["path"], a["question"]))
+        L.append(f"| {a['question']} | {Path(a['path']).name[:48]} | {a['gold']} ({a['gold_from']}) | "
+                 f"{(str(b['pred'])[:30] + ' ' + b['verdict']) if b else '-'} | {a['pred']} {a['verdict']} | "
+                 f"{str(a.get('explanation'))[:150]} |".replace("\n", " "))
+    L.append("")
+    return L
+
+
 # ------------------------------------------------------------------ report
 FINDINGS = """## Summary
 
@@ -565,6 +740,7 @@ def report():
             L.append(f"| {a['source']} | {a['kind']} | {a['question'][:90]} | {a['verdict']} | "
                      f"{str(ans)[:120]} |".replace("\n", " "))
         L.append("")
+    L += _typed_section()
     spend = collections.Counter()
     for r in map(json.loads, open(ROOT / "cache/llm_spend.jsonl")):
         spend[r["tag"]] += r["cost_usd"]
@@ -577,4 +753,4 @@ def report():
 
 if __name__ == "__main__":
     {"twins": twins, "para-gen": para_gen, "para-gen-fresh": lambda: para_gen(fresh=True), "para-run": para_run,
-     "abstain-run": abstain_run, "report": report}[sys.argv[1]](*sys.argv[2:])
+     "abstain-run": abstain_run, "typed-gen": typed_gen, "typed-run": typed_run, "report": report}[sys.argv[1]](*sys.argv[2:])

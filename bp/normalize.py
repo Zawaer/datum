@@ -10,7 +10,9 @@ question AND abstained) the router calls `normalize()`: one Claude Haiku call th
     DXF; IFC storey and room names from the model), and
   * the user's question,
 
-and either rewrites the question into exactly one template with the slots filled, or answers NONE. A rewrite
+and either rewrites the question into exactly one template with the slots filled, or answers NONE. For Swiss
+plans the list also maps everyday room words onto the plan's own labels (bp/swiss/rooms.py: "bathroom" -> 'Bad'),
+so a semantic match is allowed and shown ("read as: How many rooms labelled 'Bad' ..."). A rewrite
 that quotes a name not in the list is rejected (the model may not invent rooms or storeys). The router then
 re-runs the same solver on the rewrite and shows it ("read as: ...").
 
@@ -92,6 +94,10 @@ Rules:
 - Everyday words may be mapped to a listed name when exactly one name clearly fits: "kitchen" -> the one room
   labelled 'Küche', "ground floor" -> 'Erdgeschoss' or 'Level 0'. If several rooms carry the asked label and the
   question means one of them, reply NONE (ambiguous); if it means all of them, use a "total ... labelled" template.
+- A room word may be mapped semantically onto this drawing's own label: Swiss plans print room names in German,
+  French or Italian, so "bathrooms" -> rooms labelled 'Bad', "kitchen" -> 'Küche'. Use the "Room words -> labels"
+  list when it is given; map only to a label that is in it, and only when exactly one label fits (if a word maps
+  to two labels on this drawing, reply NONE).
 - Reply NONE if the question asks for something no template covers (another object type, prices, dates, ...),
   or if it is ambiguous between templates. Do not answer the question."""
 
@@ -157,7 +163,10 @@ def drawing_names(route: str, q: dict) -> dict:
         rooms = [(r.number, r.name) for r in fl.rooms if r.number]
         labels = sorted({n for _, n in rooms if n})
         letters = sorted(fl.units)
+        from bp.swiss.rooms import synonym_lines
+        syn = synonym_lines(labels)
         lines = [f"Room labels: {', '.join(repr(x) for x in labels)}",
+                 *(["Room words -> labels on this plan: " + "; ".join(syn)] if syn else []),
                  "Rooms (number 'label'): " + "; ".join(f"{n} '{lab or ''}'" for n, lab in rooms),
                  f"Apartment letters: {', '.join(letters) or '(none)'}"]
         return {"lines": lines, "names": set(labels), "tokens": {n for n, _ in rooms} | set(letters)}
@@ -208,7 +217,8 @@ def normalize(route: str, q: dict) -> dict:
     """-> {"question": rewrite or None, "cost_usd", "why"}. One Haiku call per (question, drawing), cached."""
     if route not in TEMPLATES:
         return {"question": None, "cost_usd": 0.0, "why": "no templates for this drawing type"}
-    k = _key(q["question"], q.get("path", ""))
+    # Swiss prompts carry the room-word map since v2: earlier cached NONEs for them are not reused
+    k = _key(q["question"] + ("\x00v2" if route == "swiss" else ""), q.get("path", ""))
     hit = _cache_get(k)
     if hit is not None:
         return {"question": hit["rewrite"], "cost_usd": 0.0, "why": hit.get("why", ""), "cached": True}

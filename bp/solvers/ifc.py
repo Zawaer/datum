@@ -77,6 +77,48 @@ def _unquoted_storey(m, question: str):
     return best[0] if best else None
 
 
+def sheet_storey(m, qpath: str):
+    """The storey a plan sheet `<model>_plan-NN-<storey>.pdf` shows (None for the .ifc or any other file).
+
+    Read from the sheet's SVG twin title ("... — Plan: <storey>"), matched to the model's storeys; checked on all 71
+    dataset plan sheets (every title matches a storey exactly). Fallback: the slug in the file name."""
+    p = Path(qpath)
+    if "_plan-" not in p.stem or p.suffix.lower() == ".ifc":
+        return None
+    svg = (data_root() / p).with_suffix(".svg")
+    if svg.exists():
+        from bp.crosscheck import svg_sheet
+
+        title = svg_sheet(str(svg)).get("storey")
+        st, sc = M.match_storey(m, title) if title else (None, 0.0)
+        if st is not None and sc >= 1.0:
+            return st
+    mm = re.search(r"_plan-(\d+)-(.+)$", p.stem)
+    if mm:
+        slug = mm.group(2)
+        hits = [s for s in m["storeys"] if re.sub(r"[^a-z0-9]+", "-", M.nkey(s["name"]).lower()).strip("-") == slug]
+        if len(hits) == 1:
+            return hits[0]
+        idx = int(mm.group(1)) - 1
+        if 0 <= idx < len(m["storeys"]) and len(hits) > 1 and m["storeys"][idx] in hits:
+            return m["storeys"][idx]
+    return None
+
+
+def _here(m, q, pq):
+    """Deictic scope -> (storey, None) for a plan sheet, (None, abstention) when it cannot be resolved, (None, None)
+    when the question has none."""
+    if not pq.get("here"):
+        return None, None
+    st = sheet_storey(m, q["path"])
+    if st is not None:
+        return st, None
+    if pq.get("here_floor"):
+        return None, {**_abstain("'this floor' needs a storey, and this file is the whole model: which storey? "
+                                 + _no_storey(m, None)), "ask_storey": True}
+    return None, None  # "here" on the model itself: the model
+
+
 def _fmt(v: float) -> str:
     return f"{v:,.2f}".replace(",", " ")
 
@@ -121,9 +163,17 @@ class IfcSolver:
                 storey, sscore = st, sc
             elif st is None and not _names_model(q["question"], s):
                 unknown.append(s)
+        here_note = ""
         if not slots:
             # typed questions name storeys without quotes: "doors on Level 1", "walls on the ground floor"
             storey = _unquoted_storey(m, q["question"])
+            if storey is None:
+                # "on this floor" asked on a plan sheet: that sheet's storey
+                storey, ask = _here(m, q, pq)
+                if ask:
+                    return ask
+                if storey is not None:
+                    here_note = " (the storey of this plan sheet)"
             if storey is not None:
                 sscore = 1.0
             elif re.search(_STOREY_WORD, pq["text"], re.I):
@@ -140,7 +190,7 @@ class IfcSolver:
             els = M.sanitary(m, storey)
         else:
             els = M.elements_of(m, CLASSES[what][0], storey)
-        scope = f"on storey '{storey['name']}'" if storey else "in the model"
+        scope = f"on storey '{storey['name']}'{here_note}" if storey else "in the model"
         conf = 0.95 if (storey is None or sscore == 1.0) else 0.6
         if storey is None and slots:
             conf = 0.9  # slot is presumably the model name
@@ -179,6 +229,7 @@ class IfcSolver:
         slots = pq["slots"]
         storey, room = None, None
         sscore = 0.0
+        here_note = ""
         if len(slots) >= 2:
             storey, sscore = M.match_storey(m, slots[-1])
             room = slots[0]
@@ -191,8 +242,15 @@ class IfcSolver:
         if not slots:
             # unquoted, typed: "area of WC 414B-23-003-006 on 3. Level", "all rooms on the ground floor"
             storey = _unquoted_storey(m, q["question"])
+            if storey is None:
+                storey, ask = _here(m, q, pq)
+                if ask:
+                    return ask
+                if storey is not None:
+                    here_note = " (the storey of this plan sheet)"
             names_storey = storey is not None or re.search(_STOREY_WORD, pq["text"], re.I)
-            if not pq["total"] or (names_storey and storey is None):
+            # "floor area of this floor" means all its rooms, as "total" does
+            if not (pq["total"] or here_note) or (names_storey and storey is None):
                 return {**_abstain("could not tell which room or storey the question is about; " + _no_storey(m, None)),
                         "unparsed": True}
             sscore = 1.0 if storey is not None else 0.0
@@ -238,7 +296,7 @@ class IfcSolver:
         used = [e for e in els if e["guid"] in vals]
         ev = self._ev_items(rel, used, lambda e: round(vals[e["guid"]], 4))
         what = f"room {M.label(used[0])}" if room else f"{len(used)} spaces"
-        scope = f" on '{storey['name']}'" if storey else ""
+        scope = f" on '{storey['name']}'{here_note}" if storey else ""
         return {"answer": tot, "confidence": round(conf, 3), "method": f"ifc-area-{'+'.join(sorted(srcs))}",
                 "cost_usd": 0.0,
                 "explanation": f"net floor area of {what}{scope} ({'+'.join(sorted(srcs))}) = {_fmt(tot)} m²",
