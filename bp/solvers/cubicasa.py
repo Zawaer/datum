@@ -10,7 +10,8 @@ variant: optional weights path, or a .txt listing several for an ensemble (defau
 
 CUBICASA_TTA=flip: flip test-time augmentation (4 passes at 1280 px, weighted box fusion; bp/cubicasa/infer.py)
 with its own dev-tuned thresholds_flip.json / calib_flip.json next to the weights. Test 84.2 % -> 85.1 %, but
-~2-3x the CPU time per drawing (1.3-1.8 s vs 0.65 s on 2-4 threads), so it is off by default (the CPU demo).
+~2-3x the CPU time per drawing (1.3-1.8 s vs 0.65 s on 2-4 threads). On by default whenever the flip files
+exist (full test 89.5 % -> 90.05 %, runs/router_full_test_v7); CUBICASA_TTA=off restores the single pass.
 """
 import collections
 import json
@@ -36,7 +37,9 @@ def _inside(b, r, pad=0.01):
 class CubicasaSolver:
     def __init__(self, variant=None, weights=None):
         self.weights = weights or variant or os.environ.get("CUBICASA_WEIGHTS") or DEFAULT_WEIGHTS
-        sfx = "_flip" if os.environ.get("CUBICASA_TTA", "off") == "flip" else ""
+        mode = os.environ.get("CUBICASA_TTA", "auto")
+        have_flip = Path(self.weights).with_name("thresholds_flip.json").exists()
+        sfx = "_flip" if mode == "flip" or (mode == "auto" and have_flip) else ""
         tf = Path(self.weights).with_name(f"thresholds{sfx}.json")
         if sfx and not tf.exists():
             raise FileNotFoundError(f"CUBICASA_TTA=flip needs {tf} (train/cubicasa/README.md, flip TTA)")
