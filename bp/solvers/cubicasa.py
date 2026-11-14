@@ -7,6 +7,10 @@ PNG. The question template picks the classes to count; every counted detection b
 evidence box. Inference sees only the PNG: no annotation lookup.
 
 variant: optional weights path, or a .txt listing several for an ensemble (default $CUBICASA_WEIGHTS or cache/cubicasa/weights/best.pt).
+
+CUBICASA_TTA=flip: flip test-time augmentation (4 passes at 1280 px, weighted box fusion; bp/cubicasa/infer.py)
+with its own dev-tuned thresholds_flip.json / calib_flip.json next to the weights. Test 84.2 % -> 85.1 %, but
+~2-3x the CPU time per drawing (1.3-1.8 s vs 0.65 s on 2-4 threads), so it is off by default (the CPU demo).
 """
 import collections
 import json
@@ -32,9 +36,12 @@ def _inside(b, r, pad=0.01):
 class CubicasaSolver:
     def __init__(self, variant=None, weights=None):
         self.weights = weights or variant or os.environ.get("CUBICASA_WEIGHTS") or DEFAULT_WEIGHTS
-        tf = Path(self.weights).with_name("thresholds.json")
+        sfx = "_flip" if os.environ.get("CUBICASA_TTA", "off") == "flip" else ""
+        tf = Path(self.weights).with_name(f"thresholds{sfx}.json")
+        if sfx and not tf.exists():
+            raise FileNotFoundError(f"CUBICASA_TTA=flip needs {tf} (train/cubicasa/README.md, flip TTA)")
         self.thresh = json.loads(tf.read_text()) if tf.exists() else {}
-        cf = Path(self.weights).with_name("calib.json")
+        cf = Path(self.weights).with_name(f"calib{sfx}.json")
         self.calib = json.loads(cf.read_text()) if cf.exists() else {}
         self.imgsz = str(self.thresh.pop("_imgsz", 1024))
         self.cls_imgsz = self.thresh.pop("_cls_imgsz", {})

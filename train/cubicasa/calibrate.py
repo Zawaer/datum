@@ -53,6 +53,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--weights", default="cache/cubicasa/weights/best.pt")
     ap.add_argument("--data", default="cache/yolo_cc")
+    ap.add_argument("--prior-exclude", default=None,
+                    help="also keep these drawings' questions out of the priors (a val dir; for fold-wise CV on a subset)")
     a = ap.parse_args()
     out = Path(a.weights).with_name("calib.json")
     if out.exists():
@@ -60,6 +62,7 @@ def main():
     s = CubicasaSolver(weights=a.weights)
     val = sorted((Path(a.data) / "images" / "val").glob("*.png"))
     vstems = {p.stem for p in val}
+    xstems = {p.stem for p in Path(a.prior_exclude).glob("*.png")} if a.prior_exclude else set()
 
     # 1. per-class calibration
     sc, ys, miss = collections.defaultdict(list), collections.defaultdict(list), collections.Counter()
@@ -96,7 +99,7 @@ def main():
     qs = [q for q in load_questions() if q["source"] == "cubicasa5k" and q["split"] == "dev"]
     pri = collections.defaultdict(collections.Counter)
     for q in qs:
-        if Path(q["path"]).stem not in vstems and q["question"].startswith("How"):
+        if Path(q["path"]).stem not in vstems | xstems and q["question"].startswith("How"):
             pri[target(q["question"])][str(round(float(q["answer"])))] += 1
     priors = {t: {k: v / sum(c.values()) for k, v in c.items()} for t, c in pri.items()}
 
