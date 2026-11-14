@@ -17,10 +17,12 @@ Two complementary answers, each with its evidence on the drawing:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import re
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -115,10 +117,18 @@ def _disk_get(meta, key):
     return None
 
 
+_disk_lock = threading.Lock()
+
+
 def _disk_put(meta, key, val):
     f = _cache_file(meta)
     if not f:
         return
+    with _disk_lock:
+        _disk_put_locked(f, key, val)
+
+
+def _disk_put_locked(f, key, val):
     try:
         d = json.loads(f.read_text()) if f.exists() else {}
     except (OSError, json.JSONDecodeError):
@@ -579,6 +589,30 @@ def _lev(a: str, b: str) -> int:
     return prev[-1]
 
 
+def _join_split_words(label: str) -> str:
+    """'TOTAL COMMO OMMON SPACE' -> 'TOTAL COMMON SPACE': one word read as two overlapping pieces (the second
+    starting with the first's tail, allowing its last letter misread), or the same word twice."""
+    ws = label.split()
+    out: list[str] = []
+    for w in ws:
+        if out:
+            a, au, wu = out[-1], out[-1].upper(), w.upper()
+            if au == wu and len(wu) >= 3:
+                continue
+            if len(au) >= 4 and len(wu) >= 4 and au.isalpha() and wu.isalpha():
+                joined = None
+                for i in range(1, 3):
+                    tail = au[i:]
+                    if len(tail) >= 3 and (wu.startswith(tail) or wu.startswith(tail[:-1])) and len(wu) > len(tail) - 1:
+                        joined = a[:i] + w
+                        break
+                if joined:
+                    out[-1] = joined
+                    continue
+        out.append(w)
+    return " ".join(out)
+
+
 def _split_words(w: str, vocab: set) -> str:
     """'EASTWINGCIRCULATION' -> 'EAST WING CIRCULATION' when it is made of vocabulary words, else unchanged."""
     u = w.upper()
@@ -606,6 +640,11 @@ def _repair_labels(rs: list[dict]) -> None:
         for r in tr:
             vocab |= {w for w in re.findall(r"[A-Z]{4,}", r["label"]) if w in _LABEL_WORDS or
                       sum(w in re.findall(r"[A-Z]{4,}", o["label"]) for o in tr) >= 2}
+        for r in tr:  # a word read twice by overlapping OCR passes: "COMMO OMMON", "SUBTOT UBTOTAL", "SUBTOTAL SUBTOTAL"
+            lab = _join_split_words(r["label"])
+            if lab != r["label"]:
+                r["label_read"], r["label"] = r["label"], lab
+                r["total"] = bool(re.search(r"\b(sub)?total\b", lab, re.I))
         for r in tr:  # "NORTH WING.CIRCULATION", "EASTWINGCIRCULATION": words run together on a scan
             lab = re.sub(r"(?<=[A-Za-z])[.,_](?=[A-Za-z])", " ", r["label"])
             lab = re.sub(r"[A-Za-z]{9,}", lambda m: _split_words(m.group(0), vocab), lab)
@@ -1117,6 +1156,13 @@ def _pick_llm(meta, question, rs):
     if question in cache:
         return cache[question], 0.0
     txt = "\n".join(f"[{r['id']}] {r['table']} | {r['label']} = {_fmt(r['value'], 2)} {r['unit']}" for r in rs)
+    # the model's pick is kept with the upload: the same question on the same file gets the same rows (no flip
+    # between asks or after a restart)
+    dkey = "pick_" + hashlib.sha1((question + "\n" + txt).encode()).hexdigest()[:16]
+    hit = _disk_get(meta, dkey)
+    if isinstance(hit, dict):
+        cache[question] = hit
+        return hit, 0.0
     r = llm.ask(PICK.format(question=question, rows=txt), model="haiku", tag="sheets-zones-pick", timeout=90)
     d = llm.parse_json(r.get("text", ""))
     if not isinstance(d, dict) or not isinstance(d.get("groups"), list):
@@ -1128,6 +1174,7 @@ def _pick_llm(meta, question, rs):
             gs.append({"name": str(g.get("name") or rs[ids[0]]["label"]), "ids": ids})
     out = {"groups": gs, "confidence": d.get("confidence", "medium"), "note": d.get("note") or ""}
     cache[question] = out
+    _disk_put(meta, dkey, out)
     return out, r.get("cost_usd", 0.0)
 
 

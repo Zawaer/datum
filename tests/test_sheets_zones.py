@@ -273,3 +273,12 @@ def test_excluded_row_is_never_the_answer():
     pick = {"groups": [{"name": "stair", "ids": [1]}], "confidence": "high", "note": ""}
     g = Z._guard_pick("What is the floor area excluding the exterior stair?", rs, pick)["groups"]
     assert g[0]["ids"] == [0]
+
+
+def test_ocr_split_words_joined():
+    assert Z._join_split_words("TOTAL COMMO OMMON SPACE") == "TOTAL COMMON SPACE"
+    assert Z._join_split_words("SUBTOT UBTOTAL") == "SUBTOTAL"
+    assert Z._join_split_words("SUBTOTAL SUBTOTAL") == "SUBTOTAL"
+    assert Z._join_split_words("EXTERIC XTERIOR STAIR (1/2 SF)") == "EXTERIOR STAIR (1/2 SF)"
+    for keep in ("WEST WING DORMITORY", "COMMON SPACE CIRCULATION", "TOTAL EAST WING", "THIRD FLOOR"):
+        assert Z._join_split_words(keep) == keep

@@ -6,7 +6,11 @@ are recomputed here from the values it read, so every number in the answer is a 
 """
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 import re
+from pathlib import Path
 
 from bp import sheets
 
@@ -36,6 +40,18 @@ Rules:
 """
 
 
+def _cache_path(meta, key: str) -> Path | None:
+    img = meta.get("image")
+    if not img or os.environ.get("BP_TEXTQA_CACHE", "1") != "1":
+        return None
+    d = Path(img).parent / "textqa"
+    try:
+        d.mkdir(exist_ok=True)
+    except OSError:
+        return None
+    return d / (hashlib.sha1(key.encode()).hexdigest()[:20] + ".json")
+
+
 def _layout(meta, scale):
     words = sheets.ocr_words(meta, scale=scale, min_conf=20)
     lines = sheets.ocr_lines(words)
@@ -55,9 +71,26 @@ def answer(meta, question: str, model: str = "haiku", max_lines: int = 700) -> d
     use = lines[:max_lines]
     txt = "\n".join(f"[{i}] ({100 * ln['bbox'][0]:.0f}%, {100 * ln['bbox'][1]:.0f}%) {ln['text']}"
                     for i, ln in enumerate(use))
-    r = llm.ask(PROMPT.format(question=question, lines=txt), model=model, tag="sheets-textqa", timeout=90)
-    d = llm.parse_json(r["text"]) or {}
-    cost = r.get("cost_usd", 0.0)
+    prompt = PROMPT.format(question=question, lines=txt)
+    # the model's reading is kept with the upload: asking the same question of the same file again gives the same
+    # answer (no flip between asks or after a restart)
+    cf = _cache_path(meta, prompt + model)
+    d = None
+    if cf is not None and cf.exists():
+        try:
+            d = json.loads(cf.read_text())
+        except (OSError, ValueError):
+            d = None
+    cost = 0.0
+    if d is None:
+        r = llm.ask(prompt, model=model, tag="sheets-textqa", timeout=90)
+        d = llm.parse_json(r["text"]) or {}
+        cost = r.get("cost_usd", 0.0)
+        if cf is not None and r.get("text"):
+            try:
+                cf.write_text(json.dumps(d))
+            except OSError:
+                pass
     if not isinstance(d, dict) or d.get("op") in (None, "none") or d.get("answer") in (None, ""):
         return {"answer": None, "confidence": 0.0, "evidence": [], "cost_usd": cost, "method": "sheets-text-none",
                 "explanation": (d.get("explanation") if isinstance(d, dict) else None) or "not in the sheet's text"}
