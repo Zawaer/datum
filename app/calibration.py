@@ -40,6 +40,8 @@ FAMILIES = {  # family -> (label, how the answer is made)
 
 def family(method: str) -> str | None:
     m = str(method or "")
+    if m.endswith("-compare"):  # comparisons (bp/compare.py) have no measured track record of their own
+        return None
     if m.startswith("cubicasa"):
         return "cubicasa"
     if m.startswith("swiss"):
