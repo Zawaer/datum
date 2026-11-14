@@ -232,14 +232,13 @@ from the PDF alone (it even caught one of our own area errors).
 **"Will it work on the unseen sheets in the final round?"**
 That is what the sheet specialists are for, and we measured them the way the final round works: Stoa's four
 example sheets uploaded through the app's API in five forms. 41 questions: 40 right from the vector PDF, 37 from
-the full-resolution PNG, 33 from the 2,000 px screenshots, 26 from a 2,500 px PNG and 27 from a simulated scan.
+the full-resolution PNG, 33 from the 2,000 px screenshots, 32 from a 2,500 px PNG and 32 from a simulated scan.
 On sibling sheets from the same public sets, never used while building, 9 of 11. Before the specialists, the
 generic reader got 22 of the original 34 on the PDFs.
 
 **"What's weak on sheets?"**
 Two things. Low-resolution school plans: below full resolution only 1 or 2 of the school sheet's 8 questions are
-right, so coarse sheets now answer only totals and the footprint and say why (the slab plan also drops to 6-7 of
-12 from a 2,500 px PNG or a scan). And slab areas on a sheet we never tuned on:
+right, so coarse sheets now answer only totals and the footprint and say why. And slab areas on a sheet we never tuned on:
 on the held-out imperial slab plan the areas come out 23 to 41 % low, and the answer says it is unsure. On a
 harder set of 40 questions worded like a site engineer would (four languages, 5 that must be declined), a run at
 midday got 91 of 160 across four upload forms; per-room door counts and slab volumes were the misses.
