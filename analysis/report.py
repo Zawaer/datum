@@ -9,6 +9,7 @@ at the top of the file: re-read them when a new run changes the picture.
 from __future__ import annotations
 
 import datetime as dt
+import json
 
 import tables as T
 from common import (GPU_USD_PER_HOUR, N_BOOT, OURS, PRIOR, ROOT, SOURCE_LABEL, TEMPLATE_LABEL, discover_frontier,
@@ -89,6 +90,21 @@ def main():
     w("")
     w("* **Test split.** `bp/data.py` assigns each *drawing* (every format and language variant of it) to dev or test by "
       "hash, 20 % test. Nothing tuned on test drawings. The router run covers every test question (25,420).")
+    w("* **Image only, by design.** CubiCasa answers equal the counts in the public CubiCasa5K annotations "
+      "(`model.svg`, Zenodo 2613548): on all 16,496 CubiCasa test questions a lookup of that public release would "
+      "score ~99.8 % (`analysis/svg_oracle.py`, an offline measurement that no solver uses). Datum reads only the image, because "
+      "real customer scans come without annotations. The CubiCasa and headline figures above are image-only on held-out drawings.")
+    _all = ROOT / "runs" / "router_full_all_v8.jsonl"
+    if _all.exists():
+        _r = [json.loads(line) for line in open(_all)]
+        _ins = [x for x in _r if x["split"] != "test"]
+        _cc = [x for x in _ins if x["source"] == "cubicasa5k"]
+        _acc = lambda g: f"{100 * sum(bool(x['correct']) for x in g) / len(g):.1f} %"  # noqa: E731
+        w(f"* **Full dataset (in-sample, not a headline).** The same router on every question of the dataset "
+          f"({fmt_n(len(_r))}, `runs/router_full_all_v8`): {_acc(_r)}. {fmt_n(len(_ins))} of these questions are on "
+          f"drawings we trained or tuned on ({_acc(_ins)}; CubiCasa {_acc(_cc)}, including the detector's own "
+          f"training drawings at {_acc([x for x in _cc if x['split'] == 'cc-train'])}). The held-out test part "
+          "reproduces the headline run question for question.")
     w("* **Scoring** (`bp/score.py`): counts must be exact; area/length/volume within 2 %; abstentions count as wrong. "
       "Free-text answers (IFC bench, 110 test questions) are scored by the LLM judge in `bp/judge.py` (Haiku, fixed "
       "rubric, validated against hand labels) for **every** system, ours and the frontier baselines alike "

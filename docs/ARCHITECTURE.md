@@ -153,6 +153,14 @@ door leaves and glass are generic shapes placed in the gaps found in those walls
 
 ## Limits
 
+- **Image only, by design.** CubiCasa answers equal the counts in the public CubiCasa5K annotations: on all
+  16,496 CubiCasa test questions, a lookup of that public release would score ~99.8 % (`analysis/svg_oracle.py`,
+  an offline measurement that no solver uses). Datum reads only the image, because real customer scans come without
+  annotations. The 86.1 % CubiCasa and 90.7 % overall figures are image-only on held-out drawings. On every question of
+  the dataset, including the drawings we trained and tuned on, the same router scores 91.3 % (in-sample,
+  `runs/router_full_all_v8`). Even on the detector's own training drawings CubiCasa reaches only 88 %, because the
+  annotation conventions (e.g. a band of window units as one window or as several) differ from drawing to drawing
+  (docs/CUBICASA_ERRORS.md).
 - **Raster counting is the weak core:** 86.1 % on CubiCasa plans; windows 53 % exact (eight-plus thin symbols,
   mostly under-counted). At confidence ≥ 0.5 it answers 82 % at 93.5 %.
 - **Free text about IFC models:** 38.2 % (LLM judge, 110 questions); rules cover common shapes, the rest says
