@@ -334,8 +334,19 @@ def ocr_words(meta, region=None, scale: float = 1.0, psm: int = 11, min_conf: fl
     Image.MAX_IMAGE_PIXELS = None
     cache = meta.setdefault("_ocr", {})
     ck = f"{region}|{scale}|{psm}"
-    if ck in cache:
-        return [w for w in cache[ck] if w["conf"] >= min_conf]
+    if ck not in cache:
+        with _meta_lock:
+            lock = meta.setdefault("_ocr_locks", {}).setdefault(ck, threading.Lock())
+        with lock:  # one OCR per sheet and signature, however many questions (or the upload warm-up) ask at once
+            if ck not in cache:
+                cache[ck] = _ocr_run(meta, region, scale, psm)
+    return [w for w in cache[ck] if w["conf"] >= min_conf]
+
+
+def _ocr_run(meta, region, scale, psm):
+    from PIL import Image
+
+    Image.MAX_IMAGE_PIXELS = None
     im = Image.open(meta["image"]).convert("L")
     W, H = im.size
     x0, y0, x1, y1 = region or (0, 0, 1, 1)
@@ -343,33 +354,35 @@ def ocr_words(meta, region=None, scale: float = 1.0, psm: int = 11, min_conf: fl
     crop = im.crop(box)
     if scale != 1.0:
         crop = crop.resize((round(crop.width * scale), round(crop.height * scale)), Image.LANCZOS)
-    words = []
     T = 4000
+    import concurrent.futures as cf
     import tempfile
 
-    for ty in range(0, crop.height, T - 200):
-        for tx in range(0, crop.width, T - 200):
-            tile = crop.crop((tx, ty, min(crop.width, tx + T), min(crop.height, ty + T)))
-            with tempfile.NamedTemporaryFile(suffix=".png") as tf:
-                tile.save(tf.name)
-                try:
-                    out = subprocess.run(["tesseract", tf.name, "-", "--psm", str(psm), "tsv"], capture_output=True,
-                                         text=True, timeout=180).stdout
-                except subprocess.TimeoutExpired:
-                    continue
-            for line in out.splitlines()[1:]:
-                p = line.split("\t")
-                if len(p) < 12 or not p[11].strip():
-                    continue
-                left, top, wd, ht, conf = int(p[6]), int(p[7]), int(p[8]), int(p[9]), float(p[10])
-                gx0 = box[0] + (tx + left) / scale
-                gy0 = box[1] + (ty + top) / scale
-                words.append({"text": p[11].strip(), "conf": conf,
-                              "bbox": [gx0 / W, gy0 / H, (gx0 + wd / scale) / W, (gy0 + ht / scale) / H]})
-            if tx + T >= crop.width:
-                break
-        if ty + T >= crop.height:
-            break
+    def one(tx, ty):
+        tile = crop.crop((tx, ty, min(crop.width, tx + T), min(crop.height, ty + T)))
+        with tempfile.NamedTemporaryFile(suffix=".png") as tf:
+            tile.save(tf.name)
+            try:  # one thread per tesseract: the tiles run side by side instead
+                out = subprocess.run(["tesseract", tf.name, "-", "--psm", str(psm), "tsv"], capture_output=True,
+                                     text=True, timeout=180, env={**os.environ, "OMP_THREAD_LIMIT": "1"}).stdout
+            except subprocess.TimeoutExpired:
+                return []
+        res = []
+        for line in out.splitlines()[1:]:
+            p = line.split("\t")
+            if len(p) < 12 or not p[11].strip():
+                continue
+            left, top, wd, ht, conf = int(p[6]), int(p[7]), int(p[8]), int(p[9]), float(p[10])
+            gx0 = box[0] + (tx + left) / scale
+            gy0 = box[1] + (ty + top) / scale
+            res.append({"text": p[11].strip(), "conf": conf,
+                        "bbox": [gx0 / W, gy0 / H, (gx0 + wd / scale) / W, (gy0 + ht / scale) / H]})
+        return res
+
+    xs = list(range(0, max(1, crop.width - 200), T - 200)) or [0]
+    ys = list(range(0, max(1, crop.height - 200), T - 200)) or [0]
+    with cf.ThreadPoolExecutor(min(8, len(xs) * len(ys))) as ex:  # a 10000 px sheet: ~9 tiles at once
+        words = [w for part in ex.map(lambda t: one(*t), [(x, y) for y in ys for x in xs]) for w in part]
     # tiles overlap: drop duplicates (same text, nearly the same box)
     seen, uniq = set(), []
     for w in words:
@@ -377,8 +390,16 @@ def ocr_words(meta, region=None, scale: float = 1.0, psm: int = 11, min_conf: fl
         if k not in seen:
             seen.add(k)
             uniq.append(w)
-    cache[ck] = uniq
-    return [w for w in uniq if w["conf"] >= min_conf]
+    return uniq
+
+
+def warm(meta):
+    """Start the default OCR of a raster sheet in the background (called once per upload), so the first question
+    does not wait for it; the specialists share the result through ocr_words' cache."""
+    if meta.get("words") or not meta.get("image") or not shutil.which("tesseract"):
+        return
+    sc = 2.0 if max(meta.get("w", 0), meta.get("h", 0)) < 3000 else 1.0
+    threading.Thread(target=lambda: ocr_words(meta, scale=sc, min_conf=0), daemon=True).start()
 
 
 def ocr_lines(words: list[dict], ytol: float = 0.5) -> list[dict]:
