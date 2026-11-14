@@ -120,7 +120,7 @@ function setAdding(on) {
 }
 $('#addbtn').onclick = () => setAdding(!adding);
 viewer.addEventListener('click', e => {
-  if (QA.matches && !adding && pin2d != null && !moved && !e.target.closest('button, .caption, .tip3d')) pickTip(null);  // a tap beside the pins closes the card
+  if (!adding && pin2d != null && !moved && !e.target.closest('button, .caption, .tip3d')) pickTip(null);  // a click beside the marks closes the card
   if (!adding || !res || moved || longPress() || mode === '3d' || e.target.closest('button, .caption')) return;
   addAt(e.clientX, e.clientY);
 });
@@ -214,7 +214,7 @@ const tip3d = document.createElement('div'); tip3d.className = 'tip3d'; tip3d.hi
 viewer.appendChild(tip3d);
 for (const t of ['pointerdown', 'pointerup', 'wheel', 'click']) tip3d.addEventListener(t, e => e.stopPropagation());
 function pickTip(i, pt, at) {  // at: open it at the client point pt whatever the mode (the Swiss 3D overlay, via pinCardAt)
-  const on2d = !at && mode === '2d' && QA.matches && i != null && items[i] && items[i].kind !== 'ifc';
+  const on2d = !at && mode === '2d' && i != null && items[i] && items[i].kind !== 'ifc';
   pin2d = on2d ? i : null;
   if (i == null || !items[i] || (mode !== '3d' && !on2d && !(at && pt))) { tip3d.hidden = true; return; }
   const e = items[i], k = items.slice(0, i + 1).filter(numbered).length;
@@ -1104,13 +1104,13 @@ function draw(animate) {
   for (const m of [...marks, ...secondMarks()]) ov.appendChild(shapeFor(m, -1, W, H));
   const list2d = items.map((e, i) => [e, i]).filter(([e]) => e.kind !== 'ifc');
   const done = () => { animating = false; renderAnswer(null); recompute(); };
-  if (!animate || !list2d.length) { list2d.forEach(([e, i]) => ov.appendChild(shapeFor(e, i, W, H))); done(); return; }
+  if (!animate || !list2d.length) { list2d.forEach(([e, i]) => placeByArea(shapeFor(e, i, W, H))); done(); return; }
   const step = Math.min(120, 2500 / list2d.length), r0 = res, n = list2d.length;
   const pings = document.createElementNS(NS, 'g'); pings.setAttribute('class', 'pings'); ov.appendChild(pings);
   let k = 0, sum = 0;
   const show = quiet => {
     const [e, i] = list2d[k++]; sum += e.value ?? 1;
-    const g = shapeFor(e, i, W, H); pings.before(g);
+    const g = shapeFor(e, i, W, H); placeByArea(g, pings);
     if (!quiet) {
       const p = g.firstElementChild.cloneNode(false); p.setAttribute('class', 'ping' + (modelRead(e) ? ' model' : ''));
       pings.appendChild(p); setTimeout(() => p.remove(), 700);
@@ -1133,15 +1133,20 @@ function shapeFor(e, i, W, H) {
   const fs = labelSize();
   let shape;
   if (e.kind === 'polygon') {
-    shape = document.createElementNS(NS, 'polygon');
-    shape.setAttribute('points', e.points.map(p => (p[0] * W) + ',' + (p[1] * H)).join(' '));
+    // one path: the outer ring and its holes (a corridor wrapped around rooms leaves them uncovered, to see and to click)
+    const rings = [e.points, ...(e.holes || [])].filter(r => r && r.length > 2);
+    shape = document.createElementNS(NS, 'path');
+    shape.setAttribute('d', rings.map(r => 'M' + r.map(p => (p[0] * W).toFixed(1) + ' ' + (p[1] * H).toFixed(1)).join('L') + 'Z').join(''));
+    shape.setAttribute('fill-rule', 'evenodd');
     shape.setAttribute('class', 'pg appear' + (e.on ? '' : ' off'));
+    if (i >= 0) g.dataset.area = rings.reduce((a, r, k) => a + (k ? -1 : 1) * ringArea(r, W, H), 0);
   } else {
     const [x0, y0, x1, y1] = e.bbox;
     shape = document.createElementNS(NS, 'rect');
     shape.setAttribute('x', x0 * W); shape.setAttribute('y', y0 * H);
     shape.setAttribute('width', Math.max(2, (x1 - x0) * W)); shape.setAttribute('height', Math.max(2, (y1 - y0) * H));
     shape.setAttribute('rx', 2);
+    if (i >= 0) g.dataset.area = (x1 - x0) * W * (y1 - y0) * H;
     const cls = e.second ? 'bx second' : e.mark ? (e.kind === 'text' ? 'bx txt' : 'bx mark') : 'bx appear' + (e.on ? '' : ' off') + (e.added ? ' added' : '') + (modelRead(e) ? ' model' : '');
     shape.setAttribute('class', cls);
   }
@@ -1151,8 +1156,7 @@ function shapeFor(e, i, W, H) {
   if (i >= 0) {
     shape.addEventListener('click', ev => {
       if (adding) return; ev.stopPropagation(); if (moved || longPress() || performance.now() - xrSkipT < 500) return;
-      if (QA.matches) { selectPin(i); return; }  // phone: a tap opens the item's card beside it; dropping is a button there
-      e.on = !e.on; redraw(); flashRow(i);
+      selectPin(i);  // a click opens the item's card beside it; dropping it is a button there (or its row's tick)
     });
     shape.addEventListener('mouseenter', () => rowHot(i, true, true));
     shape.addEventListener('mouseleave', () => rowHot(i, false));
@@ -1186,6 +1190,12 @@ function shapeFor(e, i, W, H) {
   return g;
 }
 
+const ringArea = (r, W, H) => { let a = 0; for (let k = 0; k < r.length; k++) { const p = r[k], q = r[(k + 1) % r.length]; a += p[0] * W * q[1] * H - q[0] * W * p[1] * H; } return Math.abs(a) / 2; };
+// the largest shapes first, the smallest on top: a click always lands on the innermost room or symbol
+function placeByArea(g, before) {
+  const a = +g.dataset.area, next = a >= 0 ? [...ov.children].find(c => c.dataset.area != null && +c.dataset.area < a) : null;
+  ov.insertBefore(g, next || before || null);
+}
 // boxes, and room polygons in a count question, carry a running number on the drawing and in the list
 function numbered(e) { return e.kind === 'box' || (e.kind === 'polygon' && res && res.type === 'count'); }
 
@@ -1199,11 +1209,11 @@ function renderEvidence() {
   const on = items.filter(e => e.on).length;
   $('#evtitle').textContent = on === items.length ? `${items.length} item${items.length === 1 ? '' : 's'}` : `${on} of ${items.length}`;
   $('#addbtn').hidden = primary === 'ifc' || mode === '3d' || !num;
-  $('#evhelp').textContent = primary === 'ifc' || mode === '3d' ? 'Untick a row to drop it. Click an element in 3D to find its row.' : 'Untick a row, or click its mark, to drop it.';
+  $('#evhelp').textContent = primary === 'ifc' || mode === '3d' ? 'Untick a row to drop it. Click an element in 3D to find its row.' : 'Untick a row to drop it; click a mark on the drawing for its card.';
   $('#evhelp').title = primary === 'ifc' || mode === '3d'
     ? 'Each row is an IFC element. Hover or click a row to find it in 3D; click an element in 3D to find its row. Untick a row to drop it from the answer.'
     : primary === 'paired' ? 'Each row is an IFC element, numbered on the plan: click a row to zoom to it, untick it to drop it. Switch to 3D to see the same elements in the model.'
-    : 'Click a row to zoom to it; untick it (or click its shape) to drop it. Missed one? Add it.'
+    : 'Click a row to zoom to it; untick it to drop it. Click a mark on the drawing for a card with its value and a drop button. Missed one? Add it.'
       + (items.some(modelRead) ? ' Dashed amber = found by a model, with its score: please check.' : ' Solid = measured from the CAD / IFC geometry.');
   let k = 0;
   items.forEach((e, i) => {
@@ -1242,7 +1252,7 @@ function focusItem(i) {
     return;
   }
   zoomToEvidence([e], 3); flashRow(i);
-  const s = ov.querySelector(`g[data-i="${i}"] rect, g[data-i="${i}"] polygon`);
+  const s = ov.querySelector(`g[data-i="${i}"] > rect, g[data-i="${i}"] > path.pg`);
   if (s) { s.classList.add('flash'); setTimeout(() => s.classList.remove('flash'), 1300); }
 }
 function redraw() {
@@ -1251,7 +1261,7 @@ function redraw() {
   renderEvidence(); recompute();
 }
 function hotItem(i, on) {
-  const s = ov.querySelector(`g[data-i="${i}"] rect, g[data-i="${i}"] polygon`); if (s) s.classList.toggle('hot', on);
+  const s = ov.querySelector(`g[data-i="${i}"] > rect, g[data-i="${i}"] > path.pg`); if (s) s.classList.toggle('hot', on);
   if (mode === '3d' && window.V3) V3.hot(on ? items[i]?.guids : null);
   if (mode === '2d' && items[i]?.guids) {  // plan marks that belong to this IFC element
     ov.querySelectorAll('g[data-i="-1"] rect').forEach((r, k) => { const m = marks[k]; if (m && m.guids && m.guids.some(g => items[i].guids.includes(g))) r.classList.toggle('hot', on); });
@@ -1264,7 +1274,7 @@ function rowHot(i, on, scroll) {
     const box = $('#ev'), top = r.offsetTop, bot = top + r.offsetHeight;
     if (top < box.scrollTop) box.scrollTop = top; else if (bot > box.scrollTop + box.clientHeight) box.scrollTop = bot - box.clientHeight + 30;
   }
-  const s = ov.querySelector(`g[data-i="${i}"] rect, g[data-i="${i}"] polygon`); if (s) s.classList.toggle('hot', on);
+  const s = ov.querySelector(`g[data-i="${i}"] > rect, g[data-i="${i}"] > path.pg`); if (s) s.classList.toggle('hot', on);
 }
 function flashRow(i) { rowHot(i, true, true); setTimeout(() => rowHot(i, false), 700); }
 
@@ -1974,6 +1984,7 @@ document.addEventListener('keydown', e => {
     xraySkip(); if (e.key !== 'Escape') return;
   }
   if (e.key === 'Escape') {
+    if (!tip3d.hidden && !typing) { e.preventDefault(); tip3d.querySelector('.tx').click(); return; }  // the in-context card first
     if (!sheetWrap.hidden) closeSheet();
     else if (tour) endTour();
     else if (adding) setAdding(false);

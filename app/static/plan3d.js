@@ -301,8 +301,8 @@ function clearEvidence() {
 }
 
 const W3 = (x, y, h) => new THREE.Vector3(x - center[0], h, -(y - center[1]));
-function flat(ring, h, mat) {
-  const g = new THREE.ShapeGeometry(shape(ring)); g.rotateX(-Math.PI / 2); g.translate(0, h, 0);
+function flat(ring, h, mat, holes = []) {
+  const g = new THREE.ShapeGeometry(shape(ring, holes)); g.rotateX(-Math.PI / 2); g.translate(0, h, 0);
   const m = mesh(g, mat, false, false); m.userData.mat = mat; m.renderOrder = 1; return m;
 }
 const grow = (ring, d) => { const [cx, cy] = centroid(ring); return ring.map(([x, y]) => { const l = Math.hypot(x - cx, y - cy) || 1; return [x + (x - cx) / l * d, y + (y - cy) / l * d]; }); };
@@ -349,8 +349,11 @@ function applyEvidence(animate) {
       const num = (e.label || '').split(' ')[0];
       const room = data.rooms.find(q => q.number && q.number === num);
       const ring = room ? room.pts : pts;
+      // a room wrapped around others (a corridor) carries them as holes: they stay unpainted, and pickable on their own
+      const holes = (e.holes || []).filter(r => r && r.length > 2).map(r => r.map(([u, v]) => toPlan(u, v)));
       const mat = !it.on ? mats.roomOff : br && e.value != null ? mats.heat[heatClass(+e.value, br)] : mats.count;
-      add(flat(ring, 0.03, mat), loop(ring, 0.035));
+      add(flat(ring, 0.03, mat, holes), loop(ring, 0.035));
+      for (const hr of holes) { const l = new THREE.LineLoop(loop(hr, 0.035), it.on ? mats.line : mats.lineOff); evGroup.add(l); it.lines.push(l); }
       [px, py] = room && room.label ? room.label : centroid(ring);
       it.anchor = W3(px, py, numbered ? PIN_H : 1.55);
       it.name = room ? room.name : (e.label || '');
@@ -492,6 +495,7 @@ async function load(p) {
 async function open() {
   const c = app.cur(); if (!isSwiss(c) || opened) return;
   opened = true; path = c.path;
+  try { if (typeof window.pinCardAt === 'function') window.pinCardAt(null); } catch (e) { /* app changed */ }  // a 2D card stays in 2D
   initGL();
   box.classList.add('on'); viewer.classList.add('p3on');
   tog.querySelector('#p3plan').classList.remove('on'); tog.querySelector('#p3go').classList.add('on');
