@@ -458,6 +458,9 @@ def answer(path, question, meta):
             return r
         if r is not None:
             tried.append(r)
+    ask = [x for x in tried if str(x.get("method", "")).endswith("-ask")]
+    if ask:  # a specialist that read the rooms and could not find the named one asks back; no fallback guess
+        return ask[0]
     r = _answer_builtin(path, question, meta, it)
     if (r is None or r.get("answer") is None) and tried:
         return max(tried, key=lambda x: bool(x.get("not_found")))  # keep a specialist's "not on this drawing"

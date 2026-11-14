@@ -285,6 +285,15 @@ def segment(image, px_per_m=None, words=None, meta=None, with_labels=True) -> di
 
     g = _gray(image)
     H, W = g.shape
+    scan = _scan_like(g)
+    if scan:
+        # grey scan paper / toner that is never black: stretch paper to white and ink to black first, so the ink,
+        # thin-line and fill thresholds below mean the same as on a clean render (grey paper hid every door swing)
+        sub = g[::4, ::4]
+        lo, hi = float(np.percentile(sub, 0.5)), float(np.percentile(sub, 90))
+        if hi - lo > 40 and (hi < 245 or lo > 15):
+            lut = np.clip((np.arange(256) - lo) * 255.0 / (hi - lo), 0, 255).astype(np.uint8)
+            g = lut[g]
     sc = None
     if px_per_m is None:
         sc = scale_info(image, words, meta)
@@ -307,10 +316,10 @@ def segment(image, px_per_m=None, words=None, meta=None, with_labels=True) -> di
     wall_px = float(2 * np.median(ridge) / f) if ridge.size else 0.0
     # coarse sources (screenshots, 2500 px renders, 150 dpi scans): single-pixel glazing / serving-hatch lines are
     # resampled to mid grey (~190-215), so they fail the black test and a hall leaked into its servery and kitchen
-    scan = _scan_like(g)
     faint = None
     if px_per_m < 40 or scan:
-        faint = cv2.resize((g < 220).astype(np.uint8) * 255, size,
+        paper = float(np.percentile(g[::4, ::4], 90))  # 255 on a render, ~220 on grey scan paper
+        faint = cv2.resize((g < min(220.0, paper - 35)).astype(np.uint8) * 255, size,
                            interpolation=cv2.INTER_AREA if f < 1 else cv2.INTER_NEAREST) > 40
     disc = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     wall = cv2.morphologyEx(ink, cv2.MORPH_OPEN, disc)
@@ -409,6 +418,7 @@ def segment(image, px_per_m=None, words=None, meta=None, with_labels=True) -> di
     # colour-filled space diagrams (rooms shaded by type) are read by the colour-zone path, not by wall gaps
     inside = np.isin(lab[::3, ::3], [r["_i"] for r in rooms])
     fill_gray = float(np.median(small[::3, ::3][inside])) if inside.any() else 255.0
+    paper_gray = float(np.percentile(small[::3, ::3], 90))  # grey scan paper: rooms are as grey as the paper
     seg_extra = {"lab": lab, "f": f, "W": W, "H": H, "src_ppm": px_per_m,
                  "vector": bool(words is None and meta and meta.get("words"))}
     if with_labels:
@@ -422,7 +432,7 @@ def segment(image, px_per_m=None, words=None, meta=None, with_labels=True) -> di
     rooms.sort(key=lambda r: -r["area_m2"])
     return {"rooms": rooms, "scale": sc or {"px_per_m": px_per_m, "how": "given"}, "px_per_m": px_per_m,
             "wall_px": round(wall_px, 1), "_lab": seg_extra, "scan": scan,
-            "fill_gray": fill_gray,
+            "fill_gray": fill_gray, "paper_gray": paper_gray,
             "doors": doors, "bands": bands, "footprint_m2": round(footprint, 1),
             "footprint_polys": [[[round(p[0][0] / f, 1), round(p[0][1] / f, 1)] for p in c] for c in big]}
 
@@ -833,7 +843,7 @@ def answer(path, question, meta):
     W, H = meta.get("w"), meta.get("h")
     if not W:
         H, W = _gray(meta["image"]).shape
-    if seg.get("fill_gray", 255) < 235:
+    if seg.get("fill_gray", 255) < min(235.0, seg.get("paper_gray", 255.0) - 20):
         return None  # rooms are shaded (a colour-coded space diagram): areas belong to the colour-zone path
     big = [r for r in rooms if r["area_m2"] >= 4]
     if seg.get("px_per_m", 0) >= 40 and len(big) >= 10 and sum(1 for r in big if r["label"]) < 0.1 * len(big):
@@ -865,19 +875,27 @@ def answer(path, question, meta):
             # a named room (or a split by room type) on a coarse sheet: OCR garbles the names here, so every room is
             # read off its own cut-out crop by a VLM (one batch for the sheet, cached); faint glazing / hatch lines
             # close rooms as on a crisp sheet, so the outline holds within a few % (hall 246 / 241 m² for 245)
-            if not seg.get("_crop_read"):
-                seg["_crop_read"] = True
-                try:
-                    seg["cost_usd"] = seg.get("cost_usd", 0.0) + crop_labels(seg, meta["image"], rooms)
-                except Exception:  # noqa: BLE001
-                    import logging
+            with _lock:
+                lk = seg.setdefault("_crop_lock", threading.Lock())
+            with lk:  # questions asked at once wait for the one reading
+                if not seg.get("_crop_read"):
+                    try:
+                        seg["cost_usd"] = seg.get("cost_usd", 0.0) + crop_labels(seg, meta["image"], rooms)
+                    except Exception:  # noqa: BLE001
+                        import logging
 
-                    logging.getLogger(__name__).exception("room crop labels failed")
+                        logging.getLogger(__name__).exception("room crop labels failed")
+                    seg["_crop_read"] = True
             if not any(r.get("label_source") == "vision" for r in rooms):
                 return None
             cf = cf / 0.6 * 0.8
             low_res = (low_res + "; " if low_res else "") + "room names read from per-room crops by a vision model"
     sel, qw = match_rooms(rooms, question)
+    if sel and seg.get("_crop_read") and len(qw) >= 2:
+        # names read off coarse crops: a half match ("Hall" for "Multi-Purpose Hall" when the hall's own name was
+        # unreadable, a "Dining Room" via the hall synonym) is not trusted; the room list is offered instead
+        lw = lambda r: {SYN.get(w, w) for w in _norm(r["label"])}  # noqa: E731
+        sel = [r for r in sel if sum(1 for w in qw if any(_close(w, x) for x in lw(r))) == len(qw)]
     if qw and not sel and not seg.get("_crop_read"):
         # the question names a room we have no label for: read the unlabelled / larger rooms' own crops (budgeted)
         cand = [r for r in rooms if r["area_m2"] >= 1.5]
