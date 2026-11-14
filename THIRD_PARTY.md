@@ -28,9 +28,9 @@ drawing it shows.
 
 | image | drawing | licence of the image |
 |---|---|---|
-| `docs/img/tour-1.png`, `tour-2.png`, `tour-3.png`, `phone.png`, `design-{before,after}-1440-{empty,count,tour}.png`, `design-{before,after}-1920-area.png`, `design-{before,after}-390-count.png`, `app/static/og.png`, `docs/deck/img/step-1.jpg`, `step-2.jpg` | Swiss Dwellings floor plan | CC BY 4.0, credit above |
-| `docs/img/tour-4.png`, `docs/img/design-{before,after}-1920-cubicasa.png`, `docs/deck/img/step-4.jpg` | CubiCasa5K plan | **CC BY-NC-SA 4.0**, credit above; non-commercial only, adaptations under the same licence |
-| `docs/img/tour-5.png`, `tour-6.png`, `tour-7.png`, `docs/deck/img/step-5b.jpg` | Molio Demo-hus IFC model (buildingSMART Community Sample-Test-Files) | CC BY 4.0, credit above |
+| `docs/img/tour-1.png`, `tour-2.png`, `tour-3.png`, `phone.png`, `design-{before,after}-1440-{empty,count,tour}.png`, `design-{before,after}-1920-area.png`, `design-{before,after}-390-count.png`, `app/static/og.png`, `docs/deck/img/step-1.jpg`, `step-2.jpg`, `step-3.jpg`, `landing.jpg`, `deck-swiss-doors.jpg`, `deck-german-area.jpg`, `deck-correction.jpg` | Swiss Dwellings floor plan | CC BY 4.0, credit above |
+| `docs/img/tour-4.png`, `docs/img/design-{before,after}-1920-cubicasa.png`, `docs/deck/img/step-4.jpg`, `finnish.jpg`, `deck-finnish-vlm.jpg` | CubiCasa5K plan | **CC BY-NC-SA 4.0**, credit above; non-commercial only, adaptations under the same licence |
+| `docs/img/tour-5.png`, `tour-6.png`, `tour-7.png`, `docs/deck/img/step-5b.jpg`, `step-5.jpg`, `step-6.jpg`, `step-7.jpg`, `deck-ifc-walls.jpg` | Molio Demo-hus IFC model (buildingSMART Community Sample-Test-Files) | CC BY 4.0, credit above |
 | `docs/deck/deck.pdf`, `docs/deck/deck.html` | embeds the step images above | each embedded image keeps its licence (above); the rest of the deck is MIT |
 | `docs/img/scoreboard.png`, `docs/img/design-{before,after}-1440-results.png`, `docs/img/fig-*.png` / `.svg` | no drawing (our UI and charts) | MIT |
 

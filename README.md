@@ -44,7 +44,7 @@ tolerance: counts exact, areas / lengths / volumes within 2 %. An abstention cou
 | Nemotron 3.5 Super VL (open weights), drawing only¹ | 49.0 % [40.0–58.0] | $2.59 | 40.1 |
 | Most common answer per question template (no drawing) | 41.6 % [41.0–42.2] | $0 | 0 |
 
-**By source (ours):** Swiss apartment plans 100.0 % (8,214 questions: counts 100.0 %, room areas 99.9 %),
+**By source (ours):** Swiss apartment plans 99.95 % (8,210 of 8,214 questions: counts 99.96 %, room areas 99.92 %),
 IFC models 100 % on all 600 numeric questions (counts, areas, volumes, lengths), Finnish raster plans
 (CubiCasa) 84.2 % (16,496 counts, YOLO11m detector), IFC-Bench free text 38.2 % (110 questions, LLM judge;
 our weakest area). On the same 400 sampled questions, Sonnet with sibling files is right on 3 that we miss; we
@@ -177,7 +177,7 @@ answer + confidence + evidence + cross-check ──► web app: numbered boxes /
   sources: the text layer of vector PDFs / DXF is split into segments with ids and an LLM must answer *by
   citing ids*, so sums are recomputed from what it cited; without a text layer, a vision model boxes every
   instance, tile by tile. On the 64 opening_design questions (no held-out split, so indicative) it answers
-  92.2 % at $5.02 / 1,000 ([`generic_opening_haiku`](runs/generic_opening_haiku.summary.md)).
+  93.8 % at $4.85 / 1,000 ([`generic_opening_final`](runs/generic_opening_final.summary.md); an earlier run of the same setup scored 92.2 %).
 - **Free text about IFC** ([`bp/solvers/ifctext.py`](bp/solvers/ifctext.py), [`bp/judge.py`](bp/judge.py)).
   A fact sheet is extracted from the model, each line with an id that maps back to GlobalIds; rules answer the
   common question shapes and a cheap LLM answers the rest citing those ids. Free text is our weakest area
@@ -198,8 +198,8 @@ mkdir -p data/full && cd data/full
 curl -LO https://fwjydgxpttajiqpfmqtj.supabase.co/storage/v1/object/public/stoa-junction-2026/junction-dataset.zip
 unzip -q junction-dataset.zip && cd ../..       # -> data/full/junction-dataset/questions.jsonl (or set BP_DATA)
 
-# CubiCasa detector weights: not in git. Train them with train/cubicasa/README.md (5.5 GB download, 1-2 h
-# on an RTX 4070) -> cache/cubicasa/weights/{best.pt,thresholds.json,calib.json}
+# CubiCasa detector weights: not in git. Train them with train/cubicasa/README.md (5.5 GB download, 1-2 h per
+# run on an RTX 4070; ~5 GPU-h across all our iterations) -> cache/cubicasa/weights/{best.pt,thresholds.json,calib.json}
 
 # demo app
 .venv/bin/python -m uvicorn app.server:app --host 0.0.0.0 --port 3123    # http://localhost:3123

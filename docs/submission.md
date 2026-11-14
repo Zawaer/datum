@@ -13,7 +13,7 @@ _(20 characters)_
 
 ## Punchline (≤ 200 chars)
 
-Ask a drawing or BIM model anything, in any language. 89.5 % right on 25k held-out questions vs 69.8 % for a frontier model given the same files, every answer proven on the drawing.
+Ask a drawing or BIM model anything, in any language. 89.5 % right on 25k held-out questions vs 69.8 % for a frontier model given the same files, every answer shown on the drawing.
 
 _(181 characters)_
 
@@ -44,7 +44,7 @@ Held-out test split, split by drawing (every format and language twin on the sam
 | Claude Haiku 5.5, drawing only* | 60.6 % | $1.21 |
 | Nemotron 3.5 Super VL (open)* | 49.0 % | $2.59 |
 
-By source: Swiss plans 100.0 % (8,214), IFC numeric 100 % (600), Finnish raster plans 84.2 % (16,496), IFC free text 38.2 % (110, LLM judge; our weak spot).
+By source: Swiss plans 99.95 % (8,214), IFC numeric 100 % (600), Finnish raster plans 84.2 % (16,496), IFC free text 38.2 % (110, LLM judge; our weak spot).
 
 \* 400-question sample stratified by source × type (±~13 pp per cell), re-weighted to the test mix. The fair comparison gives Sonnet the same sibling files our solvers read.
 
