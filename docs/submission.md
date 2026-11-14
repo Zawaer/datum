@@ -82,7 +82,7 @@ Two language models, never averaged: Claude Haiku 5.5 (free text, sheet type, te
 
 ### Built to be trusted
 
-Security review, load test, accessibility pass, 493 automated tests in CI. Models are plug-ins behind one evidence contract; every correction is a labelled example.
+Security review, load test, accessibility pass, 558 automated tests in CI. Models are plug-ins behind one evidence contract; every correction is a labelled example.
 
 Built by Toivo and Rene at Junction 2026. Code: MIT; reproducible with one command (`eval.py`).
 
