@@ -26,6 +26,8 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 METHOD = "sheets-slab"
+WALL_BAND = 0.009  # wall band (edge beam) width bound, share of the long image side
+_DEBUG: list = []
 _BAR = r"(?:[DTYHRN]\s?\d{1,2}|#\s?\d{1,2}|Ø\s?\d{1,2}|\d{1,2}\s?M)"
 _BAR_RE = re.compile(rf"\b({_BAR})\s*(?:@|AT|C/C|CC|c/c)\s*(\d{{2,4}})", re.I)
 _THK_RE = re.compile(r"\b(\d{2,3})\s*(?:MM\s*)?(?:THK\.?\s*|THICK\s*)?(?:CONCRETE\s*)?(?:SLAB|SOG|S\.O\.G)", re.I)
@@ -185,41 +187,73 @@ def _gray(meta, max_side=3200):
     return g, f
 
 
+def _shade_mask(g):
+    """Hatched / shaded areas: dense small marks (a lossy raster breaks hatch lines into dots), closed into blobs."""
+    import cv2
+    import numpy as np
+
+    S = max(g.shape)
+    d = (g < 200).astype(np.uint8)
+    n, lab, st, _ = cv2.connectedComponentsWithStats(d, connectivity=8)
+    lim = max(4, round(S * 0.002))
+    small = (st[:, 2] <= lim) & (st[:, 3] <= lim) & (st[:, 4] <= lim * lim)
+    small[0] = False
+    diag = _diag_strokes(d, S)
+    m = (small[lab] | (diag > 0)).astype(np.float32)
+    r = max(7, round(S * 0.0075)) | 1
+    den = cv2.blur(m, (r, r))
+    out = (den > 0.06).astype(np.uint8)
+    out = cv2.morphologyEx(out, cv2.MORPH_CLOSE, np.ones((r, r), np.uint8))
+    return cv2.morphologyEx(out, cv2.MORPH_OPEN, np.ones((r, r), np.uint8))
+
+
+def _diag_strokes(dark, S):
+    import cv2
+    import numpy as np
+
+    L = max(7, round(S * 0.0045))
+    k1 = np.eye(L, dtype=np.uint8)
+    return cv2.morphologyEx(dark, cv2.MORPH_OPEN, k1) | cv2.morphologyEx(dark, cv2.MORPH_OPEN, np.fliplr(k1).copy())
+
+
 def _zones(g):
-    """Slab zones: list of {"mask" (bool HxW), "panels": [masks]}. See module doc, step 4."""
+    """Slab zones: list of {"mask"}. Enclosed white areas (hatch strokes ignored); thin strips (wall bands between
+    their outlines) dropped; areas separated only by a thin line (control joint, dimension line) merged."""
     import cv2
     import numpy as np
 
     H, W = g.shape
     S = max(H, W)
-    d = cv2.dilate((g < 200).astype(np.uint8), np.ones((3, 3), np.uint8))
+    dark = (g < 200).astype(np.uint8)
+    d = cv2.dilate(dark, np.ones((3, 3), np.uint8))
     n, lab, st, _ = cv2.connectedComponentsWithStats((1 - d).astype(np.uint8), connectivity=4)
-    min_a = 0.003 * W * H
-    k = max(9, round(S * 0.011)) | 1
-    ker = cv2.getStructuringElement(cv2.MORPH_RECT, (k, k))
-    panels = []
+    lab0 = lab.copy()
+    min_a = 0.0004 * W * H
+    ko = max(9, round(S * 0.011)) | 1
+    kopen = cv2.getStructuringElement(cv2.MORPH_RECT, (ko, ko))
+    keep = {}
+    lab2 = np.zeros_like(lab)
+    nxt = 1
     for i in range(1, n):
         x, y, w, h, a = st[i]
-        if a < min_a or x <= 1 or y <= 1 or x + w >= W - 1 or y + h >= H - 1:
+        if a < min_a or x <= 3 or y <= 3 or x + w >= W - 3 or y + h >= H - 3 or w > 0.9 * W or h > 0.9 * H:
             continue
         m = (lab[y:y + h, x:x + w] == i).astype(np.uint8)
-        mo = cv2.morphologyEx(m, cv2.MORPH_OPEN, ker)
-        n2, l2, s2, _ = cv2.connectedComponentsWithStats(mo, connectivity=4)
-        for j in range(1, n2):
-            if s2[j, 4] < min_a:
+        core = cv2.morphologyEx(m, cv2.MORPH_OPEN, kopen)
+        # thin parts (wall-band strips between their outlines) are cut off; each remaining core is a panel
+        nc, lc, sc, _ = cv2.connectedComponentsWithStats(core, connectivity=4)
+        for j in range(1, nc):
+            if sc[j, 4] < min_a:
                 continue
-            pm = np.zeros((H, W), np.uint8)
-            pm[y:y + h, x:x + w] = (l2 == j)
-            # restore the full extent (the opening rounds corners): component pixels near the opened part
-            pm = cv2.dilate(pm, ker) & (lab == i).astype(np.uint8)
-            panels.append(pm)
-    if not panels:
-        return [], d
-    # merge panels separated by thin lines only
-    r = max(3, round(S * 0.0025))
-    kd = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
-    dil = [cv2.dilate(p, kd) for p in panels]
-    parent = list(range(len(panels)))
+            cj = (lc == j).astype(np.uint8) & (lab2[y:y + h, x:x + w] == 0)
+            lab2[y:y + h, x:x + w][cj > 0] = nxt
+            ys, xs = np.nonzero(cj)
+            keep[nxt] = (x + xs.min(), y + ys.min(), xs.max() - xs.min() + 1, ys.max() - ys.min() + 1, int(cj.sum()))
+            nxt += 1
+    lab = lab2
+    r = max(5, round(S * 0.0028))
+    min_touch = max(15, round(S * 0.008))
+    parent = {i: i for i in keep}
 
     def find(a):
         while parent[a] != a:
@@ -227,24 +261,64 @@ def _zones(g):
             a = parent[a]
         return a
 
-    for a in range(len(panels)):
-        for b in range(a + 1, len(panels)):
-            if (dil[a] & dil[b]).sum() > 2 * r:
-                parent[find(a)] = find(b)
+    ker = cv2.getStructuringElement(cv2.MORPH_RECT, (2 * r + 1, 2 * r + 1))
+    for i, (x, y, w, h, _a) in keep.items():
+        x0, y0, x1, y1 = max(0, x - r), max(0, y - r), min(W, x + w + r), min(H, y + h + r)
+        sub = lab[y0:y1, x0:x1]
+        ring = cv2.dilate((sub == i).astype(np.uint8), ker) & (sub != i)
+        js, cnt = np.unique(sub[ring > 0], return_counts=True)
+        for j, c in zip(js, cnt):
+            if j in keep and j != i and c >= min_touch:
+                parent[find(i)] = find(j)
+                if _DEBUG: _DEBUG.append((i, j, int(c), keep[i], keep[j]))
     groups: dict = {}
-    for i in range(len(panels)):
+    for i in keep:
         groups.setdefault(find(i), []).append(i)
-    zones = []
     kc = cv2.getStructuringElement(cv2.MORPH_RECT, (2 * r + 3, 2 * r + 3))
+    cands = []
     for idx in groups.values():
-        m = np.zeros((H, W), np.uint8)
-        for i in idx:
-            m |= panels[i]
-        m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, kc)
-        cs, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        m = np.zeros((H, W), np.uint8)
-        cv2.drawContours(m, cs, -1, 1, -1)
-        zones.append({"mask": m, "panels": [panels[i] for i in idx]})
+        if sum(keep[i][4] for i in idx) < 0.008 * W * H:
+            continue
+        m = cv2.morphologyEx(np.isin(lab, idx).astype(np.uint8), cv2.MORPH_CLOSE, kc)
+        cands.append((m, _ring_walled(g, m)))
+    zones = [m for m, wl in cands if wl >= 0.75]
+    # outside = the paper around the building: open areas not walled in (between dimension chains, sheet margin)
+    outside = np.zeros((H, W), np.uint8)
+    for m, wl in cands:
+        if wl < 0.75:
+            outside |= m
+    big = (st[:, 4] > 0.02 * W * H)
+    big[0] = False
+    for i in np.nonzero(big)[0]:
+        x, y, w, h, a = st[i]
+        if x <= 3 or y <= 3 or x + w >= W - 3 or y + h >= H - 3 or w > 0.9 * W or h > 0.9 * H:
+            outside[lab0 == i] = 1
+    bw = max(5, round(S * WALL_BAND))
+    kb = cv2.getStructuringElement(cv2.MORPH_RECT, (2 * bw + 1, 2 * bw + 1))
+    out_b = cv2.dilate(outside, kb)
+    res = []
+    for zi, m in enumerate(zones):
+        other = np.zeros((H, W), np.uint8)
+        for zj, m2 in enumerate(zones):
+            if zj != zi:
+                other |= m2
+        # details inside the slab (hatching, trenches, symbols, text) break the white area: close over them,
+        # but never across the wall band into the paper outside or a neighbouring zone
+        free = ((out_b == 0) & (cv2.dilate(other, kb) == 0)).astype(np.uint8)
+        nf, lf = cv2.connectedComponents(free, connectivity=4)
+        ids = np.unique(lf[(m > 0) & (free > 0)])
+        full = np.isin(lf, ids[ids > 0]).astype(np.uint8)
+        # ... but only within the zone's own extent (the open paper outside is not always walled off)
+        ys, xs = np.nonzero(m)
+        box = np.zeros((H, W), np.uint8)
+        box[max(0, ys.min() - 3):ys.max() + 4, max(0, xs.min() - 3):xs.max() + 4] = 1
+        full = cv2.morphologyEx(full & box, cv2.MORPH_OPEN, kopen) | m
+        cs, _ = cv2.findContours(full.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        c = max(cs, key=cv2.contourArea)
+        f = np.zeros((H, W), np.uint8)
+        cv2.drawContours(f, [c], -1, 1, -1)
+        res.append({"mask": f, "walled": dict((id(mm), wl) for mm, wl in cands).get(id(m), 1.0)})
+    zones = res
     return zones, d
 
 
