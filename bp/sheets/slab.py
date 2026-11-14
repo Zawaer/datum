@@ -248,7 +248,7 @@ def _type_name(ty: dict) -> str:
 
 
 # ----------------------------------------------------------------------------------------------- geometry
-def _gray(meta, max_side=2000):
+def _gray(meta, max_side=2000, stretch=True):
     import cv2
 
     g = cv2.imread(meta["image"], cv2.IMREAD_GRAYSCALE)
@@ -256,6 +256,14 @@ def _gray(meta, max_side=2000):
     if max(g.shape) > max_side:
         f = max_side / max(g.shape)
         g = cv2.resize(g, (round(g.shape[1] * f), round(g.shape[0] * f)), interpolation=cv2.INTER_AREA)
+    # scans and photos: grey paper, faded ink. Stretch so the paper is white and the ink dark, like a clean render
+    import numpy as np
+
+    paper = float(np.percentile(g, 60))
+    ink = float(np.percentile(g, 0.5))
+    if stretch and (paper < 245 or ink > 40):
+        if paper - ink > 30:
+            g = np.clip((g.astype(np.float32) - ink) * 255.0 / (paper - ink), 0, 255).astype(np.uint8)
     return g, f
 
 
@@ -391,7 +399,7 @@ def _dimension_zones(out_zones, types, used, dims, W, H, S):
         if abs(a_dim - a_ras) / max(a_ras, 1e-9) <= 0.10:
             continue
         others = [sbox(*_bbox_pts(o["inner"])) for o in out_zones if o is not z]
-        if any(sbox(*r).intersection(o).area > 0.15 * a_dim for o in others):
+        if any(sbox(*r).intersection(o).area > 0.03 * a_dim for o in others):
             continue
         why = "its traced outline was ragged" if ragged else ext[0] + " runs past the traced outline"
         z["raster_inner"], z["raster_px"] = pts, a_ras
@@ -429,6 +437,92 @@ def _dimension_zones(out_zones, types, used, dims, W, H, S):
 def _bbox_pts(pts):
     xs, ys = [p[0] for p in pts], [p[1] for p in pts]
     return min(xs), min(ys), max(xs), max(ys)
+
+
+def _read_zone_note(meta, z, W, H):
+    """Haiku transcription of the slab note inside one zone (crop of the full-resolution image). (type | None, cost)"""
+    from PIL import Image
+
+    from bp.generic import llm
+
+    Image.MAX_IMAGE_PIXELS = None
+    x0, y0, x1, y1 = _bbox_pts(z["inner"])
+    cache = meta.setdefault("_slab_reads", {})
+    key = f"zone:{x0 / W:.3f},{y0 / H:.3f},{x1 / W:.3f},{y1 / H:.3f}"
+    cost = 0.0
+    if key not in cache:
+        im = Image.open(meta["image"]).convert("L")
+        IW, IH = im.size
+        crop = im.crop((round(x0 / W * IW), round(y0 / H * IH), round(x1 / W * IW), round(y1 / H * IH)))
+        crop.thumbnail((1568, 1568), Image.LANCZOS)
+        r = llm.ask("Crop of one room of a structural slab / foundation plan. Transcribe the slab note in it exactly "
+                    "(e.g. '300 SLAB-ON-GRADE W/ D16 @ 300 TOP FACE ... TOP OF SLAB EL. = 9400'), with its centre as "
+                    'fractions of the crop. JSON only: {"note": "..." or null, "x": 0..1, "y": 0..1}',
+                    [crop.convert("RGB")], model="haiku", tag="sheets-slab-zone-note", timeout=90)
+        cost = float(r.get("cost_usd") or 0.0)
+        d = llm.parse_json(r["text"]) or {}
+        cache[key] = d if isinstance(d, dict) else {}
+    d = cache[key]
+    ty = _parse_type(str(d.get("note") or ""))
+    if not ty or not ty.get("thickness_mm"):
+        return None, cost
+    try:
+        fx, fy = float(d.get("x", 0.5)), float(d.get("y", 0.5))
+    except (TypeError, ValueError):
+        fx, fy = 0.5, 0.5
+    cx, cy = (x0 + fx * (x1 - x0)) / W, (y0 + fy * (y1 - y0)) / H
+    ty.update({"text": str(d["note"]), "bbox": [cx - 0.02, cy - 0.01, cx + 0.02, cy + 0.01]})
+    return ty, cost
+
+
+def _deskew(g):
+    """Level a slightly rotated scan: median angle of its long near-horizontal / near-vertical lines. Returns
+    (g, inverse 2x3 affine or None)."""
+    import cv2
+    import numpy as np
+
+    H, W = g.shape
+    S = max(H, W)
+    edges = (g < 128).astype(np.uint8) * 255
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 1800, threshold=int(S * 0.08), minLineLength=int(S * 0.12),
+                            maxLineGap=int(S * 0.004))
+    if lines is None:
+        return g, None
+    angs = []
+    for x0, y0, x1, y1 in lines.reshape(-1, 4):
+        a = math.degrees(math.atan2(y1 - y0, x1 - x0))
+        a = (a + 45) % 90 - 45  # fold vertical onto horizontal
+        if abs(a) < 3:
+            angs.append(a)
+    if len(angs) < 5:
+        return g, None
+    ang = float(np.median(angs))
+    if abs(ang) < 0.15:
+        return g, None
+    M = cv2.getRotationMatrix2D((W / 2, H / 2), ang, 1.0)
+    g2 = cv2.warpAffine(g, M, (W, H), flags=cv2.INTER_LINEAR, borderValue=255)
+    return g2, cv2.invertAffineTransform(M)
+
+
+def _unrotate(out_zones, pads, Minv):
+    def tp(p):
+        x, y = p
+        return (float(Minv[0, 0] * x + Minv[0, 1] * y + Minv[0, 2]), float(Minv[1, 0] * x + Minv[1, 1] * y + Minv[1, 2]))
+
+    for z in out_zones:
+        for key in ("inner", "gross", "raster_inner"):
+            if z.get(key):
+                z[key] = [tp(p) for p in z[key]]
+        z["stair_parts"] = []
+        cuts = []
+        for o, x, y, w, h in z.get("cuts", []):
+            cx, cy = tp((x + w / 2, y + h / 2))
+            cuts.append((o, cx - w / 2, cy - h / 2, w, h))
+        z["cuts"] = cuts
+    for pd in pads:
+        pd["poly"] = [list(tp(p)) for p in pd["poly"]]
+        xs, ys = [p[0] for p in pd["poly"]], [p[1] for p in pd["poly"]]
+        pd["bbox"] = [min(xs), min(ys), max(xs), max(ys)]
 
 
 def _bbox(m):
@@ -1123,6 +1217,7 @@ def _reread_notes(meta, blocks):
     Image.MAX_IMAGE_PIXELS = None
     im = Image.open(meta["image"]).convert("L")
     W, H = im.size
+    small_src = max(W, H) < 3000
     keyb = [b for b in blocks if _NOTE_KW.search(b["text"])]
     if not keyb or len(keyb) > 25:
         return blocks, 0.0
@@ -1174,14 +1269,16 @@ def _reread_notes(meta, blocks):
 
     crop_nums = {}
     for bx in boxes:
-        ws = ocr_words(meta, region=tuple(round(v, 4) for v in bx), scale=4.0, psm=6, min_conf=40)
+        ws = ocr_words(meta, region=tuple(round(v, 4) for v in bx), scale=4.0, psm=6, min_conf=85)
         crop_nums[tuple(bx)] = {t for w in ws for t in re.findall(r"\d{3,6}", w["text"])}
 
     def fix(note, bx):
         def sub(m):
             t = m.group(0)
             near = crop_nums.get(tuple(bx), set())
-            if not is_general.get(tuple(bx)) or not near or t in near:
+            # only where Haiku saw a small raster (it misread 1825 as 1625 at 2000 px); on a sharp crop Haiku
+            # is the better reader and Tesseract the one that slips (4275 -> 1275 on a scan)
+            if not small_src or not is_general.get(tuple(bx)) or not near or t in near:
                 return t
             alt = [o for o in near if len(o) == len(t) and sum(a != b for a, b in zip(o, t)) == 1]
             return alt[0] if len(alt) == 1 else t
@@ -1202,7 +1299,8 @@ def _reread_notes(meta, blocks):
             if key in seen:
                 continue
             seen.add(key)
-            out.append({"text": fix(n, bx), "bbox": bb, "lines": [], "read": "haiku+ocr"})
+            out.append({"text": fix(n, bx), "bbox": bb, "lines": [], "read": "haiku+ocr",
+                        "general": bool(is_general.get(tuple(bx)))})
     if not out:
         return blocks, cost
     # keep OCR blocks that the re-read crops do not cover; the crops' notes replace the rest
@@ -1223,7 +1321,16 @@ def analyse(meta) -> dict:
     cost = 0.0
     hor, ver, src = _ocr(meta)
     g, f = _gray(meta)
-    g_seg = _erase_pdf_shading(meta, g)
+    g, rot = _deskew(g)  # a scan's slight rotation breaks straight-line tests (joints, ticks): measure level
+    # the flood fill works on the unstretched grey (a stretched scan turns paper noise into barriers); the line
+    # tests (dimension ticks, joints) on the stretched one
+    g_raw = _gray(meta, stretch=False)[0]
+    if rot is not None:
+        import cv2
+
+        g_raw = cv2.warpAffine(g_raw, cv2.invertAffineTransform(rot), (g_raw.shape[1], g_raw.shape[0]),
+                               flags=cv2.INTER_NEAREST, borderValue=255)  # nearest: thin wall lines stay dark
+    g_seg = _erase_pdf_shading(meta, g_raw)
     H, W = g.shape
     lines = ocr_lines(hor) if hor else []
     blocks = _blocks(lines)
@@ -1344,17 +1451,33 @@ def analyse(meta) -> dict:
                 z["type"], z["type_how"] = ti, "note inside the zone"
                 used.add(ti)
                 break
-    for z in sorted(out_zones, key=lambda z: -z["gross_px"]):
-        if z["type"] is not None:
+    # a zone with no note inside: its note may be one the text pass missed (small boxed text on a mid-size raster)
+    # -> one Haiku read of the zone's own crop
+    if src not in ("pdf-text",) and os.environ.get("BP_SLAB_REREAD", "1") == "1":
+        for z in out_zones:
+            if z["type"] is not None or z["inner_px"] < 0.03 * W * H:
+                continue
+            ty, c = _read_zone_note(meta, z, W, H)
+            cost += c
+            if ty:
+                types.append(ty)
+                z["type"], z["type_how"] = len(types) - 1, "note inside the zone (read from the zone's crop)"
+                used.add(len(types) - 1)
+    # notes outside every zone (with a leader): each goes to the nearest zone still without a note
+    pairs = []
+    for ti, t in enumerate(types):
+        if ti in used:
             continue
-        poly = Polygon(z["gross"])
-        cands = [(poly.distance(Point((t["bbox"][0] + t["bbox"][2]) / 2 * W, (t["bbox"][1] + t["bbox"][3]) / 2 * H)), ti)
-                 for ti, t in enumerate(types) if ti not in used]
-        if cands:
-            dist, ti = min(cands)
-            if dist < 0.15 * S:
-                z["type"], z["type_how"] = ti, f"nearest note outside the zone ({dist * (k or 0) / 1000:.1f} m away, leader)"
-                used.add(ti)
+        pt = Point((t["bbox"][0] + t["bbox"][2]) / 2 * W, (t["bbox"][1] + t["bbox"][3]) / 2 * H)
+        for zi, z in enumerate(out_zones):
+            if z["type"] is None:
+                pairs.append((Polygon(z["gross"]).distance(pt), ti, zi))
+    for dist, ti, zi in sorted(pairs):
+        z = out_zones[zi]
+        if ti in used or z["type"] is not None or dist >= 0.15 * S:
+            continue
+        z["type"], z["type_how"] = ti, f"nearest note outside the zone ({dist * (k or 0) / 1000:.1f} m away, leader)"
+        used.add(ti)
     default = next((ti for ti, t in enumerate(types) if t.get("default")), None)
     if default is not None:  # "12\" SLAB-ON-GRADE U.N.O.": every slab zone without its own note
         for z in out_zones:
@@ -1369,7 +1492,10 @@ def analyse(meta) -> dict:
 
     # notes: trenches, sumps, CJ, scale
     trenches = []
-    tr_text = "\n".join(b["text"] for b in blocks if b.get("read")) or full_text
+    # trench lengths come from the general notes when they were read as a whole (fragment crops of the same
+    # notes repeat them garbled)
+    tr_text = ("\n".join(b["text"] for b in blocks if b.get("general"))
+               or "\n".join(b["text"] for b in blocks if b.get("read")) or full_text)
     for m in re.finditer(r"([A-Z][A-Z ]{2,40}?)\s+TRENCH\s+LENGTH\s*[-=:]?\s*(\d[\d,]*)", tr_text.upper()):
         trenches.append({"name": m.group(1).strip().title() + " trench", "length_mm": int(m.group(2).replace(",", ""))})
     for m in re.finditer(r"(?:^|\n|\d\.\s|\.\s)([A-Z][A-Z ,/]{3,80}?),?\s*APPROXIMATELY\s*((?:\d+\s*'\s*-?\s*)?\d+(?:\s+\d/\d+)?\s*\")\s*LONG",
@@ -1403,6 +1529,8 @@ def analyse(meta) -> dict:
     if not inl:  # no dimension evidence: inch slab notes say the sheet is imperial
         imperial = any(t.get("thickness_in") for t in types)
     low = bool(meta.get("low_res")) if "low_res" in meta else (src != "pdf-text" and max(meta.get("w") or 0, meta.get("h") or 0) < 3000)
+    if rot is not None:  # geometry back into the uploaded image's own coordinates (evidence is drawn on it)
+        _unrotate(out_zones, pads, rot)
     res = {"v": 1, "src": src, "low_res": low, "imperial": imperial, "W": W, "H": H, "f": f, "k": k, "scale_src": scale_src,
            "scale_note": f"1:{sc.group(1)}" if sc else None, "types": types, "zones": out_zones,
            "pads": pads, "trenches": trenches, "trench_blocks": [b["bbox"] for b in tl_blocks],
