@@ -165,7 +165,7 @@ def scale_from_bar(image, words=None, meta=None) -> float | None:
 
 
 # ------------------------------------------------------------------------------------------------- segmentation
-def _gaps(wall, thin, axis, ppm, faint=None):
+def _gaps(wall, thin, axis, ppm, faint=None, panels=False):
     """Gap bands in wall lines along `axis` (1: horizontal walls, 0: vertical walls).
     Returns [(mask_slice_box, component mask, length_m, glazed)] in work pixels. faint (coarse sheets only): lighter
     linework that also counts as a glazing / hatch line along a gap (a 1 px line resampled from a 2500 px render or a
@@ -228,11 +228,39 @@ def _gaps(wall, thin, axis, ppm, faint=None):
         # an unglazed gap with no door leaf drawn at either jamb is an open niche / archway: kept as "open",
         # closed only when it lets a room leak to the outside (a door drawn half open, a bifold, a missing leaf)
         leaf = glazed or _has_leaf(leafy_d, g, length, ppm) or _has_swing(leafy, g, length, ppm)
+        panel = None if not panels or glazed or not t.size else _side_panel(t, ppm)
         x, y, w, h = g["c0"], g["r0"], g["c1"] - g["c0"] + 1, thick
         if axis == 0:
             x, y, w, h = y, x, h, w
-        out.append(((x, y, w, h), length / ppm, glazed, leaf))
+        out.append(((x, y, w, h), length / ppm, glazed, leaf, panel) if panels else
+                   ((x, y, w, h), length / ppm, glazed, leaf))
     return out
+
+
+def _side_panel(t, ppm):
+    """A glazed side panel at one end of a doorway gap (t: the gap's thin-line mask, rows across the wall, columns
+    along it): from one end, a run of columns with glazing lines across the wall, 0.25-1.2 m long, then >= 0.6 m of
+    clear opening. Returns (end 0 | 1, panel length in work px) or None."""
+    if t.shape[0] < 3:
+        return None
+    inner = t[1:-1] if t.shape[0] > 4 else t
+    col = inner.any(axis=0)
+    n = col.size
+    for end in (0, 1):
+        c = col if end == 0 else col[::-1]
+        k = 0
+        while k < n and c[k:k + 3].any():  # a run of line-crossed columns, one or two missing columns bridged
+            k += 1
+        if not (0.25 * ppm <= k <= 1.2 * ppm) or n - k < 0.6 * ppm:
+            continue
+        if c[k + int(0.1 * ppm):].mean() > 0.15:  # the rest is open (a door opening), not more glazing
+            continue
+        # lines along the panel: most of its rows in the panel part carry a line over >= 80 % of it
+        part = t[:, :k] if end == 0 else t[:, n - k:]
+        if part.mean(axis=1).max() < 0.8:
+            continue
+        return end, k
+    return None
 
 
 def _scan_like(g) -> bool:
@@ -330,9 +358,17 @@ def segment(image, px_per_m=None, words=None, meta=None, with_labels=True) -> di
     wall = keep[lab].astype(np.uint8)
 
     barrier = wall.copy()
+    glazing, side_panels = [], []
     doors, open_gaps, bands = [], [], []  # bands: every gap closed (doorways, glazing, shut openings), work px
     for axis in (1, 0):
-        for (x, y, w, h), length, glazed, leaf in _gaps(wall, thin, axis, ppm, faint):
+        for (x, y, w, h), length, glazed, leaf, panel in _gaps(wall, thin, axis, ppm, faint, panels=True):
+            if panel:  # a glazed side panel beside the doorway: (x, y, w, h) of the panel part, work px
+                end, k = panel
+                if axis == 1:
+                    pb = (x, y, k, h) if end == 0 else (x + w - k, y, k, h)
+                else:
+                    pb = (x, y, w, k) if end == 0 else (x, y + h - k, w, k)
+                side_panels.append({"length_m": round(k / ppm, 2), "box": pb, "axis": axis})
             if not leaf:
                 open_gaps.append((x, y, w, h, length, axis))
                 continue
@@ -340,6 +376,8 @@ def segment(image, px_per_m=None, words=None, meta=None, with_labels=True) -> di
             bands.append((x, y, w, h))
             if not glazed:
                 doors.append({"width_m": round(length, 2), "box": (x, y, w, h), "axis": axis})
+            else:
+                glazing.append({"length_m": round(length, 2), "box": (x, y, w, h), "axis": axis})
 
     def components():
         free = (barrier == 0).astype(np.uint8)
@@ -359,6 +397,23 @@ def segment(image, px_per_m=None, words=None, meta=None, with_labels=True) -> di
             shut += 1
     if shut:
         free, n, lab, st, border = components()
+    for gz in glazing:  # what lies on either side of a glazed band: two spaces (internal) or the outside
+        x, y, w, h = gz["box"]
+        side = []
+        for sg in (-1, 1):
+            v = 0
+            for o in range(1, int(0.8 * ppm)):  # step off the band (through a thick wall's frame lines) to a space
+                if gz["axis"] == 1:
+                    px, py = x + w // 2, (y - o if sg < 0 else y + h - 1 + o)
+                else:
+                    px, py = (x - o if sg < 0 else x + w - 1 + o), y + h // 2
+                if not (0 <= px < sw and 0 <= py < sh):
+                    break
+                v = int(lab[py, px])
+                if v:
+                    break
+            side.append(v)
+        gz["outside"] = any(v == 0 or v in border for v in side)
     door_lab = np.zeros(free.shape, np.int32)
     for j, d in enumerate(doors, 1):
         x, y, w, h = d["box"]
@@ -434,6 +489,11 @@ def segment(image, px_per_m=None, words=None, meta=None, with_labels=True) -> di
             "wall_px": round(wall_px, 1), "_lab": seg_extra, "scan": scan,
             "fill_gray": fill_gray, "paper_gray": paper_gray,
             "doors": doors, "bands": bands, "footprint_m2": round(footprint, 1),
+            "glazing": [{"bbox": [gz["box"][0] / f, gz["box"][1] / f, (gz["box"][0] + gz["box"][2]) / f,
+                                  (gz["box"][1] + gz["box"][3]) / f], "length_m": gz["length_m"],
+                         "outside": gz["outside"]} for gz in glazing],
+            "side_panels": [{"bbox": [p["box"][0] / f, p["box"][1] / f, (p["box"][0] + p["box"][2]) / f,
+                                      (p["box"][1] + p["box"][3]) / f], "length_m": p["length_m"]} for p in side_panels],
             "footprint_polys": [[[round(p[0][0] / f, 1), round(p[0][1] / f, 1)] for p in c] for c in big]}
 
 

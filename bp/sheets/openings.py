@@ -548,9 +548,14 @@ def _windows(gray, px_per_m, layers, extra_boxes=(), lowres=False):
     H, W = gray.shape
     res = []
     # glazing lines are black; grey hatch/furniture stays out (on upsampled low-res rasters thin lines are grey)
-    thinl = ((ink if lowres else dark) & (wall == 0)).astype(np.uint8)
+    if lowres:  # off the walls' anti-aliased rims (two rims of a thin wall would pair up as a glazing strip)
+        thinl = (ink & (cv2.dilate(wall, np.ones((5, 5), np.uint8)) == 0)).astype(np.uint8)
+    else:
+        thinl = (dark & (wall == 0)).astype(np.uint8)
     minlen = max(4 * k, int(0.35 * px_per_m) if px_per_m else 4 * k)
+    doors_xy = [list(b) for b in extra_boxes]
     for axis in ("h", "v"):
+        door_t = doors_xy if axis == "h" else [[b[1], b[0], b[3], b[2]] for b in doors_xy]
         t = thinl if axis == "h" else thinl.T.copy()
         wl = wall if axis == "h" else wall.T.copy()
         # long straight lines along the axis
@@ -574,6 +579,9 @@ def _windows(gray, px_per_m, layers, extra_boxes=(), lowres=False):
             mid = t[y:y + h, x + w // 3:x + 2 * w // 3]
             if mid.mean() > 0.6:
                 continue
+            # ... and not a solid wall: the anti-aliased fringes of a thin wall on an upsampled raster pair up too
+            if wl[y:y + h, x + w // 3:x + 2 * w // 3].mean() > 0.15:
+                continue
             # solid piers of about the strip's depth at both ends (wall pieces or the end of another strip)
             def pier(x0, x1):
                 x0, x1 = max(0, x0), min(wl.shape[1], x1)
@@ -583,15 +591,24 @@ def _windows(gray, px_per_m, layers, extra_boxes=(), lowres=False):
                 return float(blk.any(axis=1).mean()) if blk.size else 0.0
             g = 3 * lw + 6
             pl, pr = pier(x - g, x + 2), pier(x + w - 2, x + w + g)
+            side_panel = False
             if min(pl, pr) < 0.6:
-                continue
+                # a glazed side panel (vision panel) beside a door: a pier at one end, the door opening at the other
+                if max(pl, pr) < 0.6 or not door_t:
+                    continue
+                ex = x + w if pl >= 0.6 else x  # the open end
+                yc = y + h / 2
+                if not any(b[0] - g <= ex <= b[2] + g and b[1] - g <= yc <= b[3] + g for b in door_t):
+                    continue
+                side_panel = True
             # depth of the wall beside the strip ~ strip depth (walls a little thicker than the strip are fine)
             if axis == "h":
                 bx = [x, y, x + w, y + h]
             else:
                 bx = [y, x, y + h, x + w]
             res.append({"bbox": [float(v) for v in bx], "axis": axis, "lines": nl,
-                        "score": 0.6 + 0.2 * (nl >= 3) + 0.2 * (min(pl, pr) > 0.9)})
+                        "score": 0.6 + 0.2 * (nl >= 3) + 0.2 * (min(pl, pr) > 0.9), **({"side_panel": True}
+                                                                                         if side_panel else {})})
     inside, f = _inside(wall, [r["bbox"] for r in res] + list(extra_boxes), px_per_m, k)
     # exterior: looking out from the strip on one side, no wall is met before the edge of the sheet
     block = cv2.resize(wall * 255, (W // f, H // f), interpolation=cv2.INTER_AREA) > 0
@@ -732,7 +749,7 @@ def analyse_meta(meta) -> dict:
     ppm = _scale(meta)
     img, wppm, f = _work_image(meta, ppm)
     st = os.stat(img)
-    key = hashlib.sha1(f"{img}|{st.st_size}|{st.st_mtime}|{wppm}|v1".encode()).hexdigest()[:12]
+    key = hashlib.sha1(f"{img}|{st.st_size}|{st.st_mtime}|{wppm}|v2".encode()).hexdigest()[:12]
     cf = Path(meta["image"]).with_name(f"openings_{key}.json")
     with _inflight_lock:
         fut = _inflight.get(str(cf))
@@ -1127,6 +1144,38 @@ def closet_doors(meta, doors, px_per_m=None) -> dict:
     return out
 
 
+def _side_panels(meta, windows) -> list[dict]:
+    """Glazed side panels beside doors (vision panels: a short glazed piece between a pier and a door opening) from
+    the room segmentation's wall gaps (bp/sheets/rooms.py), normalised boxes, minus those a window box already covers.
+    For the detector path: its window class finds the windows in outside walls but hardly any of these."""
+    from bp.sheets import rooms as rooms_mod
+
+    W, H = meta.get("w") or 0, meta.get("h") or 0
+    if not (W and H):
+        return []
+    try:
+        seg = rooms_mod._cached(meta)
+    except Exception as e:  # noqa: BLE001
+        log.info("side panels: no room segmentation (%s)", e)
+        return []
+    ppm = seg.get("px_per_m") or 0
+    if not ppm:
+        return []
+    mx, my = 0.15 * ppm / W, 0.15 * ppm / H
+
+    def near(a, b):
+        return a[0] - mx <= b[2] and b[0] - mx <= a[2] and a[1] - my <= b[3] and b[1] - my <= a[3]
+    out = []
+    for p in seg.get("side_panels") or []:
+        if not 0.35 <= p["length_m"] <= 1.0:
+            continue
+        b = [p["bbox"][0] / W, p["bbox"][1] / H, p["bbox"][2] / W, p["bbox"][3] / H]
+        if any(near(b, w["bbox"]) for w in windows) or any(near(b, o["bbox"]) for o in out):
+            continue
+        out.append({"bbox": b, "kind": "side-panel", "score": 0.5})
+    return out
+
+
 _CL = r"(?:closet|wardrobe|cupboard|komero|vaatekaap)\w*"
 
 
@@ -1188,8 +1237,21 @@ def answer(path, question, meta):
             cmode = closet_mode(question)
             yd, closets = _split_closets(meta, y["doors"], r.get("px_per_m"), cmode)
             y = dict(y, doors=yd)
+        panels = []
+        if y and y.get("windows") and it in ("windows", "doors_windows"):
+            panels = _side_panels(meta, y["windows"])
+            if panels:
+                y = dict(y, windows=y["windows"] + panels)
         out = _answer_yolo(it, y, r.get("haiku"), size=(meta.get("w"), meta.get("h")),
                            px_per_m=r.get("px_per_m"))
+        if out is not None and panels:
+            nw = len(y["windows"])
+            out["explanation"] += (f" The window count is every glazed panel: {nw - len(panels)} window symbols plus "
+                                   f"{len(panels)} glazed side panels beside doors (vision panels, read from the wall "
+                                   f"gaps; marked).")
+            out["counts"]["side_panels"] = len(panels)
+            if it == "windows":
+                out["answer"] = f"{nw} windows ({nw - len(panels)} window symbols + {len(panels)} glazed side panels)"
         if out is not None and closets:
             out["evidence"] += _closet_ev(closets, cmode)
             out["counts"]["closet_doors"] = len(closets) if cmode != "only" else len(y["doors"])
@@ -1244,14 +1306,16 @@ def answer(path, question, meta):
             ev.append(_ev(w["bbox"], f"window {i}"))
         ig = len(r["internal_glazing"])
         for i, g in enumerate(r["internal_glazing"], 1):
-            e = _ev(g["bbox"], f"internal glazed panel {i} (not in the window count)")
-            e["value"] = None
-            ev.append(e)
-        parts.append(f"{len(ws)} exterior windows (each glazed panel between wall piers in an outside wall)"
-                     + (f" + {ig} internal glazed panels / screens ({len(ws) + ig} glazed panels in all)" if ig else ""))
+            ev.append(_ev(g["bbox"], f"internal glazed panel {i}"))
+        parts.append(f"{len(ws)} windows in outside walls (each glazed panel between wall piers)"
+                     + (f" + {ig} internal glazed panels (vision panels beside doors, glazed screens) = {len(ws) + ig} "
+                        f"glazed panels in all; the count is every glazed panel, as a window schedule would list them "
+                        f"(outside walls only: {len(ws)})" if ig else ""))
         conf.append(0.8 if ws else 0.3)
     ig = len(r["internal_glazing"])
-    wtxt = f"{len(r['windows'])} exterior windows" + (f" (+{ig} internal glazed panels)" if ig else "")
+    # convention: every glazed panel between piers is a window, internal vision panels included; the split is given
+    wtxt = (f"{len(r['windows']) + ig} windows ({len(r['windows'])} in outside walls + {ig} internal glazed panels)"
+            if ig else f"{len(r['windows'])} windows")
     if it == "doors_windows":
         ans = f"{len(r['doors'])} doors and {wtxt}"
     elif it == "doors":
@@ -1267,7 +1331,7 @@ def answer(path, question, meta):
             "without a door symbol are not counted.")
     out = {"answer": ans, "confidence": round(min(conf), 2), "method": f"{METHOD}-cv", "cost_usd": 0.0,
            "explanation": expl, "evidence": ev,
-           "counts": {"doors": len(r["doors"]), "windows": len(r["windows"]),
+           "counts": {"doors": len(r["doors"]), "windows": len(r["windows"]) + ig, "exterior_windows": len(r["windows"]),
                       "internal_glazing": len(r["internal_glazing"]), "closet_doors": len(r.get("closets") or [])}}
     _add_schedule_check(out, meta, it)
     return out
@@ -1291,7 +1355,8 @@ def _answer_yolo(it, y, hk=None, size=None, px_per_m=None):
         ev += [_ev(d["bbox"], f"door {i}") for i, d in enumerate(y["doors"], 1)]
         parts.append(f"{len(y['doors'])} doors")
     if it in ("windows", "doors_windows"):
-        ev += [_ev(d["bbox"], f"window {i}") for i, d in enumerate(y["windows"], 1)]
+        ev += [_ev(d["bbox"], f"window {i}" + (" (glazed side panel)" if d.get("kind") == "side-panel" else ""))
+               for i, d in enumerate(y["windows"], 1)]
         parts.append(f"{len(y['windows'])} windows")
     ans = len(y["doors"]) if it == "doors" else len(y["windows"]) if it == "windows" else \
         f"{len(y['doors'])} doors and {len(y['windows'])} windows"

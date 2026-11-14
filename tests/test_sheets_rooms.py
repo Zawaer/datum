@@ -134,3 +134,19 @@ def test_coarse_sheet_only_totals(plan, tmp_path):
     assert R.answer(str(p), "Baseboard length excluding wet rooms", meta) is None
     b = R.answer(str(p), "Linear meters for baseboards", meta)
     assert b is not None and b["low_res"] and b["confidence"] < 0.5
+
+
+def test_side_panel_beside_doorway():
+    """A doorway gap whose first 0.5 m is glazed (two lines along the wall) and then 1 m open: a side panel."""
+    from bp.sheets import rooms as R
+
+    ppm = 50
+    t = np.zeros((8, 75), bool)  # rows across a 0.16 m wall, 1.5 m along it
+    t[2, :25] = t[5, :25] = True  # glazing lines over the first 0.5 m
+    assert R._side_panel(t, ppm) == (0, 25)
+    assert R._side_panel(t[:, ::-1], ppm) == (1, 25)
+    t2 = np.zeros((8, 75), bool)  # a plain doorway: nothing
+    assert R._side_panel(t2, ppm) is None
+    t3 = t.copy()
+    t3[2, :] = t3[5, :] = True  # glazed all along: a window, not a side panel
+    assert R._side_panel(t3, ppm) is None

@@ -41,14 +41,18 @@ def test_doors_on_school_crop(res):
 
 
 def test_windows_on_school_crop(res):
-    ws = res["windows"]
+    ws = [w for w in res["windows"] if not w.get("side_panel")]
     assert len(ws) == 4
     assert all(w["axis"] == "v" and w["bbox"][2] < 120 for w in ws)  # all on the west facade
+    # the glazed side panels beside the two classroom doors on the corridor (the crop's open corridor end makes them
+    # read as outside); a pier at one end, the door opening at the other
+    sp = [w for w in res["windows"] + res["internal_glazing"] if w.get("side_panel")]
+    assert len(sp) == 4 and all(w["axis"] == "v" and 500 < w["bbox"][0] < 820 for w in sp)
 
 
 def test_find_api_returns_pixel_boxes():
     assert len(O.find_doors(FIX, PPM)) == 21
-    assert len(O.find_windows(FIX, PPM)) == 4
+    assert len(O.find_windows(FIX, PPM)) == 8  # 4 facade windows + 4 side panels
 
 
 def test_intent():
@@ -63,9 +67,10 @@ def test_answer_evidence():
     meta["openings"] = {"doors": [{"bbox": [0.1, 0.1, 0.2, 0.2], "leaves": 2, "kind": "swing"}],
                         "windows": [{"bbox": [0.0, 0.3, 0.02, 0.4]}], "internal_glazing": [{"bbox": [0.5, 0.5, 0.52, 0.6]}], "low_res": False}
     r = O.answer(str(FIX), "Counts of doors and windows", meta)
-    assert r["answer"] == "1 doors and 1 exterior windows (+1 internal glazed panels)"
-    assert [e["label"] for e in r["evidence"]] == ["door 1 (double)", "window 1",
-                                                  "internal glazed panel 1 (not in the window count)"]
+    # every glazed panel is a window (Stoa example gold); the split outside walls / internal is given
+    assert r["answer"] == "1 doors and 2 windows (1 in outside walls + 1 internal glazed panels)"
+    assert [e["label"] for e in r["evidence"]] == ["door 1 (double)", "window 1", "internal glazed panel 1"]
+    assert r["counts"]["windows"] == 2 and r["counts"]["exterior_windows"] == 1
     assert all(0 <= v <= 1 for e in r["evidence"] for v in e["bbox"])
     assert O.answer(str(FIX), "What is the hall area?", meta) is None
     meta["openings"]["low_res"] = True
