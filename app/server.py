@@ -304,7 +304,8 @@ def questions(path: str):
         meta = _upload_meta(path)
         return {"path": path, "view": view_path(path), "credit": credit_for(path), "has3d": ifc_for(path) is not None,
                 "kind": meta.get("kind"), "questions": [{"question": s, "type": guess_type(s), "answer": None}
-                                                         for s in _upload_suggestions(meta.get("kind"), meta.get("not_drawing"))],
+                                                         for s in _upload_suggestions(meta.get("kind"), meta.get("not_drawing"), meta.get("sheet_kind"),
+                                                                                     f"{meta.get('sheet_title') or ''} {meta.get('name') or ''}")],
                 **_upload_info(meta, path.split("/")[1])}
     qs = BY_PATH.get(path)
     if not qs:
@@ -543,13 +544,25 @@ def _upload_meta(path: str) -> dict:
     return json.loads(m.read_text()) if m.exists() else {}
 
 
-def _upload_suggestions(kind: str | None, not_drawing=None) -> list[str]:
+def _upload_suggestions(kind: str | None, not_drawing=None, sheet_kind: str | None = None, hint: str = "") -> list[str]:
     if not_drawing:  # a photo or a document, not a plan: the solvers decline it, so suggesting counts would mislead
         return []
     if kind == "ifc":
         return ["How many doors are in the model?", "How many windows are in the model?",
                 "What is the total length of all walls, in metres?", "How many storeys does the building have?",
                 "What is the total floor area of all spaces, in m²?"]
+    # a recognised sheet type (bp/sheets): the first three are what its specialist answers best
+    if sheet_kind == "piping":
+        return ["How many fuel pumps?", "What size is the suction header?", "How many control valves?",
+                "Which sheets are referenced?"]
+    if sheet_kind == "slab":
+        return ["Slab area by type?", "How many pad footings?", "What is the slab thickness?"]
+    if sheet_kind == "arch" and re.search(r"dormitor", hint, re.I):
+        return ["Total dormitory area?", "Area of each colour zone?", "How many rooms?", "How many doors?"]
+    if sheet_kind == "arch" and re.search(r"school|classroom|level[ _-]?0", hint, re.I):
+        return ["How many doors?", "Baseboard length in the Hall?", "How many rooms?", "What is the total floor area?"]
+    if sheet_kind == "arch":
+        return ["How many doors?", "What is the total floor area?", "How many rooms?", "How many windows?"]
     return ["How many doors are shown on this floor plan?", "How many windows are shown on this floor plan?",
             "How many rooms are there?", "What is the total floor area, in m²?"]
 
@@ -790,6 +803,7 @@ def _prepare(d: Path, p: Path, m: dict) -> tuple[Path, str]:
             sm = sheet_types.build_meta(str(p.resolve()), 0, cache_dir=d)
             m["sheet_kind"] = sm.get("kind")
             m["sheet_title"] = sm.get("title")
+            m["sheet_scale"] = sm.get("scale") or ""
             m["sheet_cost_usd"] = m.get("sheet_cost_usd", 0.0) + (sm.get("cost_usd") or 0.0)
         except Exception as e:  # noqa: BLE001
             print(f"sheet type check failed for {p}: {e!r}", flush=True)
@@ -925,7 +939,27 @@ def _upload_info(m: dict, key: str) -> dict:
                             for x in sh.get("pages") or []},
             "drawing_pages": [x["page"] for x in sh.get("pages") or [] if x.get("drawing")],
             "not_drawing": m.get("not_drawing"),
-            "original": f"uploads/{key}/{m['original']}" if m.get("original") else None}
+            "original": f"uploads/{key}/{m['original']}" if m.get("original") else None,
+            **_sheet_info(m, key)}
+
+
+SHEET_LABEL = {"arch": "Architectural plan", "slab": "Slab plan", "piping": "Piping plan"}
+
+
+def _sheet_info(m: dict, key: str) -> dict:
+    """The sheet type the upload was recognised as (bp/sheets), for the UI's chip, and its three tailored examples."""
+    kind = m.get("sheet_kind")
+    if kind not in SHEET_LABEL:
+        return {"sheet_kind": None, "suggested": []}
+    scale = m.get("sheet_scale")
+    if scale is None:  # prepared before the scale was kept: read it from the sheet meta cache
+        try:
+            scale = json.loads((UPLOADS / key / "sheet_meta_p0.json").read_text()).get("scale") or ""
+        except (OSError, ValueError):
+            scale = ""
+    sug = _upload_suggestions(m.get("kind"), m.get("not_drawing"), kind, f"{m.get('sheet_title') or ''} {m.get('name') or ''}")
+    return {"sheet_kind": kind, "sheet_label": SHEET_LABEL[kind], "sheet_title": m.get("sheet_title") or "",
+            "sheet_scale": scale, "suggested": sug[:3]}
 
 
 # ---------------------------------------------------------------- ask

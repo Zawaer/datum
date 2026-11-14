@@ -218,9 +218,9 @@ function pickTip(i, pt, at) {  // at: open it at the client point pt whatever th
   pin2d = on2d ? i : null;
   if (i == null || !items[i] || (mode !== '3d' && !on2d && !(at && pt))) { tip3d.hidden = true; return; }
   const e = items[i], k = items.slice(0, i + 1).filter(numbered).length;
-  const name = (e.label || 'item').replace(/ \d+$/, '').replace(/^Ifc[A-Za-z]+ /, '');
+  const name = (e.label || 'item').replace(/^\d+:\s*/, '').replace(/ \d+$/, '').replace(/^Ifc[A-Za-z]+ /, '');
   tip3d.title = e.label || '';
-  const val = e.value != null && res && res.type !== 'count' ? `${fmt(e.value, res.type)} ${unitOf(res.type)}` : '';
+  const val = res ? esc(itemVal(e)) + (e.kind === 'cell' ? ' · from the sheet\'s table' : '') : '';
   const score = modelRead(e) && e.score != null ? ` · found by a model, ${Math.round(100 * e.score)} %` : modelRead(e) ? ' · found by a model' : '';
   tip3d.innerHTML = `<span class="tn">${numbered(e) ? `#${k} ` : ''}<b></b></span><span class="ts">${val ? `<b class="tv">${val}</b> · ` : ''}${e.on ? (res && res.type === 'count' ? 'counted' : 'included') : 'dropped'}${score}</span>
     <button type="button" class="tb">${e.on ? 'Drop from answer' : 'Put back'}</button><button type="button" class="tx" aria-label="Close">✕</button>`;
@@ -379,7 +379,7 @@ function setPickerLabel(d) {
 let pendingDraw = null;
 async function select(d, how = 'push') {
   cur = {...d}; res = null; items = []; marks = []; ov.innerHTML = ''; setAdding(false); pickTip(null); stepI = -1; sheetFull(false); askSeq++; setHeat(false); closeSheet();
-  $('#answer').hidden = true; $('#evwrap').hidden = true; hint(''); $('#empty').hidden = true; setAnswered(false); setPickerLabel(d); viewTools();
+  $('#answer').hidden = true; $('#evwrap').hidden = true; renderSheetEv(); hint(''); $('#empty').hidden = true; setAnswered(false); setPickerLabel(d); viewTools();
   syncURL(how);
   document.querySelectorAll('.item').forEach(e => e.classList.toggle('on', e.dataset.path === d.path));
   revealSelected();
@@ -405,12 +405,12 @@ async function select(d, how = 'push') {
   $('#credit').textContent = !info.credit ? '' : d.path.startsWith('uploads/') ? info.credit : '© ' + info.credit;  // an upload is not licensed to us
   showImage(info.view);
   if (!info.view && !has3d) { $('#empty').hidden = false; $('#empty').textContent = 'No preview for this file type, but you can still ask about it.'; }
-  renderChips(info.questions || []);
+  renderChips(info.questions || [], info.suggested);
   // chips first: a big model can take a while to tessellate and the questions should not wait for it
   if (cur.path === d.path) await setMode(info.view ? '2d' : (has3d ? '3d' : '2d'));
 }
 // three example questions, one click each (short, English, different kinds first); the rest folded under "More questions"
-function renderChips(qs) {
+function renderChips(qs, suggested) {
   const chip = q => {
     const c = document.createElement('button'); c.type = 'button'; c.className = 'chip'; c.title = q.type ? `${q.type} question` : '';
     c.textContent = q.question; c.onclick = () => { $('#q').value = q.question; ask(); }; return c;
@@ -420,6 +420,7 @@ function renderChips(qs) {
   const pick = [];
   for (const q of ranked) if (pick.length < 3 && !pick.some(p => p.type === q.type)) pick.push(q);
   for (const q of ranked) if (pick.length < 3 && !pick.includes(q)) pick.push(q);
+  if (suggested && suggested.length) pick.splice(0, 3, ...suggested.slice(0, 3).map(s => qs.find(q => q.question === s) || {question: s}));  // a recognised sheet type: the server's three, in its order
   $('#chips3').replaceChildren(...pick.map(chip));
   $('#chips').replaceChildren(...qs.map(chip));
   $('#qstitle').textContent = `More questions (${qs.length})`;
@@ -515,7 +516,7 @@ async function ask() {
     setTimeout(tick, 100);
   };
   res = null; tick();
-  $('#evwrap').hidden = true; ov.innerHTML = '';
+  $('#evwrap').hidden = true; ov.innerHTML = ''; renderSheetEv();
   let r;
   try {
     const body = {path: cur.path, question}; if (cur.pin != null) body.page = cur.pin;
@@ -530,6 +531,7 @@ async function ask() {
   }
   if (seq !== askSeq) return;
   res = r; res._seq = seq; res.question = question; showSecond = false;
+  if (r.sheet_type && UNIT_TYPE[unitKey(r.unit)]) res.type = UNIT_TYPE[unitKey(r.unit)];
   recordTakeoff(res);
   syncURL('replace');
   a.classList.add('pop');
@@ -547,16 +549,17 @@ async function ask() {
 }
 $('#go').onclick = ask; $('#q').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) ask(); });
 
+const PLAN_KINDS = new Set(['box', 'polygon', 'polyline', 'cell']);  // marks on the plan (text = where a value was read)
 function setupEvidence() {
   const ev = res.evidence || [];
-  const flat = ev.filter(e => e.kind === 'box' || e.kind === 'polygon' || e.kind === 'text');
+  const flat = ev.filter(e => PLAN_KINDS.has(e.kind) || e.kind === 'text');
   // which file and page do the 2D items refer to? (multi-page PDFs: the page the answer was read on)
   const files = {}; for (const e of flat) if (e.file) files[e.file] = (files[e.file] || 0) + 1;
   const evFile = Object.keys(files).sort((x, y) => files[y] - files[x])[0];
   const pages = {}; for (const e of flat) if (!e.file || !evFile || e.file === evFile) pages[e.page || 0] = (pages[e.page || 0] || 0) + 1;
   const top = Object.keys(pages).sort((x, y) => pages[y] - pages[x])[0];
   const evPage = top != null ? +top : (cur.pin ?? res.page ?? cur.page ?? 0);
-  const two = ev.filter(e => (e.kind === 'box' || e.kind === 'polygon') && (e.page || 0) === evPage);
+  const two = ev.filter(e => PLAN_KINDS.has(e.kind) && (e.page || 0) === evPage);
   const txt = ev.filter(e => e.kind === 'text' && (e.page || 0) === evPage);
   const three = ev.filter(e => e.kind === 'ifc');
   primary = three.length && has3d ? 'ifc' : '2d';
@@ -599,6 +602,8 @@ function zoomToEvidence(only, maxK = 3, instant = false) {  // cap: keep enough 
 // both show 24.58: the headline and the evidence total must never differ by a rounding artefact
 const round2 = v => { const x = +v, k = Math.round((Math.abs(x) + 1e-9) * 100) / 100; return (x < 0 ? -k : k).toFixed(2); };
 const fmt = (v, t) => v == null ? '—' : (t === 'count' ? Math.round(v) : round2(v));
+// a sheet answer that is a whole number (18,472 SF) is printed as one; dataset answers keep two decimals
+const fmtS = (v, t) => v != null && res && res.sheet_type && t !== 'count' && Math.abs(v - Math.round(v)) < 1e-9 ? Math.round(v).toLocaleString('en-US') : fmt(v, t);
 const unitOf = t => ({area: 'm²', length: 'm', volume: 'm³', count: ''}[t] || '');
 const latency = s => s == null ? '' : s < 0.001 ? '&lt; 1 ms' : s < 1 ? (s * 1000).toFixed(0) + ' ms' : s.toFixed(1) + ' s';
 const money = v => v === 0 ? '$0' : v < 0.001 ? '$' + v.toFixed(5) : v < 1 ? '$' + v.toFixed(3) : '$' + v.toFixed(2);
@@ -806,7 +811,7 @@ function renderAnswer(shownSoFar) {
   // a correction (items dropped / added) changes the headline number too; the line under it keeps the solver's value
   else if (typeof val === 'number' && items.some(e => !e.on || e.added)) val = items.filter(e => e.on).reduce((s, e) => s + (e.value ?? 1), 0);
   if (counting && a.dataset.xseq === String(res._seq) && a.querySelector('.big.counting .bn')) {  // mid-count: only the number moves
-    a.querySelector('.big.counting .bn').textContent = fmt(val, t);
+    a.querySelector('.big.counting .bn').textContent = fmtS(val, t);
     ghostMove(a, val);
     return;
   }
@@ -846,8 +851,10 @@ function renderAnswer(shownSoFar) {
   // head: the question, the number, one trust line, the second opinion in one line, a correction if any
   $('#ahead').innerHTML = `${qrow}
     ${res.normalized_question && res.normalized_question !== res.question ? `<div class="readas">read as: <i>${esc(res.normalized_question)}</i></div>` : ''}
-    ${typeof res.answer === 'string' ? `<div class="textans">${esc(res.answer.trim().split('\n').map(l => l.replace(/^\s{1,4}(?=\S)/, '')).join('\n'))}</div>`
-      : `<div class="big ${abst ? 'abstain' : ''} ${counting ? 'counting' : ''}">${abst ? 'Not sure, so no guess' : num ? `<span class="bn">${fmt(val, t)}</span>` : ''}${abst || !unitOf(t) ? '' : ` <small>${unitOf(t)}</small>`}</div>`}
+    ${sheetChipHTML(res)}
+    ${shortText(res) ? `<div class="big short">${shortText(res)}</div>` : typeof res.answer === 'string' ? `<div class="textans">${esc(res.answer.trim().split('\n').map(l => l.replace(/^\s{1,4}(?=\S)/, '')).join('\n'))}</div>`
+      : `<div class="big ${abst ? 'abstain' : ''} ${counting ? 'counting' : ''}">${abst ? 'Not sure, so no guess' : num ? `<span class="bn">${fmtS(val, t)}</span>` : ''}${abst || !uOf() ? '' : ` <small>${esc(uOf())}</small>`}</div>`}
+    ${sheetNotesHTML(res)}
     ${corrected ? correctedTrustHTML(res, h) : trustHTML(res, h) + secondHTML(res) + gpuWarmHTML(res)}
     <div class="corr" id="corr"></div>`;
   // the rest folds: compared with frontier models, and how it was worked out (method, track record, rule, arithmetic, cost)
@@ -1045,14 +1052,29 @@ function layoutLabels(W, H, fs) {
         const r = fs * 0.85, q = (x1 - x0) / 4;
         const c = [pgBadgeY(cy, ty, fs), ty + fs * 1.1, cy - fs * 1.2, by - fs * 1.1].flatMap(y => [cx, cx - q, cx + q].map((x, j) => ({x, y, extra: j ? 0.1 : 0})));
         out.set(i, {...pick(c, r, r, own, i), lead: null});
-      } else if (e.on && e.value != null && res.type !== 'count') {  // the m²: near the room's bottom edge, off its printed name
-        const hw = (round2(e.value) + ' m²').length * fs * 0.3 + fs * 0.15, hh = fs * 0.55, sh = fs * 0.33;  // sh: baseline to centre
+      } else if (e.on && itemVal(e)) {  // the m²: near the room's bottom edge, off its printed name
+        const hw = itemVal(e).length * fs * 0.3 + fs * 0.15, hh = fs * 0.55, sh = fs * 0.33;  // sh: baseline to centre
         const yl = [pgLabelY(cy, by, fs), by - fs * 0.9, ty + fs * 1.6, cy + fs * 1.4, cy - fs * 1.6];
         const xl = [cx, x0 + hw + fs * 0.4, x1 - hw - fs * 0.4];
         const c = yl.flatMap(y => xl.map((x, j) => ({x, y: y - sh, extra: j ? 0.1 : 0})));
         c.push({x: cx, y: by + fs * 0.9 - sh, extra: 1.2}, {x: cx, y: ty - fs * 0.4 - sh, extra: 1.2});  // just outside: a last resort
         const b = pick(c, hw, hh, own, i); out.set(i, {x: b.x, y: b.y + sh});
       }
+      return;
+    }
+    if (e.kind === 'polyline') {
+      if (!itemVal(e) || !e.on) return;
+      const P = e.points.map(p => [p[0] * W, p[1] * H]); if (e.closed) P.push(P[0]);
+      const segs = []; for (let k = 1; k < P.length; k++) segs.push([P[k - 1], P[k], Math.hypot(P[k][0] - P[k - 1][0], P[k][1] - P[k - 1][1])]);
+      segs.sort((a, b) => b[2] - a[2]);
+      const hw = itemVal(e).length * fs * 0.3 + fs * 0.15, hh = fs * 0.55, sh = fs * 0.33;
+      const xs = P.map(p => p[0]), ys = P.map(p => p[1]), own = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+      const c = segs.slice(0, 4).flatMap(([a, b, L], k) => {
+        const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2, nx = -(b[1] - a[1]) / (L || 1), ny = (b[0] - a[0]) / (L || 1), o = hh + fs * 0.35 + Math.abs(nx) * hw;
+        return [{x: mx + nx * o, y: my + ny * o - sh, extra: k * 0.15}, {x: mx - nx * o, y: my - ny * o - sh, extra: k * 0.15 + 0.05}];
+      });
+      if (!c.length) return;
+      const b = pick(c, hw, hh, own, i); out.set(i, {x: b.x, y: b.y + sh});
       return;
     }
     if (!numbered(e)) return;
@@ -1157,13 +1179,19 @@ function shapeFor(e, i, W, H) {
   const g = document.createElementNS(NS, 'g'); g.dataset.i = i;
   const fs = labelSize();
   let shape;
-  if (e.kind === 'polygon') {
+  if (e.kind === 'polyline') {  // a pipe run / baseboard: a thin accent line, with a wide invisible stroke to click
+    const d = 'M' + e.points.map(p => (p[0] * W).toFixed(1) + ' ' + (p[1] * H).toFixed(1)).join('L') + (e.closed ? 'Z' : '');
+    shape = document.createElementNS(NS, 'path'); shape.setAttribute('d', d);
+    shape.setAttribute('class', 'pl appear' + (e.on ? '' : ' off') + (e.mark ? ' mark' : ''));
+    if (i >= 0) g.dataset.area = 0;
+  } else if (e.kind === 'polygon') {
     // one path: the outer ring and its holes (a corridor wrapped around rooms leaves them uncovered, to see and to click)
     const rings = [e.points, ...(e.holes || [])].filter(r => r && r.length > 2);
     shape = document.createElementNS(NS, 'path');
     shape.setAttribute('d', rings.map(r => 'M' + r.map(p => (p[0] * W).toFixed(1) + ' ' + (p[1] * H).toFixed(1)).join('L') + 'Z').join(''));
     shape.setAttribute('fill-rule', 'evenodd');
-    shape.setAttribute('class', 'pg appear' + (e.on ? '' : ' off'));
+    shape.setAttribute('class', 'pg appear' + (e.on ? '' : ' off') + (catOf(e) ? ' cat' : ''));
+    if (catOf(e)) shape.style.setProperty('--c', catColour(catOf(e)));
     if (i >= 0) g.dataset.area = rings.reduce((a, r, k) => a + (k ? -1 : 1) * ringArea(r, W, H), 0);
   } else {
     const [x0, y0, x1, y1] = e.bbox;
@@ -1172,19 +1200,21 @@ function shapeFor(e, i, W, H) {
     shape.setAttribute('width', Math.max(2, (x1 - x0) * W)); shape.setAttribute('height', Math.max(2, (y1 - y0) * H));
     shape.setAttribute('rx', 2);
     if (i >= 0) g.dataset.area = (x1 - x0) * W * (y1 - y0) * H;
-    const cls = e.second ? 'bx second' : e.mark ? (e.kind === 'text' ? 'bx txt' : 'bx mark') : 'bx appear' + (e.on ? '' : ' off') + (e.added ? ' added' : '') + (modelRead(e) ? ' model' : '');
+    const cls = e.second ? 'bx second' : e.mark ? (e.kind === 'text' ? 'bx txt' : 'bx mark') : 'bx appear' + (e.on ? '' : ' off') + (e.added ? ' added' : '') + (e.kind === 'cell' ? ' cell' : modelRead(e) ? ' model' : '');
     shape.setAttribute('class', cls);
   }
-  const tip = document.createElementNS(NS, 'title'); tip.textContent = (e.label || '') + (e.value != null && res.type !== 'count' ? ` = ${fmt(e.value, res.type)} ${unitOf(res.type)}` : '');
+  const tip = document.createElementNS(NS, 'title'); tip.textContent = (e.label || '') + (itemVal(e) ? ` = ${itemVal(e)}` : '');
   shape.appendChild(tip);
   g.appendChild(shape);  // the shape stays the group's first rect / polygon: hover and flash look it up that way
-  if (i >= 0) {
-    shape.addEventListener('click', ev => {
+  const targets = [shape];
+  if (e.kind === 'polyline' && i >= 0) { const h = shape.cloneNode(false); h.setAttribute('class', 'plhit'); g.appendChild(h); targets.push(h); }
+  if (i >= 0) for (const tg of targets) {
+    tg.addEventListener('click', ev => {
       if (adding) return; ev.stopPropagation(); if (moved || longPress() || performance.now() - xrSkipT < 500) return;
       selectPin(i);  // a click opens the item's card beside it; dropping it is a button there (or its row's tick)
     });
-    shape.addEventListener('mouseenter', () => rowHot(i, true, true));
-    shape.addEventListener('mouseleave', () => rowHot(i, false));
+    tg.addEventListener('mouseenter', () => rowHot(i, true, true));
+    tg.addEventListener('mouseleave', () => rowHot(i, false));
   } else if (e.guids) {
     shape.addEventListener('mouseenter', () => { const j = guidItem().get(e.guids[0]); if (j != null) rowHot(j, true, true); });
   }
@@ -1209,7 +1239,7 @@ function shapeFor(e, i, W, H) {
   } else if (p) {
     const t = document.createElementNS(NS, 'text');
     t.setAttribute('text-anchor', 'middle'); t.setAttribute('class', 'pglabel');
-    t.textContent = round2(e.value) + ' m²'; g.appendChild(t);
+    t.textContent = itemVal(e); g.appendChild(t);
   }
   placeLabels(g, p, fs);
   return g;
@@ -1226,7 +1256,7 @@ function numbered(e) { return e.kind === 'box' || (e.kind === 'polygon' && res &
 
 // ------------------------------------------------------------ evidence list
 function renderEvidence() {
-  renderStepper();
+  renderStepper(); renderSheetEv();
   $('#evwrap').hidden = !items.length;
   if (!items.length) return;
   const ev = $('#ev'); ev.innerHTML = '';
@@ -1244,9 +1274,9 @@ function renderEvidence() {
   items.forEach((e, i) => {
     const d = document.createElement('div'); d.className = (e.on ? '' : 'off') + (e.added ? ' added' : ''); d.dataset.i = i;
     if (numbered(e)) k++;
-    const name = e.kind === 'box' ? (e.label || 'item').replace(/ \d+$/, '') : (e.label || (e.kind === 'polygon' ? 'region' : 'item'));
+    const name = e.kind === 'box' ? (e.label || 'item').replace(/^\d+:\s*/, '').replace(/ \d+$/, '') : (e.label || (e.kind === 'polygon' ? 'region' : 'item'));
     const lead = numbered(e) ? `<span class="n">#${k}</span>` : `<span class="n">${i + 1}</span>`;
-    const val = e.value != null && t !== 'count' ? fmt(e.value, t) + ' ' + unitOf(t) : '';
+    const val = esc(itemVal(e)) + (e.kind === 'cell' ? '<small class="tabn">from the sheet\'s table</small>' : '');
     const read = modelRead(e) && e.score != null ? `<span class="rd" title="found by a model with score ${Math.round(100 * e.score)} %: please check">${Math.round(100 * e.score)}%</span>` : '';
     const leadTxt = numbered(e) ? `#${k}` : String(i + 1);
     d.innerHTML = `<button class="tg" role="checkbox" aria-checked="${e.on}" title="${e.on ? 'drop this item from the answer' : 'put it back'}" aria-label="Include ${esc(name)} ${leadTxt}">${e.on ? '✓' : ''}</button>${lead}<span class="nm" title="${esc(name)}">${esc(name)}${read}</span><span class="vl">${val}</span>`;
@@ -1262,9 +1292,126 @@ function renderEvidence() {
   if (num) {
     const tot = document.createElement('div'); tot.className = 'tot';
     const v = items.filter(e => e.on).reduce((s, e) => s + (e.value ?? 1), 0);
-    tot.innerHTML = `<span>${t === 'count' ? 'Count' : 'Sum'} of checked items</span><span>${fmt(v, t)} ${unitOf(t)}</span>`;
+    tot.innerHTML = `<span>${t === 'count' ? 'Count' : 'Sum'} of checked items</span><span>${fmt(v, t)} ${esc(uOf())}</span>`;
     ev.appendChild(tot);
   }
+}
+// ------------------------------------------------------------ answers on uploaded sheets (bp/sheets specialists)
+// what the sheet was read as (a chip under the question), the sheet's own unit, and the evidence kinds those
+// specialists add: polylines (pipe runs, baseboards) with their length, table cells (schedule values), region
+// polygons per category (slab types, colour zones) with a legend, and tag lists (FP-1…FP-5) as chips that zoom.
+const UNIT_TYPE = {'m²': 'area', m2: 'area', sf: 'area', 'sq ft': 'area', ft2: 'area', m: 'length', mm: 'length', ft: 'length', lf: 'length', count: 'count'};
+const unitKey = u => String(u || '').trim().toLowerCase();
+const uOf = () => {  // the answer's unit: a sheet answer says it (SF, mm); else the question type's
+  const u = res && res.sheet_type && res.unit ? String(res.unit).trim() : '';
+  return u && unitKey(u) !== 'count' && unitKey(u) !== 'inch' ? u.replace(/^m2$/i, 'm²') : unitOf(res && res.type);
+};
+function itemVal(e) {  // an item's contribution as shown beside it ('' for a counted item)
+  if (e.kind === 'cell' && e.text) return String(e.text);
+  if (e.value == null || typeof e.value !== 'number') return e.value != null ? String(e.value) : '';
+  if (e.unit) return `${round2(e.value)} ${e.unit}`;
+  if (e.kind === 'polyline' && res && res.type !== 'length') return `${round2(e.value)} m`;
+  if (!res || res.type === 'count') return '';
+  return `${fmt(e.value, res.type)} ${uOf()}`.trim();
+}
+// region categories: Okabe-Ito hues without orange / vermillion (those mean "check" and "conflict" here)
+const CAT_HUES = ['#0072b2', '#56b4e9', '#009e73', '#cc79a7', '#003a5c', '#8a929d'];
+const catOf = e => e.kind === 'polygon' ? (e.category || e.group || null) : null;
+const UNTYPED = /untyped|unread|unknown|other|unlabel/i;
+function catList() {
+  const c = []; for (const e of items) { const k = catOf(e); if (k && !c.includes(k)) c.push(k); }
+  return [...c.filter(k => !UNTYPED.test(k)), ...c.filter(k => UNTYPED.test(k))];
+}
+function catColour(k) {
+  if (UNTYPED.test(k)) return '#8a929d';
+  const c = catList().filter(x => !UNTYPED.test(x)), i = c.indexOf(k); return CAT_HUES[(i < 0 ? 0 : i) % (CAT_HUES.length - 1)];
+}
+// a printed tag: FP-1, CV-12, FSCV-3A (the piping reader labels its boxes "3: FP-3 (label 2 of 2)")
+const tagOf = e => e.tag || (e.kind === 'box' && (String(e.label || '').match(/^(?:\d+:\s*)?([A-Z]{1,6}-\d+[A-Z]?)\b/) || [])[1]) || null;
+function tagGroups() {
+  const fam = new Map();
+  items.forEach((e, i) => {
+    const t = tagOf(e); if (!t) return;
+    const f = e.group && e.tag ? e.group : t.split('-')[0];
+    if (!fam.has(f)) fam.set(f, new Map());
+    const m = fam.get(f); if (!m.has(t)) m.set(t, []); m.get(t).push(i);
+  });
+  return fam;
+}
+const SHEET_NAME = {arch: 'Floor plan', slab: 'Slab plan', piping: 'Piping plan'};
+function sheetName(k) {
+  const t = `${(cur && cur.sheet_title) || ''} ${(cur && cur.path) || ''}`;
+  if (k === 'arch' && /dormitor/i.test(t)) return 'Dormitory plan';
+  if (k === 'arch' && /school/i.test(t)) return 'School floor plan';
+  return SHEET_NAME[k];
+}
+function sheetHow(r) {
+  if (r.sheet_how) return r.sheet_how;
+  const m = String(r.method || ''), ev = r.evidence || [];
+  const sc = String(r.scale || (cur && cur.sheet_scale) || '').match(/1\s*:\s*\d+/);
+  const has = k => ev.some(e => e.kind === k);
+  if (has('cell')) return 'read from the sheet\'s table';
+  if (r.sheet_type === 'piping') return items.some(tagOf) ? 'read from tags' : 'read from the sheet text';
+  if (/text|textqa|-qa\b|-note|-read\b/.test(m) || (ev.length && ev.every(e => e.kind === 'text'))) return 'read from the printed text';
+  if (/detector/.test(m)) return 'symbols detected';
+  if (has('polygon') || has('polyline')) return sc ? `measured at ${sc[0].replace(/\s/g, '')}` : 'measured on the drawing';
+  return '';
+}
+function sheetChipHTML(r) {
+  const k = r.sheet_type || (cur && cur.path.startsWith('uploads/') ? cur.sheet_kind : null);
+  if (!k || !SHEET_NAME[k]) return '';
+  const how = r.sheet_type ? sheetHow(r) : 'read by the general reader';
+  return `<div class="sheetchip" title="${esc((cur && cur.sheet_title) || '')}">${esc(sheetName(k))}${how ? ` · ${esc(how)}` : ''}</div>`;
+}
+// a short printed answer ("16\"", "26,562 SF") reads as the number it is, not as a block of text
+function shortText(r) {
+  if (typeof r.answer !== 'string' || !r.sheet_type) return '';
+  const a = r.answer.trim(); if (a.length > 16 || /\n/.test(a)) return '';
+  const m = a.match(/^([\d.,]+(?:["'″′])?)\s*([A-Za-z²%/. ]{1,8})?$/);
+  return m ? `<span class="bn">${esc(m[1])}</span>${m[2] ? ` <small>${esc(m[2].trim())}</small>` : ''}` : esc(a);
+}
+function sheetNotesHTML(r) {
+  const cell = (r.evidence || []).find(e => e.kind === 'cell');
+  const out = [];
+  if (cell) out.push(`<div class="tabnote">From the sheet's table${cell.table ? `: ${esc(cell.table)}` : ''}</div>`);
+  if (r.low_res) out.push(`<div class="lowres">${esc(typeof r.low_res === 'string' ? r.low_res : `Low resolution: ${r.sheet_type === 'piping' ? 'tags' : 'labels'} read with lower confidence; a PDF or larger image helps`)}</div>`);
+  return out.join('');
+}
+// the legend (category, colour, area) and the tag chips: a block under the answer, plus the legend on the drawing
+const sheetev = document.createElement('div'); sheetev.id = 'sheetev'; $('#ahead').after(sheetev);
+const catleg = document.createElement('div'); catleg.className = 'catleg ondraw'; catleg.hidden = true; viewer.appendChild(catleg);
+function legendHTML() {
+  const cats = catList(); if (!cats.length) return '';
+  const sumOf = k => items.filter(e => e.on && catOf(e) === k).reduce((s, e) => s + (typeof e.value === 'number' ? e.value : 0), 0);
+  const u = res.type === 'area' ? uOf() : 'm²';
+  const rows = cats.map(k => `<button type="button" class="cl" data-cat="${esc(k)}"><i style="background:${catColour(k)}"></i><span class="cn">${esc(k)}</span><b>${round2(sumOf(k))} ${esc(u)}</b></button>`);
+  const tot = cats.length > 1 ? `<div class="cl ctot"><i></i><span class="cn">Total</span><b>${round2(cats.reduce((s, k) => s + sumOf(k), 0))} ${esc(u)}</b></div>` : '';
+  return rows.join('') + tot;
+}
+function zoomTo(is) {
+  if (!is.length) return;
+  if (mode === '2d') zoomToEvidence(is.map(i => items[i]), 3);
+  for (const i of is) {
+    const s = ov.querySelector(`g[data-i="${i}"] > rect, g[data-i="${i}"] > path.pg, g[data-i="${i}"] > path.pl`);
+    if (s) { s.classList.add('flash'); setTimeout(() => s.classList.remove('flash'), 1300); }
+  }
+  flashRow(is[0]);
+}
+function renderSheetEv() {
+  const leg = res && items.length ? legendHTML() : '';
+  const groups = res ? tagGroups() : new Map();
+  const nTags = [...groups.values()].reduce((s, m) => s + m.size, 0);
+  const tags = nTags >= 2 ? [...groups].map(([f, m]) => `<div class="tgrp" role="group" aria-label="${esc(f)} tags">${[...m].map(([t, is]) =>
+      `<button type="button" class="tagc${is.some(i => items[i].on) ? '' : ' off'}" data-is="${is.join(',')}" title="Zoom to ${esc(t)}${is.length > 1 ? ` (printed ${is.length} times)` : ''}">${esc(t)}</button>`).join('')}</div>`).join('') : '';
+  sheetev.innerHTML = (tags ? `<div class="tags">${tags}</div>` : '') + (leg ? `<div class="catleg">${leg}</div>` : '');
+  sheetev.hidden = !sheetev.innerHTML;
+  catleg.innerHTML = leg; catleg.hidden = !leg || mode !== '2d';
+  const wire = root => root.querySelectorAll('button.cl').forEach(b => b.onclick = () => zoomTo(items.map((e, i) => catOf(e) === b.dataset.cat ? i : -1).filter(i => i >= 0)));
+  wire(sheetev); wire(catleg);
+  sheetev.querySelectorAll('.tagc').forEach(b => b.onclick = () => {
+    const is = b.dataset.is.split(',').map(Number); zoomTo(is);
+    if (QA.matches && mode === '2d') { stepI = is[0]; renderStepper(); pickTip(is[0]); }
+  });
 }
 // read by a model (detector / LLM / vision) rather than measured from CAD or IFC geometry: drawn dashed amber
 // (a vision / language model's boxes carry no detector score, but they are model-read all the same)
@@ -1277,7 +1424,7 @@ function focusItem(i) {
     return;
   }
   zoomToEvidence([e], 3); flashRow(i);
-  const s = ov.querySelector(`g[data-i="${i}"] > rect, g[data-i="${i}"] > path.pg`);
+  const s = ov.querySelector(`g[data-i="${i}"] > rect, g[data-i="${i}"] > path.pg, g[data-i="${i}"] > path.pl`);
   if (s) { s.classList.add('flash'); setTimeout(() => s.classList.remove('flash'), 1300); }
 }
 function redraw() {
@@ -1286,7 +1433,7 @@ function redraw() {
   renderEvidence(); recompute();
 }
 function hotItem(i, on) {
-  const s = ov.querySelector(`g[data-i="${i}"] > rect, g[data-i="${i}"] > path.pg`); if (s) s.classList.toggle('hot', on);
+  const s = ov.querySelector(`g[data-i="${i}"] > rect, g[data-i="${i}"] > path.pg, g[data-i="${i}"] > path.pl`); if (s) s.classList.toggle('hot', on);
   if (mode === '3d' && window.V3) V3.hot(on ? items[i]?.guids : null);
   if (mode === '2d' && items[i]?.guids) {  // plan marks that belong to this IFC element
     ov.querySelectorAll('g[data-i="-1"] rect').forEach((r, k) => { const m = marks[k]; if (m && m.guids && m.guids.some(g => items[i].guids.includes(g))) r.classList.toggle('hot', on); });
@@ -1299,7 +1446,7 @@ function rowHot(i, on, scroll) {
     const box = $('#ev'), top = r.offsetTop, bot = top + r.offsetHeight;
     if (top < box.scrollTop) box.scrollTop = top; else if (bot > box.scrollTop + box.clientHeight) box.scrollTop = bot - box.clientHeight + 30;
   }
-  const s = ov.querySelector(`g[data-i="${i}"] > rect, g[data-i="${i}"] > path.pg`); if (s) s.classList.toggle('hot', on);
+  const s = ov.querySelector(`g[data-i="${i}"] > rect, g[data-i="${i}"] > path.pg, g[data-i="${i}"] > path.pl`); if (s) s.classList.toggle('hot', on);
 }
 function flashRow(i) { rowHot(i, true, true); setTimeout(() => rowHot(i, false), 700); }
 
@@ -1336,11 +1483,11 @@ grip.onclick = () => { if (!(sheetDrag && sheetDrag.moved)) sheetFull(!document.
 let stepI = -1;
 const stepper = document.createElement('div'); stepper.className = 'stepper'; stepper.id = 'stepper';
 $('#evwrap').before(stepper);
-const itemName = e => e.kind === 'box' ? (e.label || 'item').replace(/ \d+$/, '').replace(/^Ifc[A-Za-z]+ /, '') : (e.label || (e.kind === 'polygon' ? 'region' : 'item'));
+const itemName = e => e.kind === 'box' ? (e.label || 'item').replace(/^\d+:\s*/, '').replace(/ \d+$/, '').replace(/^Ifc[A-Za-z]+ /, '') : (e.label || (e.kind === 'polygon' ? 'region' : 'item'));
 function renderStepper() {
   if (!res) { stepper.innerHTML = ''; return; }
   const n = items.length, e = items[stepI], full = document.body.classList.contains('sheetfull');
-  const val = e && e.value != null && res.type !== 'count' ? ` · ${fmt(e.value, res.type)} ${unitOf(res.type)}` : '';
+  const val = e && itemVal(e) ? ` · ${esc(itemVal(e))}` : '';
   const mid = !n ? '' : stepI < 0 ? `<span class="sk">Evidence</span> ${n} item${n === 1 ? '' : 's'}`
     : `<b>${stepI + 1} / ${n}</b> <span class="sl${e.on ? '' : ' off'}">${esc(itemName(e))}${val}</span>`;
   stepper.innerHTML = (n ? `<button type="button" class="sp" aria-label="Previous item"${stepI <= 0 ? ' disabled' : ''}>‹</button>

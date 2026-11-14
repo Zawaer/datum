@@ -1,0 +1,76 @@
+{
+ "image": "dormitory_second_floor_A-2_hires.png",
+ "sheet_kind": "arch",
+ "sheet_title": "SECOND FLOOR PLAN T-SHAPE A-2",
+ "sheet_scale": "",
+ "question": "Total dormitory area?",
+ "res": {
+  "answer": 18472,
+  "unit": "SF",
+  "confidence": 0.8,
+  "method": "sheets-textqa-table",
+  "explanation": "6,095 + 6,092 + 6,285 = 18,472 SF, the three DORMITORY rows of the square footage table",
+  "sheet_type": "arch",
+  "sheet_score": 0.88,
+  "type": "area",
+  "source": "upload",
+  "cost_usd": 0.0016741,
+  "latency_s": 7.6,
+  "baseline_cost_usd": 0.033848560245454525,
+  "baseline_latency_s": 30.95006500000002,
+  "pages": 1,
+  "page": 0,
+  "crosscheck": {
+   "status": "single",
+   "second": null,
+   "note": "no second method for this kind of question"
+  },
+  "calibration": {
+   "measured": false
+  },
+  "evidence": [
+   {
+    "kind": "cell",
+    "page": 0,
+    "bbox": [
+     0.8822533706436021,
+     0.2612199724788677,
+     0.9015166624268633,
+     0.2742626302339296
+    ],
+    "label": "West wing dormitory",
+    "value": 6095.0,
+    "text": "6,095 SF",
+    "table": "Square footage"
+   },
+   {
+    "kind": "cell",
+    "page": 0,
+    "bbox": [
+     0.8822533706436021,
+     0.33218517790446234,
+     0.9015166624268633,
+     0.3454244151759387
+    ],
+    "label": "North wing dormitory",
+    "value": 6092.0,
+    "text": "6,092 SF",
+    "table": "Square footage"
+   },
+   {
+    "kind": "cell",
+    "page": 0,
+    "bbox": [
+     0.8822533706436021,
+     0.4035435423628858,
+     0.9015166624268633,
+     0.4165862001179477
+    ],
+    "label": "East wing dormitory",
+    "value": 6285.0,
+    "text": "6,285 SF",
+    "table": "Square footage"
+   }
+  ]
+ }
+}

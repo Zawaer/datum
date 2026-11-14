@@ -29,6 +29,17 @@ Contract for a module `bp/sheets/<name>.py`:
      "cost_usd": float, "explanation": "one line, show the arithmetic",
      "evidence": [{"kind": "box" | "polygon" | "text", "page": 0, "bbox": [x0,y0,x1,y1] | "points": [[x,y],..],
                    "label": "...", "value": <contribution or None>}, ...]}   # coords normalised 0..1 to the image
+More evidence the UI draws for sheets (app/static/app.js, fixtures in tests/fixtures/sheets_ui/):
+    {"kind": "polyline", "points": [[x,y],..], "closed": bool, "label": "16\" suction header", "value": 38.4, "unit": "m"}
+        a pipe run / baseboard: a thin line with its length beside it
+    {"kind": "cell", "bbox": [...], "label": "West wing dormitory", "value": 6095, "text": "6,095 SF", "table": "Square footage"}
+        a value read from a schedule table (outlined, "from the sheet's table")
+    polygons with "category": "300 mm w/ D22 @ 300" get one colour per category and a legend with the area per category
+        ("untyped" / "unread" categories are grey); boxes labelled "FP-3" / "3: FP-3" (or with "tag": "FP-3", "group": "FP")
+        become tag chips grouped by family that zoom to each tag
+Result extras the UI reads: "unit" ("m", "m²", "SF", "mm"; it overrides the guessed question type), "low_res": true (or a
+one-line string) for a calm "Low resolution" hint, "sheet_how" ("read from tags", "measured at 1:50") to override the chip
+text the UI derives from the method and evidence, "scale" ("1:50").
 `file` in evidence items is filled in by the caller when missing. Return None (or answer None) to abstain
 and let the generic path answer. Never raise for an ordinary "can't do this" (exceptions are caught and
 logged as an abstention anyway).

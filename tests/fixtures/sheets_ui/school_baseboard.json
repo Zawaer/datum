@@ -1,0 +1,231 @@
+{
+ "image": "special_school_plan_level_00.png",
+ "sheet_kind": "arch",
+ "sheet_title": "LEVEL 00 PLAN special school",
+ "sheet_scale": "1:200",
+ "question": "Baseboard length in the Hall?",
+ "res": {
+  "answer": 71.7,
+  "unit": "m",
+  "confidence": 0.6,
+  "method": "sheets-rooms-baseboard",
+  "explanation": "Multi-Purpose se fal / Servery and Furniture Store: room outlines 81.3 m \u2212 6 door openings 9.6 m = 71.7 m of baseboard (windows not deducted, door openings measured on the wall line); scale 63.3 px/m (printed scale 1:200 on an A2 sheet).",
+  "sheet_type": "arch",
+  "sheet_score": 0.84,
+  "type": "count",
+  "source": "upload",
+  "cost_usd": 0.0,
+  "latency_s": 0.0,
+  "baseline_cost_usd": 0.033848560245454525,
+  "baseline_latency_s": 30.95006500000002,
+  "pages": 1,
+  "page": 0,
+  "crosscheck": {
+   "status": "single",
+   "second": null,
+   "note": "no second method for this kind of question"
+  },
+  "calibration": {
+   "measured": false
+  },
+  "evidence": [
+   {
+    "kind": "polyline",
+    "page": 0,
+    "points": [
+     [
+      0.42391,
+      0.57409
+     ],
+     [
+      0.42391,
+      0.7376
+     ],
+     [
+      0.57374,
+      0.7376
+     ],
+     [
+      0.57356,
+      0.73403
+     ],
+     [
+      0.57391,
+      0.73356
+     ],
+     [
+      0.57508,
+      0.73356
+     ],
+     [
+      0.57543,
+      0.73403
+     ],
+     [
+      0.57543,
+      0.7376
+     ],
+     [
+      0.58888,
+      0.7376
+     ],
+     [
+      0.58888,
+      0.64835
+     ],
+     [
+      0.57407,
+      0.64835
+     ],
+     [
+      0.57374,
+      0.64787
+     ],
+     [
+      0.5734,
+      0.64264
+     ],
+     [
+      0.57374,
+      0.64215
+     ],
+     [
+      0.57356,
+      0.61837
+     ],
+     [
+      0.57391,
+      0.61788
+     ],
+     [
+      0.57508,
+      0.61788
+     ],
+     [
+      0.57543,
+      0.61837
+     ],
+     [
+      0.57543,
+      0.64193
+     ],
+     [
+      0.59899,
+      0.64168
+     ],
+     [
+      0.59882,
+      0.57409
+     ],
+     [
+      0.57543,
+      0.57409
+     ],
+     [
+      0.57543,
+      0.59741
+     ],
+     [
+      0.57508,
+      0.59789
+     ],
+     [
+      0.57374,
+      0.59741
+     ],
+     [
+      0.57356,
+      0.57409
+     ],
+     [
+      0.51481,
+      0.57409
+     ],
+     [
+      0.5133,
+      0.57456
+     ],
+     [
+      0.51297,
+      0.57409
+     ]
+    ],
+    "closed": true,
+    "label": "Multi-Purpose Hall outline",
+    "value": 81.3
+   },
+   {
+    "kind": "box",
+    "page": 0,
+    "bbox": [
+     0.46094276094276093,
+     0.5683759953359502,
+     0.4755892255892256,
+     0.5740883168971155
+    ],
+    "label": "door opening 1.74 m",
+    "value": -1.74
+   },
+   {
+    "kind": "box",
+    "page": 0,
+    "bbox": [
+     0.5518518518518519,
+     0.5683759953359502,
+     0.5664983164983165,
+     0.5740883168971155
+    ],
+    "label": "door opening 1.74 m",
+    "value": -1.74
+   },
+   {
+    "kind": "box",
+    "page": 0,
+    "bbox": [
+     0.4974747474747475,
+     0.737841534983855,
+     0.5121212121212121,
+     0.7402216689676738
+    ],
+    "label": "door opening 1.74 m",
+    "value": -1.74
+   },
+   {
+    "kind": "box",
+    "page": 0,
+    "bbox": [
+     0.5158249158249159,
+     0.737841534983855,
+     0.5304713804713804,
+     0.7402216689676738
+    ],
+    "label": "door opening 1.74 m",
+    "value": -1.74
+   },
+   {
+    "kind": "box",
+    "page": 0,
+    "bbox": [
+     0.4198653198653199,
+     0.6945230964783512,
+     0.4239057239057239,
+     0.7154682755359574
+    ],
+    "label": "door opening 1.76 m",
+    "value": -1.76
+   },
+   {
+    "kind": "box",
+    "page": 0,
+    "bbox": [
+     0.5890572390572391,
+     0.7254648382679968,
+     0.5905723905723905,
+     0.7364134545935637
+    ],
+    "label": "door opening 0.92 m",
+    "value": -0.92
+   }
+  ]
+ }
+}

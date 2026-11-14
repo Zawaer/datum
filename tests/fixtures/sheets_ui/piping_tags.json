@@ -1,0 +1,155 @@
+{
+ "image": "piping_plan_M-101A_hires.png",
+ "sheet_kind": "piping",
+ "sheet_title": "PIPING PLAN M-101A",
+ "sheet_scale": "",
+ "question": "How many fuel pumps and check valves?",
+ "res": {
+  "answer": 10,
+  "unit": "count",
+  "confidence": 0.85,
+  "method": "sheets-piping",
+  "explanation": "FP-1 to FP-5 and CV-1 to CV-5: 10 distinct tags read from the sheet text.",
+  "sheet_type": "piping",
+  "sheet_score": 1.0,
+  "type": "count",
+  "source": "upload",
+  "cost_usd": 0.05242,
+  "latency_s": 60.3,
+  "baseline_cost_usd": 0.033848560245454525,
+  "baseline_latency_s": 30.95006500000002,
+  "pages": 1,
+  "page": 0,
+  "crosscheck": {
+   "status": "single",
+   "second": null,
+   "note": "no second method for this kind of question"
+  },
+  "calibration": {
+   "measured": false
+  },
+  "evidence": [
+   {
+    "kind": "box",
+    "page": 0,
+    "bbox": [
+     0.33058,
+     0.2703,
+     0.33897,
+     0.276
+    ],
+    "label": "1: FP-1",
+    "value": 1
+   },
+   {
+    "kind": "box",
+    "page": 0,
+    "bbox": [
+     0.37764,
+     0.2703,
+     0.38603,
+     0.276
+    ],
+    "label": "2: FP-2",
+    "value": 1
+   },
+   {
+    "kind": "box",
+    "page": 0,
+    "bbox": [
+     0.42546,
+     0.2703,
+     0.43386,
+     0.276
+    ],
+    "label": "3: FP-3",
+    "value": 1
+   },
+   {
+    "kind": "box",
+    "page": 0,
+    "bbox": [
+     0.47329,
+     0.27069,
+     0.48168,
+     0.276
+    ],
+    "label": "4: FP-4",
+    "value": 1
+   },
+   {
+    "kind": "box",
+    "page": 0,
+    "bbox": [
+     0.52035,
+     0.27069,
+     0.52887,
+     0.276
+    ],
+    "label": "5: FP-5",
+    "value": 1
+   },
+   {
+    "kind": "box",
+    "page": 0,
+    "bbox": [
+     0.34788,
+     0.38215,
+     0.35678,
+     0.38805
+    ],
+    "label": "6: CV-1",
+    "value": 1
+   },
+   {
+    "kind": "box",
+    "page": 0,
+    "bbox": [
+     0.3957,
+     0.38215,
+     0.4046,
+     0.38805
+    ],
+    "label": "7: CV-2",
+    "value": 1
+   },
+   {
+    "kind": "box",
+    "page": 0,
+    "bbox": [
+     0.44353,
+     0.38195,
+     0.45268,
+     0.38805
+    ],
+    "label": "8: CV-3",
+    "value": 1
+   },
+   {
+    "kind": "box",
+    "page": 0,
+    "bbox": [
+     0.49097,
+     0.38195,
+     0.50013,
+     0.38805
+    ],
+    "label": "9: CV-4",
+    "value": 1
+   },
+   {
+    "kind": "box",
+    "page": 0,
+    "bbox": [
+     0.53867,
+     0.38195,
+     0.54782,
+     0.38805
+    ],
+    "label": "10: CV-5",
+    "value": 1
+   }
+  ],
+  "low_res": true
+ }
+}

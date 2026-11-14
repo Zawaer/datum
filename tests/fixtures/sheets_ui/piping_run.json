@@ -1,0 +1,67 @@
+{
+ "image": "piping_plan_M-101A_hires.png",
+ "sheet_kind": "piping",
+ "sheet_title": "PIPING PLAN M-101A",
+ "sheet_scale": "",
+ "question": "What size is the suction header?",
+ "res": {
+  "answer": "16\"",
+  "unit": "inch",
+  "confidence": 0.8,
+  "method": "sheets-piping",
+  "explanation": "Read from the callout \"16\" SUCTION HEADER\".",
+  "sheet_type": "piping",
+  "sheet_score": 1.0,
+  "type": "text",
+  "source": "upload",
+  "cost_usd": 0.0,
+  "latency_s": 0.6,
+  "baseline_cost_usd": 0.033848560245454525,
+  "baseline_latency_s": 30.95006500000002,
+  "pages": 1,
+  "page": 0,
+  "crosscheck": {
+   "status": "single",
+   "second": null,
+   "note": "no second method for this kind of question"
+  },
+  "calibration": {
+   "measured": false
+  },
+  "evidence": [
+   {
+    "kind": "box",
+    "page": 0,
+    "bbox": [
+     0.53918,
+     0.09161,
+     0.58039,
+     0.09613
+    ],
+    "label": "1: \"16\" SUCTION HEADER\"",
+    "value": "16\""
+   },
+   {
+    "kind": "polyline",
+    "page": 0,
+    "points": [
+     [
+      0.3,
+      0.112
+     ],
+     [
+      0.62,
+      0.112
+     ],
+     [
+      0.62,
+      0.16
+     ]
+    ],
+    "label": "16\" suction header run",
+    "value": 38.4,
+    "unit": "m"
+   }
+  ]
+ }
+}
