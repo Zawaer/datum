@@ -12,9 +12,7 @@ from bp import sheets
 
 PROMPT = """Question about a construction drawing: {question}
 Below are the text lines read (OCR) from the sheet, one per line: "[id] (x%, y%) text". OCR may garble a few
-characters (e.g. "2911" for "2,911", "O" for "0"). Tables print one row per line: label then value. A room tag on
-a plan prints the room name with its area just BELOW it (same x, next y): "KITCHEN" at (52%, 40%) then "151 SF" at
-(52%, 41%) is the kitchen's area; the area just above a name belongs to the room tag above.
+characters (e.g. "2911" for "2,911", "O" for "0"). Tables print one row per line: label then value.
 
 {lines}
 
@@ -29,7 +27,10 @@ Rules:
   Prefer a printed TOTAL row over adding rows yourself when the question asks for that total.
 - "sum": the question asks for a total that is not printed: one item per number added (value = that number).
 - "count": one item per counted line.
-- "none": the text does not answer it (e.g. the question is about drawn symbols, or a room not listed).
+- "none": the text does not answer it (e.g. the question is about drawn symbols, or a room not listed). Also "none"
+  for the area of a room or of several rooms read from ROOM TAGS on the plan (a room name with its area printed
+  under it, not a table row): the OCR misses and mispairs tags (the area above a name belongs to another room), so the
+  drawing reader that looks at the plan answers those.
 """
 
 
