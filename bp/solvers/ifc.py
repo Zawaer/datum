@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 
 from bp import compare as C
+from bp import notfound as NF
 from bp.data import data_root
 from bp.ifc import model as M
 from bp.ifc.extract import load_model
@@ -52,6 +53,15 @@ def _names_model(question: str, slot: str) -> bool:
     before = question[max(0, i - 30):i].rstrip(" '\"«»„“”‘’")
     after = question[i + len(slot):i + len(slot) + 30].lstrip(" '\"«»„“”‘’")
     return bool(re.search(rf"\b{_MODEL_WORD}\s*$", before, re.I) or re.match(rf"{_MODEL_WORD}\b", after, re.I))
+
+
+def _storey_names(m) -> list[str]:
+    return [s["name"] or s["long_name"] for s in m["storeys"] if s["name"] or s["long_name"]]
+
+
+def _storey_not_found(m, name: str) -> dict:
+    """Structured abstention for a storey this model does not have (bp/notfound.py)."""
+    return NF.abstain(_abstain(""), "storey", name, _storey_names(m), where="in this model")
 
 
 def _no_storey(m, name: str | None) -> str:
@@ -202,7 +212,7 @@ class IfcSolver:
         if storey is None and unknown:
             # a quoted name that is neither a storey of this model nor introduced as the model's name: answering
             # model-wide would silently ignore it ("doors on 'Level 99'" -> every door in the model)
-            return _abstain(_no_storey(m, unknown[0]))
+            return _storey_not_found(m, unknown[0])
         what = pq["what"]
         if what is None:
             return _abstain("could not tell which element type the question is about")
@@ -275,11 +285,11 @@ class IfcSolver:
                         "unparsed": True}
             sscore = 1.0 if storey is not None else 0.0
         if len(slots) >= 2 and storey is None:
-            return _abstain(_no_storey(m, slots[-1]))
+            return _storey_not_found(m, slots[-1])
         if room is None:
             if storey is None:
                 if slots:
-                    return _abstain(_no_storey(m, slots[0]))
+                    return _storey_not_found(m, slots[0])
                 els = M.elements_of(m, ["IfcSpace"])
             else:
                 els = M.elements_of(m, ["IfcSpace"], storey)
@@ -296,8 +306,10 @@ class IfcSolver:
                         storey = st2
             if not els:
                 if pq["total"] and len(slots) == 1:
-                    return _abstain(_no_storey(m, room))
-                return _abstain(f"no room named '{room}'" + (f" on '{storey['name']}'" if storey else " in this model"))
+                    return _storey_not_found(m, room)
+                pool = [e for e in M.elements_of(m, ["IfcSpace"], storey)] if storey else M.elements_of(m, ["IfcSpace"])
+                return NF.abstain(_abstain(""), "room", room, [(M.space_labels(e) or [None])[0] for e in pool],
+                                  where=f"on '{storey['name']}'" if storey else "in this model")
             conf = 0.95 if rs >= 1.0 else 0.5
             if len(els) > 1:
                 conf *= 0.6

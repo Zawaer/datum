@@ -1376,9 +1376,11 @@ def ask(req: Ask, request: Request):
     if known is None and q["source"] in EXACT_SOURCES and res.get("answer") is None \
             and res.get("method") not in ("timeout", "error"):
         # an exact CAD/BIM solver exists for this drawing: its honest abstention (with the plan's labels or the
-        # model's storeys) beats a vision guess that changes from one ask to the next
-        res["explanation"] = (res.get("explanation") or "not recognised") + \
-            " (nothing was guessed: this drawing has an exact CAD/BIM twin, so the general vision reader is not used)"
+        # model's storeys) beats a vision guess that changes from one ask to the next. A name the drawing does not
+        # have (res["not_found"]) already says so plainly, with the names it does have
+        if not res.get("not_found"):
+            res["explanation"] = (res.get("explanation") or "not recognised") + \
+                " (nothing was guessed: this drawing has an exact CAD/BIM twin, so the general vision reader is not used)"
     elif known is None and q["source"] != "upload" and res.get("answer") is None and q["ext"] in ("pdf", "png", "jpg") \
             and res.get("method") not in ("timeout", "error"):
         # a free-typed question the specialist does not recognise: let the general drawing reader try it,

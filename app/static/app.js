@@ -607,6 +607,7 @@ const money = v => v === 0 ? '$0' : v < 0.001 ? '$' + v.toFixed(5) : v < 1 ? '$'
 function howOf(r) {
   const m = String(r.method || ''), paid = (r.cost_usd || 0) > 0;
   if (r.answer == null && /does not look like a construction drawing/.test(String(r.explanation || ''))) return {cls: 'none', t: 'Not a drawing', how: 'the file was checked before any counting and declined; nothing was guessed'};
+  if (r.answer == null && r.not_found) return {cls: 'none', t: 'Not on this drawing', how: 'the question names something this drawing does not have; its own names are listed instead of a guess'};
   if (r.answer == null) return r.budget_exhausted ? {cls: 'none', t: 'Paused: daily budget used', how: 'the $0 solvers for Swiss, CubiCasa and IFC drawings still answer'}
     : {cls: 'none', t: 'Abstained', how: 'when the evidence is not good enough we say so instead of guessing'};
   if (/-na$|-none$/.test(m)) return {cls: 'none', t: 'Not in the model', how: 'nothing in the file states this, so we say so rather than guess'};
@@ -633,6 +634,7 @@ function whyNone(r) {
   const nd = e.match(/[^|]*does not look like a construction drawing[^|]*/);
   if (nd) return {short: 'This file does not look like a construction drawing',
     long: cap1(nd[0].trim()) + '. Upload a plan, section or elevation (PDF, image, DXF or IFC) to ask about it.'};
+  if (r.not_found) return {short: 'Not on this drawing', long: nfLine(r.not_found) + ' Nothing was guessed: pick one of the names this drawing does have, or ask about something else.'};
   const why = r.budget_exhausted ? 'the daily budget for paid model calls is used up'
     : m === 'timeout' ? 'the solver ran out of time; it stops rather than guess'
     : /error/.test(m) ? 'the solver failed on this input; it reports that rather than a number'
@@ -640,6 +642,22 @@ function whyNone(r) {
     : /-na$|-none$/.test(m) || /no .* values|not in the/.test(e) ? 'the file does not contain what the question asks for'
     : 'the evidence was not good enough';
   return {short: cap1(why.split(';')[0]), long: `${cap1(why)}. A wrong number on a drawing costs more than an honest “not sure”, so we abstain.`};
+}
+// a name the drawing does not have (bp/notfound.py): one calm line and the names it does have, as chips that re-ask
+const NF_WHAT = {label: 'Labels here', room: 'Rooms here', storey: 'Storeys here', apartment: 'Apartments here'};
+function nfLine(nf) {
+  const a = nf.asked || '';
+  return nf.kind === 'label' ? `No room is labelled '${a}'.`
+    : nf.kind === 'room' ? (/^[A-Z]?\d+(\.\d+)*$/.test(a) ? `There is no room ${a}.` : `No room is named '${a}'.`)
+    : nf.kind === 'storey' ? `There is no storey named '${a}'.`
+    : nf.kind === 'apartment' ? `There is no apartment ${a}.` : `'${a}' is not on this drawing.`;
+}
+function notFoundHTML(r) {
+  const nf = r.not_found, opts = (nf.options || []).slice(0, 8);
+  return `<div class="big nf">Not on this drawing</div>
+    <div class="nfline">${esc(nfLine(nf))}</div>
+    ${opts.length ? `<div class="nfnames"><span class="nfh">${esc(NF_WHAT[nf.kind] || 'Names here')}:</span>${opts.map((o, i) =>
+      `<button type="button" class="nfchip" data-nfi="${i}" title="${esc(o.question)}">${esc(o.name)}</button>`).join('')}</div>` : ''}`;
 }
 const isCompare = r => /-compare$/.test(String(r.method || '')) || !!r.comparison;
 function calibHTML(r) {
@@ -818,6 +836,13 @@ function renderAnswer(shownSoFar) {
     $('#atail').innerHTML = '';
     wireAnswerActions(a); return;
   }
+  if (abst && res.not_found) {  // a calm neutral state, not an abstention: no badge, the drawing's own names as chips
+    $('#ahead').innerHTML = `${qrow}${notFoundHTML(res)}`;
+    const opts = res.not_found.options || [];
+    $('#ahead').querySelectorAll('.nfchip').forEach(b => b.onclick = ev => {
+      ev.stopPropagation(); const o = opts[+b.dataset.nfi]; if (!o) return; $('#q').value = o.question; ask();
+    });
+  } else
   // head: the question, the number, one trust line, the second opinion in one line, a correction if any
   $('#ahead').innerHTML = `${qrow}
     ${res.normalized_question && res.normalized_question !== res.question ? `<div class="readas">read as: <i>${esc(res.normalized_question)}</i></div>` : ''}
@@ -859,7 +884,7 @@ function announce() {
   if (!res || announcedSeq === res._seq) return;
   announcedSeq = res._seq;
   const t = res.type, h = howOf(res);
-  const ans = res.answer == null ? 'not sure, so no guess'
+  const ans = res.answer == null ? (res.not_found ? `not on this drawing. ${nfLine(res.not_found)}` : 'not sure, so no guess')
     : typeof res.answer === 'number' ? `${fmt(res.answer, t)} ${unitOf(t)}`.trim()
     : String(res.answer).trim().slice(0, 300);
   const sr = $('#sr-status'); if (sr) sr.textContent = `${res.question}: ${ans}. ${h.t}.`;

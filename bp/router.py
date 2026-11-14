@@ -144,6 +144,34 @@ class Router:
         res2["explanation"] = f"read as: {nq['question']} | " + (res2.get("explanation") or "")
         return res2, q2
 
+    def _not_found(self, s, q, name, res):
+        """The question names a label / room / storey / apartment this drawing does not have (bp/notfound.py): ask
+        the normaliser once whether it is a typo, abbreviation, translation or synonym of one of the drawing's own
+        names; re-ask with that name if so ("read as: ... 'Zimmer' ..."), else keep the not-found answer."""
+        from bp.normalize import match_name
+        from bp.notfound import substitute
+
+        nf = res["not_found"]
+        names = res.pop("_not_found_all", None) or nf.get("available") or []
+        m = match_name(name, q, nf, names)
+        res["cost_usd"] = res.get("cost_usd", 0.0) + m["cost_usd"]
+        q2t = substitute(q["question"], nf.get("asked") or "", m["name"], nf.get("kind")) if m["name"] else None
+        if q2t and q2t != q["question"]:
+            q2 = dict(q, question=q2t)
+            res2 = self._run(s, q2, name)
+            if res2.get("answer") is not None:
+                res2["cost_usd"] = res2.get("cost_usd", 0.0) + res.get("cost_usd", 0.0)
+                res2["normalized_question"] = rq = res2.get("normalized_question") or q2t
+                res2["normalize"] = {"question": q2t, "cost_usd": m["cost_usd"], "type": q2.get("type"),
+                                     "matched": {"kind": nf.get("kind"), "asked": nf.get("asked"), "name": m["name"]}}
+                expl = re.sub(r"^read as: [^|]*\| ?", "", res2.get("explanation") or "")
+                res2["explanation"] = f"read as: {rq} | '{nf.get('asked')}' read as '{m['name']}' | {expl}"
+                return res2, q2
+        res["normalize"] = {"question": None, "why": m["why"] or "re-asked with the matched name, no answer",
+                            "cost_usd": m["cost_usd"], "matched": {"kind": nf.get("kind"), "asked": nf.get("asked"),
+                                                                   "name": m["name"]}}
+        return res, q
+
     def __call__(self, q):
         q = dict(q)
         q.setdefault("type", guess_type(q["question"]))
@@ -169,6 +197,8 @@ class Router:
                 # (an IFC-model question no numeric rule read falls to the text rules, which say "not
                 # available"; that is a parse failure, so the normaliser gets it; its NONE keeps the answer)
                 res, q = self._normalized(s, q, name, res)  # q: the rewrite, if one was used
+            if self.normalize and res.get("answer") is None and res.get("not_found"):
+                res, q = self._not_found(s, q, name, res)
             fb_name = UPLOAD_FALLBACK.get(name) if q["source"] == "upload" else None
             # an unsure specialist (an IFC rule that did not fit, the CubiCasa detector on a plan unlike its
             # training data) hands over to the general reader; the more confident of the two answers is kept
@@ -194,6 +224,11 @@ class Router:
         if res is None:
             res = {"answer": None, "confidence": 0.0, "evidence": [], "cost_usd": 0.0, "method": "none",
                    "explanation": "no solver for this drawing type yet", "route": "-"}
+        res.pop("_not_found_all", None)
+        if res.get("answer") is None and res.get("not_found"):
+            from bp.notfound import options
+
+            res["not_found"]["options"] = options(q["question"], res["not_found"])  # the UI's chips
         if self.crosscheck and res.get("comparison"):
             # a comparison (bp/compare.py) is computed from two or more of the solver's own readings; the second
             # methods answer one count or area, which would be read against the difference or the yes/no

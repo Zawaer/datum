@@ -16,6 +16,7 @@ import unicodedata
 from pathlib import Path
 
 from bp import compare as C
+from bp import notfound as NF
 from bp.data import data_root
 from bp.swiss import rooms as RK
 from bp.swiss.parse import FILL_COMMON, parse_floor
@@ -127,11 +128,6 @@ def parse_question(q: str, qtype: str | None):
 
 
 ROOM_LABELS = set(json.loads((Path(__file__).resolve().parents[1] / "swiss/room_labels.json").read_text()))
-
-
-def _no_label(label, rooms):
-    names = sorted({r.name for r in rooms if r.name})
-    return f"no room labelled '{label}' on this plan; labels are: " + ", ".join(f"'{n}'" for n in names)
 
 
 def _norm(s):
@@ -346,7 +342,7 @@ class SwissSolver:
                 # about: 'Küche', 'Balcon', ...; dev never asks for a label that is absent, so this costs nothing
                 # there). Anything else is more likely a misread name than an honest zero.
                 if label not in ROOM_LABELS:
-                    return {**base, "explanation": _no_label(intent[1], rooms_num)}
+                    return NF.abstain(base, "label", intent[1], [r.name for r in rooms_num])
                 c = 0.6
                 notes.append("label not found on this plan")
             return done(len(hits), c, f"{len(hits)} rooms labelled '{intent[1]}'"
@@ -362,7 +358,7 @@ class SwissSolver:
             num = intent[1]
             hits = [r for r in rooms_num if r.number == num]
             if not hits:
-                return {**base, "explanation": f"room {num} not found"}
+                return NF.abstain(base, "room", num, [r.number for r in rooms_num])
             r = hits[0]
             c = room_conf([r])
             if intent[2] and r.name and _norm(intent[2]) != _norm(r.name):
@@ -380,7 +376,7 @@ class SwissSolver:
             label = _norm(intent[1])
             hits = [r for r in rooms_num if _norm(r.name) == label]
             if not hits:  # an area summed over nothing is not an answer
-                return {**base, "explanation": _no_label(intent[1], rooms_num)}
+                return NF.abstain(base, "label", intent[1], [r.name for r in rooms_num])
             for r in hits:
                 poly(r, r.area)
             tot = round(sum(r.area for r in hits), 2)
@@ -407,7 +403,7 @@ class SwissSolver:
         if kind == "area_apartment":
             letter = intent[1]
             if letter not in fl.units:
-                return {**base, "explanation": f"apartment {letter} not found"}
+                return NF.abstain(base, "apartment", letter, sorted(fl.units))
             hits = _apt_rooms(rooms_num, letter)
             for r in hits:
                 poly(r, r.area)
@@ -422,8 +418,7 @@ class SwissSolver:
         kind, letter = intent[1], intent[2]
         name = RK.kind_name(kind)
         if letter is not None and letter not in fl.units:
-            return {**base, "explanation": f"apartment {letter} not found; apartments are: "
-                                           + ", ".join(sorted(fl.units))}
+            return NF.abstain(base, "apartment", letter, sorted(fl.units))
         pool = [r for r in rooms_num if letter is None or r.unit == letter]
         where = f" in apartment {letter}" if letter else ""
         hits, unnamed = _kind_rooms(fl, kind, pool)

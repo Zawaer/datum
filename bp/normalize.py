@@ -312,6 +312,71 @@ def normalize(route: str, q: dict) -> dict:
     return {"question": rewrite, "cost_usd": cost, "why": why}
 
 
+# ------------------------------------------------------------------ a name the drawing does not have
+MATCH_SYSTEM = """A user asked about a building drawing and named something the drawing does not have. Decide whether
+the asked name is a typo, abbreviation, translation (any language) or synonym of exactly ONE of the names that are
+on the drawing. Swiss plans print room labels in German, French or Italian ('Zimmer' / 'Schlafzimmer' / 'Chambre' /
+'Camera' are bedrooms or rooms, 'Küche' / 'Cuisine' / 'Cucina' kitchens, 'Bad' / 'Salle de bain' bathrooms, 'Wohnen'
+living rooms, 'Reduit' storage, 'Korridor' / 'Gang' corridors); IFC storeys and rooms may be named in any language.
+Rules:
+- Reply with ONE line: one name copied exactly and whole from the list (same spelling, accents and case, including
+  any number in brackets, e.g. 'Küche (6)'), or the word NONE.
+- NONE when the asked name is nonsense, names something else, or fits two or more listed names equally well.
+- Never reply with a name that is not in the list.
+Examples: 'Zimer' (list has 'Zimmer') -> Zimmer; 'kitchen' (list has 'Küche') -> Küche; 'makuuhuone' or 'bedroom'
+(list has 'Zimmer', no 'Schlafzimmer') -> Zimmer; 'ground floor' (list has 'Erdgeschoss', '1. Obergeschoss') ->
+Erdgeschoss; 'skibidi' -> NONE; 'garage' (no garage-like name) -> NONE."""
+
+_KIND_WORD = {"label": "room label", "room": "room", "storey": "storey", "apartment": "apartment letter"}
+
+
+def match_name(route: str, q: dict, nf: dict, names: list[str]) -> dict:
+    """-> {"name": one of `names` or None, "cost_usd", "why"}: one Haiku call per (drawing, kind, asked), cached.
+
+    Only called for a structured not-found abstention (bp/notfound.py), never for a question the solver answered."""
+    asked, kind = (nf.get("asked") or "").strip(), nf.get("kind") or "label"
+    names = [n for n in names if n]
+    if not asked or not names or kind == "apartment" and len(asked) <= 2:
+        # an apartment letter has no typo or translation to recover; nothing to choose from is NONE as well
+        return {"name": None, "cost_usd": 0.0, "why": "nothing to match"}
+    k = _key(f"match\x00{kind}\x00{asked}\x00v2", q.get("path", ""))
+    hit = _cache_get(k)
+    if hit is not None:
+        return {"name": hit["rewrite"], "cost_usd": 0.0, "why": hit.get("why", ""), "cached": True}
+    extra = ""
+    if route == "swiss" and kind == "label":
+        from bp.swiss.rooms import synonym_lines
+        syn = synonym_lines(names)
+        extra = ("\nEveryday room words -> labels on this plan: " + "; ".join(syn)) if syn else ""
+    prompt = (f"Drawing: {'a Swiss apartment floor plan' if route == 'swiss' else 'an IFC building model'}\n"
+              f"User question: {q['question']}\nAsked {_KIND_WORD.get(kind, kind)}: '{asked}'\n"
+              f"{_KIND_WORD.get(kind, kind).capitalize()}s on this drawing: "
+              + ", ".join(f"'{n}'" for n in names[:300]) + extra + "\n\nName from the list (or NONE):")
+    from bp.ifctext.llm import ask
+    res = ask(prompt, MATCH_SYSTEM, "haiku", tag="normalize-name", timeout=120, retries=1)
+    cost = float(res.get("cost_usd") or 0.0)
+    if res.get("error"):
+        return {"name": None, "cost_usd": cost, "why": f"normaliser call failed: {res['error'][:80]}"}
+    line = next((x.strip() for x in (res.get("text") or "").strip().strip("`").splitlines() if x.strip()), "")
+    line = re.sub(r"^(?:name|answer)\s*:\s*", "", line, flags=re.I).strip().strip("'\"“”‘’«».").strip()
+    pick = next((n for n in names if n == line), None) or next(
+        (n for n in names if n.casefold() == line.casefold()), None)
+    if pick is None and line:  # 'Küche' for the listed 'Küche (6)': only when exactly one listed name reads so
+        bare = [n for n in names if re.sub(r"\s*\([^)]*\)\s*$", "", n).casefold() == line.casefold()]
+        pick = bare[0] if len(bare) == 1 else None
+    if pick is not None and pick.casefold() == asked.casefold():
+        pick = None
+    # the same guard as a rewrite: only a name that is on this drawing (exactly as listed)
+    bad = None if pick is None else _valid(route, f"'{pick}'", {"names": set(names), "tokens": set()})
+    if bad:
+        pick = None
+    why = "" if pick else ("no listed name matches" if re.fullmatch(r"NONE\.?", line, re.I) or not line
+                           else f"reply '{line[:40]}' is not a name on this drawing")
+    _cache_put({"k": k, "question": q["question"], "path": q.get("path", ""), "route": route, "raw": line,
+                "rewrite": pick, "why": why, "cost_usd": cost, "match": {"kind": kind, "asked": asked}})
+    return {"name": pick, "cost_usd": cost, "why": why}
+
+
 # ------------------------------------------------------------------ typed units and two-part counts
 # Dataset questions on Swiss plans and IFC models are metric and never say feet (checked on all 127,043); a
 # typed "in square feet" is stripped before parsing and the metric answer is converted afterwards.
