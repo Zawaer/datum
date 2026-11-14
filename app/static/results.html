@@ -3,199 +3,254 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Scoreboard · Blueprints that talk</title>
-<meta name="description" content="Accuracy and cost of Blueprints that talk on a held-out test split, against a frontier vision model and a no-look prior.">
-<meta property="og:title" content="Blueprints that talk · scoreboard">
+<title>Accuracy · Blueprints that talk</title>
+<meta name="description" content="How accurate Blueprints that talk is on drawings it never saw during development, compared with frontier AI models.">
+<meta property="og:title" content="Blueprints that talk · accuracy">
 <meta property="og:image" content="/static/og.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233e9bff'/%3E%3Cpath d='M7 7h18v18H7z M7 15h9 M16 7v18' fill='none' stroke='%23001' stroke-width='2.6'/%3E%3Ccircle cx='21' cy='20' r='3' fill='%23ff3b6b'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="/static/app.css">
 <style>
-  /* scoreboard: same design system as the app (app.css); series colours are Okabe-Ito, the prior is neutral grey */
+  /* accuracy page: same tokens as the app (app.css). One accent (our evidence blue) for our bar, neutral grey for everyone else. */
+  html, body { height: auto; }
   body { display: block; overflow: auto; background: var(--bg); }
-  .viz-root { --ours: #0072b2; --frontier: #d55e00; --fair: #cc79a7; --gemini: #009e73; --haiku: #e69f00; --nemotron: #56b4e9; --prior: #8a929d; }
   main.wrap { display: block; overflow: visible; min-height: auto; }  /* app.css lays out the app's <main> as a grid */
-  .wrap { max-width: 1120px; margin: 0 auto; padding: 24px 24px 64px; }
-  h1 { font-size: 28px; font-weight: 600; letter-spacing: -.3px; margin: 0 0 8px; }
-  .lede { color: var(--mut); margin: 0 0 16px; max-width: 780px; font-size: 14px; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 48px 24px 80px; }
+  h1 { font-size: 28px; font-weight: 600; letter-spacing: -.02em; margin: 0 0 8px; line-height: 1.2; }
+  .lede { font-size: 17px; color: var(--mut); margin: 0 0 32px; max-width: 620px; line-height: 1.5; }
   .lede b { color: var(--text); font-weight: 600; }
-  .headl { font-size: 18px; margin: 0 0 8px; max-width: 900px; } .headl b { color: var(--ev-ink); font-weight: 600; }
-  .legend { display: flex; gap: 8px 20px; flex-wrap: wrap; font-size: 13px; color: var(--mut); margin: 8px 0 16px; }
-  .legend b { color: var(--text); font-weight: 600; }
-  .legend i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: 0; }
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0; margin-bottom: 24px; background: var(--panel); border: 1px solid var(--line2); border-radius: var(--r2); }
-  #hero { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }  /* all seven systems on one row on a laptop */
-  .tile { padding: 12px 16px 14px; border-left: 1px solid var(--line); }
-  .tile:first-child { border-left: 0; }
-  /* the tiles are filled in from /api/analysis: reserve their measured height so the page below does not jump (CLS) */
-  #hero { min-height: 211px; } #tiles { min-height: 178px; }
-  @media (max-width: 1024px) { #hero { min-height: 370px; } }
-  @media (max-width: 640px) { #hero { min-height: 398px; } #tiles { min-height: 347px; } }
-  @media (max-width: 430px) { #hero { min-height: 606px; } #tiles { min-height: 397px; } }
-  @media (max-width: 400px) { #hero { min-height: 657px; } #tiles { min-height: 432px; } }
-  .tile h3 { margin: 0 0 6px; font-size: 11px; color: var(--mut); font-weight: 600; text-transform: uppercase; letter-spacing: .6px; }
-  .tile .hero { font-size: 32px; font-weight: 600; letter-spacing: -.5px; line-height: 1.1; }
-  .tile .hero small { font-size: 13px; color: var(--mut); font-weight: 400; letter-spacing: 0; }
-  .tile .vs { margin-top: 6px; font-size: 12px; color: var(--mut); border: 0; border-radius: 0; overflow: visible; }
+  h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
+  section { margin: 0 0 40px; }
+
+  /* the one chart: horizontal bars, value at the bar end */
+  .bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  .bars li { display: grid; grid-template-columns: 236px 1fr; align-items: center; gap: 12px; font-size: 14px; }
+  .bars .nm { color: var(--mut); line-height: 1.25; }
+  .bars .me .nm { color: var(--text); font-weight: 600; }
+  .bars .tr { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .bars .b { height: 20px; background: var(--line2); border-radius: 0 4px 4px 0; flex: none; }
+  .bars .me .b { background: var(--ev); }
+  .bars .v { font-weight: 500; white-space: nowrap; color: var(--mut); }
+  .bars .me .v { color: var(--ev-ink); font-weight: 600; }
+  .foot { color: var(--mut); font-size: 13px; margin: 12px 0 0; }
+
+  /* three facts */
+  .facts { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .fact { padding: 20px 16px 20px 0; }
+  .fact + .fact { padding-left: 20px; border-left: 1px solid var(--line); }
+  .fact .n { font-size: 28px; font-weight: 600; letter-spacing: -.02em; line-height: 1.15; }
+  .fact .l { font-size: 14px; margin-top: 4px; }
+  .fact .s { font-size: 13px; color: var(--mut); margin-top: 2px; }
+
+  /* by drawing type: name, thin bar, value */
+  .types { list-style: none; margin: 0; padding: 0; }
+  .types li { display: grid; grid-template-columns: 200px 1fr 56px; align-items: center; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .types li:first-child { border-top: 1px solid var(--line); }
+  .types .t { height: 6px; background: var(--panel3); border-radius: 3px; overflow: hidden; }
+  .types .t i { display: block; height: 100%; background: var(--ev); border-radius: 3px; }
+  .types .v { text-align: right; font-weight: 600; }
+
+  /* details for reviewers */
+  details.rev { border-top: 1px solid var(--line); padding-top: 16px; }
+  details.rev > summary { cursor: pointer; font-weight: 600; font-size: 15px; list-style: none; display: flex; align-items: center; gap: 8px; }
+  details.rev > summary::-webkit-details-marker { display: none; }
+  details.rev > summary::before { content: "›"; display: inline-block; width: 12px; color: var(--mut); transition: transform .15s; }
+  details.rev[open] > summary::before { transform: rotate(90deg); }
+  details.rev > summary small { font-weight: 400; color: var(--mut); font-size: 13px; }
+  .rev h3 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--mut); margin: 28px 0 8px; }
+  .rev p { font-size: 13px; color: var(--mut); margin: 8px 0 0; }
+  .rev p b { color: var(--text); font-weight: 600; }
+  /* wide tables scroll inside their box; a shadow marks the edge that has more columns behind it */
+  .tw { overflow-x: auto; background:
+      linear-gradient(to right, var(--bg) 30%, transparent) left / 24px 100% no-repeat local,
+      linear-gradient(to left, var(--bg) 30%, transparent) right / 24px 100% no-repeat local,
+      radial-gradient(farthest-side at 0 50%, rgba(0,0,0,.18), transparent) left / 10px 100% no-repeat scroll,
+      radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,.18), transparent) right / 10px 100% no-repeat scroll, var(--bg); }
+  .tw:focus-visible { outline-offset: 0; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; color: var(--mut); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; padding: 8px; border-bottom: 1px solid var(--line2); white-space: nowrap; }
-  td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
-  tr:last-child td { border-bottom: 0; }
-  td.g { white-space: nowrap; }
-  .cell { display: grid; grid-template-columns: 1fr 48px; gap: 6px; align-items: center; min-width: 96px; }
-  .bar { height: 6px; background: var(--panel3); position: relative; }
-  .bar i { position: absolute; left: 0; top: 0; bottom: 0; }
-  .cell b { text-align: right; font-weight: 600; }
-  .cell.na { color: var(--faint); }
-  .nsub { color: var(--mut); font-size: 11px; display: block; }
-  .card2 { background: var(--panel); border: 1px solid var(--line2); border-radius: var(--r2); padding: 4px 8px 6px; margin-bottom: 8px; overflow-x: auto; }
-  h2 { font-size: 16px; font-weight: 600; margin: 28px 0 8px; }
-  .note { color: var(--mut); font-size: 12px; margin: 4px 0 0; max-width: 780px; }
-  .money { text-align: right; white-space: nowrap; }
-  /* wide tables on narrow screens: a shadow on the edge that has more columns behind it, and a note */
-  .card2.scrolls { background:
-      linear-gradient(to right, var(--panel) 30%, transparent) left / 24px 100% no-repeat local,
-      linear-gradient(to left, var(--panel) 30%, transparent) right / 24px 100% no-repeat local,
-      radial-gradient(farthest-side at 0 50%, rgba(0,0,0,.3), transparent) left / 12px 100% no-repeat scroll,
-      radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,.3), transparent) right / 12px 100% no-repeat scroll,
-      var(--panel); }
-  .scrollhint { display: none; color: var(--mut); font-size: 11px; margin: 0 0 4px; text-align: right; }
-  .scrollhint.on { display: block; }
-  details summary { cursor: pointer; color: var(--ev-ink); margin: 6px 0; }
+  th { text-align: left; color: var(--mut); font-weight: 500; font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--line2); white-space: nowrap; }
+  td { padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { padding-left: 0; }
+  td.r, th.r { text-align: right; }
+  td.na { color: var(--faint); }
+  td small { display: block; color: var(--mut); font-size: 11px; line-height: 1.2; }
+  td small::before { content: "n = "; }
+  tr.me td { font-weight: 600; }
+  .rev details { margin-top: 8px; } .rev details summary { cursor: pointer; color: var(--ev-ink); font-size: 13px; }
+  code { font: 12px var(--mono); }
+  .back { margin-top: 24px; font-size: 13px; color: var(--mut); }
+  @media (prefers-reduced-motion: reduce) { details.rev > summary::before { transition: none; } }
+
   @media (max-width: 640px) {
-    .wrap { padding: 16px 12px 40px; } h1 { font-size: 24px; }
-    .tile { border-left: 0; border-top: 1px solid var(--line); } .tile:first-child { border-top: 0; }
-    .tile .hero { font-size: 28px; }
-    .card2 { padding: 2px 4px 6px; }
-    table { font-size: 12px; }
-    th, td { padding: 6px 4px; } th { font-size: 10px; letter-spacing: .3px; white-space: normal; }
-    td.g { white-space: normal; min-width: 84px; }
-    .cell { grid-template-columns: 1fr; gap: 2px; min-width: 56px; }
-    .cell b { text-align: left; order: -1; }
-    .nsub { font-size: 10px; }
-    #sel th.money { white-space: normal; }  /* "test questions" / "declines" wrap so the table fits a phone */
+    .wrap { padding: 28px 16px 56px; }
+    h1 { font-size: 26px; }
+    .lede { font-size: 16px; margin-bottom: 28px; }
+    .bars li { grid-template-columns: 1fr; gap: 4px; }
+    .facts { grid-template-columns: 1fr; }
+    .fact { padding: 14px 0; display: grid; grid-template-columns: 116px 1fr; column-gap: 12px; align-items: baseline; }
+    .fact .n { font-size: 24px; grid-row: span 2; }
+    .fact .l { margin-top: 0; }
+    .fact + .fact { padding-left: 0; border-left: 0; border-top: 1px solid var(--line); }
+    .types li { grid-template-columns: 1fr 56px; gap: 6px 12px; }
+    .types .t { grid-column: 1 / -1; grid-row: 2; }
+    details.rev > summary small { display: none; }
+    td:first-child { white-space: normal; min-width: 120px; }
+    th { white-space: normal; vertical-align: bottom; }
   }
 </style>
 </head>
-<body class="viz-root">
+<body>
 <header>
   <a class="brand" href="/"><span class="logo">▦</span> Blueprints <em>that talk</em></a>
   <nav class="links" style="margin-left:auto"><a class="linkbtn" href="/">← Ask a drawing</a></nav>
 </header>
 <main class="wrap">
-  <h1>Scoreboard</h1>
-  <p class="headl" id="headl"><b>90.0 %</b> right on all 25,420 held-out test questions: every question in every language, not a sample (95 % CI 89.7–90.4). Claude Sonnet given the same drawing and its CAD / IFC files: 69.8%.
-      Model-API fees per 1,000 questions: <b>$0.013</b> vs $25.76.</p>
-  <p class="lede">Accuracy on the held-out test split, split by whole drawing: each drawing goes to test or dev by a SHA-1 hash of its id
-    (20 % test), so every format of a drawing lands on the same side and no drawing seen during development is scored.
-    Ours and the prior answer all <b id="ntest">25,420</b> test questions; the frontier and open-weights models were asked 400 questions sampled
-    across every source and type, re-weighted to the test mix (so each source counts as much as it does in the test split).
-    Counts must be exact; areas, lengths and volumes within 2 %; an abstention counts as wrong; IFC-bench free text is judged.
-    The brackets are 95 % intervals. Same numbers as the README, read from <code>analysis/out/</code>.</p>
-  <div class="legend" id="legend"><span><i style="background:var(--ours)"></i><b>Ours</b> routed solvers, full test split</span><span><i style="background:var(--frontier)"></i><b>Claude Sonnet</b> frontier VLM asked directly</span><span><i style="background:var(--fair)"></i><b>Sonnet + files</b> Sonnet given the drawing and its CAD / IFC files</span><span><i style="background:var(--gemini)"></i><b>Gemini 3.1 Pro</b> frontier VLM asked directly</span><span><i style="background:var(--haiku)"></i><b>Claude Haiku</b> smaller frontier VLM asked directly</span><span><i style="background:var(--nemotron)"></i><b>Nemotron 3.5 Super VL</b> open-weights VLM asked directly</span><span><i style="background:var(--prior)"></i><b>Prior</b> most common answer, never looks</span></div>
-  <div class="tiles" id="hero"></div>
-  <h2>By source</h2>
-  <div class="tiles" id="tiles"></div>
-  <h2>By source: answer everything, or only when confident (ours)</h2>
-  <div class="card2" role="region" aria-label="By source: answer everything, or only when confident"><table id="sel"></table></div>
-  <p class="note" id="selnote">“Answer everything” counts a “not sure” as wrong (the headline). The app also says how far to trust each
-    answer; accepting only answers with confidence ≥ 0.5 gives the accuracy when answered, and the rest are declined.</p>
-  <h2>By source and question type</h2>
-  <div class="card2" role="region" aria-label="Accuracy by source and question type"><table id="tbl"></table></div>
-  <p class="note">Each cell: accuracy and the number of questions it is measured on (n). Frontier cells rest on few questions; hover for the interval.</p>
-  <h2>By question language</h2>
-  <div class="card2" role="region" aria-label="Accuracy by question language"><table id="lang"></table></div>
-  <h2>Cost and speed per 1,000 questions</h2>
-  <div class="card2" role="region" aria-label="Cost and speed per 1,000 questions"><table id="cost"></table></div>
-  <p class="note">API = paid model calls; compute = our GPU / CPU time at cloud prices. Ours makes no paid calls on the dataset sources, except the free-text questions about IFC models (a small LLM writes the answer from facts extracted from the model).</p>
-  <h2>Does the confidence mean what it says?</h2>
-  <div class="card2" role="region" aria-label="Does the confidence mean what it says"><table id="calib"></table></div>
-  <p class="note">Every answer in the demo carries one of these lines: “answers like this were right N % of the time”. Measured on the
-    full held-out test split by how the answer was made and the confidence it came with; bands with fewer than 200 questions are pooled.</p>
-  <h2>Every run</h2>
-  <details><summary>show all raw evaluation runs (including dev, preview and partial ones, not re-weighted)</summary>
-    <div class="card2" role="region" aria-label="Every evaluation run"><table id="allruns"></table></div></details>
-  <p class="note" style="margin-top:32px">How a question is routed, proved on the drawing and checked: <a href="/how">How it works</a>.</p>
+  <h1>How accurate is it?</h1>
+  <p class="lede" id="lede">We asked it every question from drawings it never saw during development.</p>
+
+  <section aria-labelledby="h-cmp">
+    <h2 id="h-cmp">Questions answered correctly</h2>
+    <ul class="bars" id="bars" aria-label="Accuracy: ours compared with other AI models"></ul>
+    <p class="foot" id="barfoot"></p>
+  </section>
+
+  <section aria-label="Key numbers"><div class="facts" id="facts"></div></section>
+
+  <section aria-labelledby="h-type">
+    <h2 id="h-type">By drawing type</h2>
+    <ul class="types" id="types"></ul>
+  </section>
+
+  <details class="rev" id="rev">
+    <summary>Details for reviewers <small>intervals, sample sizes, cost, every run</small></summary>
+    <p><b>How it is tested.</b> Drawings are split into development and test by a hash of their id (20 % test), so no drawing
+      used during development is scored. Ours answers <b>every</b> test question; the other models answered
+      <span id="nsample">a sample</span> drawn across every source and question type, re-weighted to the test mix.
+      Counts must be exact; areas, lengths and volumes within 2 %; “not sure” counts as wrong; free-text answers are judged by an LLM.
+      Brackets are 95 % intervals.</p>
+
+    <h3>All systems</h3>
+    <div class="tw"><table id="overall"></table></div>
+    <p>API = paid model calls; compute = our GPU / CPU time at cloud prices. Ours makes no paid calls except for free-text
+      questions about BIM models, where a small LLM writes the answer from facts read out of the model.</p>
+
+    <h3>Answer everything, or only when confident</h3>
+    <div class="tw"><table id="sel"></table></div>
+    <p id="selnote"></p>
+
+    <h3>By source and question type</h3>
+    <div class="tw"><table id="tbl"></table></div>
+    <p>Each cell: accuracy, and the number of questions (n) it rests on. Hover a cell for its 95 % interval.</p>
+
+    <h3>By question language</h3>
+    <div class="tw"><table id="lang"></table></div>
+
+    <h3>Does the confidence mean what it says?</h3>
+    <div class="tw"><table id="calib"></table></div>
+    <p>Every answer in the app says “answers like this were right N % of the time”. These are those numbers, by how the answer
+      was made and its confidence band; bands under 200 questions are pooled.</p>
+
+    <details><summary>Every evaluation run (including dev, preview and partial runs, not re-weighted)</summary>
+      <div class="tw"><table id="allruns"></table></div></details>
+
+    <p style="margin-top:24px">Full method and every number in the repository: <code>README.md</code> and <code>docs/RESULTS.md</code>.
+      How a question is routed and checked: <a href="/how">How it works</a>.</p>
+  </details>
+  <p class="back"><a href="/">← Ask a drawing</a></p>
 </main>
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
-const SYS = [['router_full_test', 'Ours', 'routed solvers, full test split', 'var(--ours)'],
-             ['baseline_sonnet_full400', 'Claude Sonnet', 'frontier VLM asked directly', 'var(--frontier)'],
-             ['baseline_sonnetfair_full400', 'Sonnet + files', 'Sonnet given the drawing and its CAD / IFC files', 'var(--fair)'],
-             ['baseline_gemini_full400', 'Gemini 3.1 Pro', 'frontier VLM asked directly', 'var(--gemini)'],
-             ['baseline_haiku_full400', 'Claude Haiku', 'smaller frontier VLM asked directly', 'var(--haiku)'],
-             ['baseline_nemotron_full400', 'Nemotron 3.5 Super VL', 'open-weights VLM asked directly', 'var(--nemotron)'],
-             ['prior_full_test', 'Prior', 'most common answer, never looks', 'var(--prior)']];
-const NICE = {swiss_dwellings: 'Swiss apartments', cubicasa5k: 'Finnish plans (CubiCasa)', ifc_models: 'IFC models', ifc_bench: 'IFC bench (free text)',
-              opening_design: 'US drawing sets'};
+// systems, in the order the details tables list them; the chart shows ours + the four marked `chart`
+const SYS = [['router_full_test', 'Ours', true],
+             ['baseline_sonnetfair_full400', 'Claude Sonnet, given the same files', true],
+             ['baseline_gemini_full400', 'Gemini 3.1 Pro', true],
+             ['baseline_sonnet_full400', 'Claude Sonnet, drawing only', false],
+             ['baseline_haiku_full400', 'Claude Haiku', true],
+             ['baseline_nemotron_full400', 'Nemotron 3.5 Super VL', true],
+             ['prior_full_test', 'Most common answer (no look)', false]];
+const SHORT = {baseline_sonnetfair_full400: 'Sonnet + files', baseline_sonnet_full400: 'Sonnet', baseline_gemini_full400: 'Gemini',
+               baseline_haiku_full400: 'Haiku', baseline_nemotron_full400: 'Nemotron', prior_full_test: 'Prior'};
+const TYPES = [['swiss_dwellings', 'Swiss apartment plans'], ['ifc_models', 'BIM models'], ['cubicasa5k', 'Finnish scanned plans'],
+               ['ifc_bench', 'Free-text BIM questions'], ['opening_design', 'US drawing sets']];
+const NICE = Object.fromEntries(TYPES);
 const LANG = {en: 'English', fi: 'Finnish', de: 'German', fr: 'French', it: 'Italian', da: 'Danish', nl: 'Dutch', et: 'Estonian', sv: 'Swedish', es: 'Spanish', no: 'Norwegian', pl: 'Polish'};
-const pct = v => (100 * v).toFixed(1) + '%';
-// two decimals only where one would round a near-perfect score up to 100 % (99.96 %, not 100.0 %)
-const pct2 = v => v === 1 ? '100%' : v > 0.995 ? (100 * v).toFixed(2) + '%' : pct(v);
-const pctd = v => v === 0 ? '0%' : pct(v);
+const NB = ' ';
+// "90 %", "69.8 %", "99.95 %": one decimal, no trailing .0, two where one would round a near-perfect score up to 100
+const pc = v => { v = +v; if (v === 1) return '100' + NB + '%'; const s = v > 0.995 && v < 1 ? (100 * v).toFixed(2) : (100 * v).toFixed(1);
+  return s.replace(/\.0+$/, '') + NB + '%'; };
 const num = v => Number(v).toLocaleString('en-US');
-const usd3 = v => '$' + (+v).toFixed(+v > 0 && +v < 0.1 ? 3 : 2);  // $0.013, not $0.01
+const usd = v => '$' + (+v).toFixed(+v > 0 && +v < 0.1 ? 3 : 2);  // $0.013, not $0.01
+const secs = v => +v < 1 ? Math.round(v * 1000) + ' ms' : (+v).toFixed(1) + ' s';
+const ci = r => `${(100 * r.lo).toFixed(1)}–${(100 * r.hi).toFixed(1)}`;
 
 (async () => {
   const A = await (await fetch('/api/analysis')).json();
-  // our run is re-run under new names (router_full_test_v4, ...): use the newest one the analysis has, and drop systems it lacks
+  // our run is re-run under new names (router_full_test_v7, ...): take the newest, and drop systems the analysis lacks
   const runs0 = (A.overall || []).map(r => r.run);
   const oursRun = runs0.filter(r => r.startsWith('router_full_test')).sort().pop();
   if (oursRun) SYS[0][0] = oursRun;
   for (let i = SYS.length - 1; i >= 0; i--) if (!runs0.includes(SYS[i][0])) SYS.splice(i, 1);
-  $('#legend').innerHTML = SYS.map(([, l, d, c]) => `<span><i style="background:${c}"></i><b>${l}</b> ${d}</span>`).join('');
+  const ME = SYS[0][0];
   const ov = Object.fromEntries((A.overall || []).map(r => [r.run, r]));
-  const me = ov[SYS[0][0]], fair = ov.baseline_sonnetfair_full400;
-  if (me) {
-    $('#ntest').textContent = num(me.n);
-    $('#headl').innerHTML = `<b>${pct(me.accuracy)}</b> right on all ${num(me.n)} held-out test questions: every question in every language, not a sample
-      (95 % CI ${(100 * me.ci_lo).toFixed(1)}–${(100 * me.ci_hi).toFixed(1)})` + (fair ? `. Claude Sonnet given the same drawing and its CAD / IFC files: ${pct(fair.accuracy)}.
-      Model-API fees per 1,000 questions: <b>$${(+me.api_usd_per_1k).toFixed(3)}</b> vs $${(+fair.api_usd_per_1k).toFixed(2)}.` : '.');
-  }
-  $('#hero').innerHTML = SYS.map(([k, l, , c]) => { const r = ov[k]; if (!r) return '';
-    return `<div class="tile" style="box-shadow:inset 0 3px ${c}"><h3>${l}</h3><div class="hero">${pct(r.accuracy)}</div>
-      <div class="vs">[${pct(r.ci_lo)} – ${pct(r.ci_hi)}] · n=${num(r.n)}<br>${usd3(r.api_usd_per_1k)} API + ${usd3(r.compute_usd_per_1k)} compute per 1k questions ·
-      ${(+r.mean_latency_s) < 1 ? (r.mean_latency_s * 1000).toFixed(0) + ' ms' : (+r.mean_latency_s).toFixed(1) + ' s'} each</div></div>`; }).join('');
+  const me = ov[ME], fair = ov.baseline_sonnetfair_full400;
+  const selAll = (A.selective_by_family || []).find(r => r.family === 'all');
+  if (!me) return;
 
+  $('#lede').innerHTML = `We asked it all <b>${num(me.n)}</b> questions from drawings it never saw during development. It got <b>${pc(Math.round(100 * me.accuracy) / 100)}</b> right.`;
+
+  // the chart: ours + the alternatives, best first
+  const cmp = SYS.filter(s => s[2] && ov[s[0]]).map(([k, l]) => ({k, l, r: ov[k]})).sort((a, b) => b.r.accuracy - a.r.accuracy);
+  $('#bars').innerHTML = cmp.map(({k, l, r}) => `<li class="${k === ME ? 'me' : ''}" title="95 % interval ${ci({lo: r.ci_lo, hi: r.ci_hi})} %, n = ${num(r.n)}">
+      <span class="nm">${esc(l)}</span>
+      <span class="tr"><span class="b" style="width:calc((100% - 64px) * ${+r.accuracy})" aria-hidden="true"></span><span class="v">${pc(r.accuracy)}<span class="sr-only"> correct</span></span></span></li>`).join('');
+  const sampleN = Math.max(0, ...cmp.filter(c => c.k !== ME).map(c => +c.r.n));
+  if (sampleN) {
+    $('#barfoot').textContent = `Frontier models answered a ${num(sampleN)}-question sample; ranges in the details below.`;
+    $('#nsample').textContent = `a ${num(sampleN)}-question sample`;
+  }
+
+  // three facts
+  const facts = [[pc(Math.round(100 * me.accuracy) / 100), 'right overall', `of ${num(me.n)} test questions`]];
+  if (selAll) facts.push([pc(selAll.accuracy_answered), 'right when it answers', `declines ${Math.round(100 * selAll.declined)}${NB}% as “not sure”`]);
+  facts.push([usd(me.api_usd_per_1k), 'per 1,000 questions', fair ? `vs ${usd(fair.api_usd_per_1k)} for Claude Sonnet + files` : 'in model-API fees']);
+  $('#facts').innerHTML = facts.map(([n, l, s]) => `<div class="fact"><div class="n">${n}</div><div class="l">${l}</div><div class="s">${s}</div></div>`).join('');
+
+  // by drawing type: our accuracy per source, cells weighted by their test-split size
   const rows = A.by_source_type || [];
   const cellv = (r, k) => r[k + ':acc'] === '' || r[k + ':acc'] == null ? null : {acc: +r[k + ':acc'], n: +r[k + ':n'], lo: +r[k + ':lo'], hi: +r[k + ':hi']};
-  // per source: cells weighted by their test-split size (the same re-weighting as the headline)
-  const sources = [...new Set(rows.map(r => r.source))];
-  $('#tiles').innerHTML = sources.map(src => {
-    const rs = rows.filter(r => r.source === src), N = rs.reduce((a, r) => a + +r.n_test, 0);
-    const acc = k => { let w = 0, v = 0; for (const r of rs) { const c = cellv(r, k); if (c) { w += +r.n_test; v += c.acc * +r.n_test; } } return w ? v / w : null; };
-    const [o, ...rest] = SYS.map(([k]) => acc(k));
-    const others = SYS.slice(1).map(([, l], i) => `${esc(l)} ${rest[i] == null ? '—' : pct(rest[i])}`).join(' · ');
-    return `<div class="tile"><h3>${esc(NICE[src] || src)}</h3><div class="hero">${o == null ? '—' : pct(o)} <small>ours</small></div>
-      <div class="vs">${others}<br>${num(N)} test questions</div></div>`;
-  }).join('');
+  const srcAcc = (src, k) => { let w = 0, v = 0; for (const r of rows.filter(r => r.source === src)) { const c = cellv(r, k); if (c) { w += +r.n_test; v += c.acc * +r.n_test; } } return w ? v / w : null; };
+  const srcs = [...new Set(rows.map(r => r.source))].sort((a, b) => (TYPES.findIndex(t => t[0] === a) + 99) % 99 - (TYPES.findIndex(t => t[0] === b) + 99) % 99);
+  $('#types').innerHTML = srcs.map(s => { const a = srcAcc(s, ME); if (a == null) return '';
+    return `<li><span>${esc(NICE[s] || s)}</span><span class="t" aria-hidden="true"><i style="width:${100 * a}%"></i></span><span class="v">${pc(a)}</span></li>`; }).join('');
+
+  // ---- details for reviewers
+  $('#overall').innerHTML = `<tr><th>system</th><th class="r">right</th><th class="r">95 % interval</th><th class="r">questions</th><th class="r">API / 1k</th><th class="r">compute / 1k</th><th class="r">time each</th></tr>` +
+    SYS.map(([k, l]) => { const r = ov[k]; if (!r) return '';
+      return `<tr class="${k === ME ? 'me' : ''}"><td>${esc(l)}</td><td class="r">${pc(r.accuracy)}</td><td class="r">${ci({lo: r.ci_lo, hi: r.ci_hi})}</td><td class="r">${num(r.n)}</td>
+        <td class="r">${usd(r.api_usd_per_1k)}</td><td class="r">${usd(r.compute_usd_per_1k)}</td><td class="r">${secs(r.mean_latency_s)}</td></tr>`; }).join('');
 
   const sel = A.selective_by_family || [];
   if (sel.length) {
     const th = +sel[0].threshold;
-    const bar = (v, c) => `<td><div class="cell"><span class="bar"><i style="width:${100 * v}%;background:${c}"></i></span><b>${pct2(v)}</b></div></td>`;
-    $('#sel').innerHTML = `<tr><th>family</th><th class="money">test questions</th><th>answer everything</th><th>accuracy when answered (≥ ${th})</th><th class="money">declines</th></tr>` +
-      sel.map(r => { const all = r.family === 'all', w = s => all ? `<b>${s}</b>` : s;
-        return `<tr><td class="g">${w(esc(r.label))}</td><td class="money">${w(num(r.n))}</td>${bar(+r.accuracy_all, 'var(--prior)')}
-        ${bar(+r.accuracy_answered, 'var(--ours)')}<td class="money">${w(pctd(+r.declined))}</td></tr>`; }).join('');
-    $('#selnote').innerHTML = `“Answer everything” counts a “not sure” as wrong (the headline). The app also says how far to trust each
-      answer; accepting only answers with confidence ≥ ${th} gives the accuracy when answered, and the rest are declined. Read from
-      <code>analysis/out/selective_by_family.csv</code>.`;
+    $('#sel').innerHTML = `<tr><th>questions about</th><th class="r">test questions</th><th class="r">answer everything</th><th class="r">only when confident</th><th class="r">declines</th></tr>` +
+      sel.map(r => `<tr class="${r.family === 'all' ? 'me' : ''}"><td>${esc(r.family === 'all' ? 'All' : r.label)}</td><td class="r">${num(r.n)}</td>
+        <td class="r">${pc(r.accuracy_all)}</td><td class="r">${pc(r.accuracy_answered)}</td><td class="r">${+r.declined ? pc(r.declined) : '0' + NB + '%'}</td></tr>`).join('');
+    $('#selnote').textContent = `“Answer everything” counts a “not sure” as wrong (the headline). “Only when confident” keeps answers with confidence ≥ ${th} and declines the rest.`;
   }
 
-  const cell = (c, color) => !c ? `<td><div class="cell na"><span class="bar"></span><b>—</b></div></td>`
-    : `<td title="95 % interval ${pct(c.lo)} – ${pct(c.hi)}, n=${c.n}"><div class="cell"><span class="bar"><i style="width:${100 * c.acc}%;background:${color}"></i></span>
-      <b>${pct(c.acc)}</b></div><span class="nsub">n=${num(c.n)}</span></td>`;
-  $('#tbl').innerHTML = `<tr><th>group</th>${SYS.map(([, l]) => `<th>${l}</th>`).join('')}</tr>` +
-    rows.map(r => `<tr><td class="g">${esc(NICE[r.source] || r.source)} · ${esc(r.type)}</td>${SYS.map(([k, , , c]) => cell(cellv(r, k), c)).join('')}</tr>`).join('');
-  // a handful of questions tagged with a stray language (n < 20 for us) are language-detector misreads, not a
-  // language the dataset covers: fold them into one row (Wilson 95 % interval on the pooled count)
-  const lr0 = A.by_language || [], small = r => +(r[SYS[0][0] + ':n'] || 0) < 20;
+  const cell = c => !c ? '<td class="r na">—</td>' : `<td class="r" title="95 % interval ${ci(c)} %">${pc(c.acc)}<small>${num(c.n)}</small></td>`;
+  const head = first => `<tr><th>${first}</th>${SYS.map(([k, l]) => `<th class="r">${esc(SHORT[k] || (k === ME ? 'Ours' : l))}</th>`).join('')}</tr>`;
+  $('#tbl').innerHTML = head('drawings · question') +
+    rows.map(r => `<tr><td>${esc(NICE[r.source] || r.source)} · ${esc(r.type)}</td>${SYS.map(([k]) => cell(cellv(r, k))).join('')}</tr>`).join('');
+
+  // a handful of questions tagged with a stray language (n < 20 for us) are language-detector misreads:
+  // fold them into one row (Wilson 95 % interval on the pooled count)
+  const lr0 = A.by_language || [], small = r => +(r[ME + ':n'] || 0) < 20;
   const lr = lr0.filter(r => !small(r)), few = lr0.filter(small);
   if (few.length) {
-    const o = {lang: 'other (misdetected by language detector)'};
+    const o = {lang: 'other (misdetected)'};
     for (const [k] of SYS) {
       let n = 0, right = 0;
       for (const r of few) { const c = cellv(r, k); if (c) { n += c.n; right += c.acc * c.n; } }
@@ -205,49 +260,32 @@ const usd3 = v => '$' + (+v).toFixed(+v > 0 && +v < 0.1 ? 3 : 2);  // $0.013, no
     }
     lr.push(o);
   }
-  $('#lang').innerHTML = `<tr><th>language</th>${SYS.map(([, l]) => `<th>${l}</th>`).join('')}</tr>` +
-    lr.map(r => `<tr><td class="g">${esc(LANG[r.lang] || r.lang)}</td>${SYS.map(([k, , , c]) => cell(cellv(r, k), c)).join('')}</tr>`).join('');
-  $('#cost').innerHTML = `<tr><th>system</th><th class="money">accuracy</th><th class="money">API $ / 1k</th><th class="money">compute $ / 1k</th><th class="money">seconds / question</th></tr>` +
-    SYS.map(([k, l]) => { const r = ov[k]; if (!r) return ''; return `<tr><td class="g">${l}</td><td class="money">${pct(r.accuracy)}</td>
-      <td class="money">${usd3(r.api_usd_per_1k)}</td><td class="money">${usd3(r.compute_usd_per_1k)}</td><td class="money">${(+r.mean_latency_s).toFixed(2)} s</td></tr>`; }).join('');
+  $('#lang').innerHTML = head('language') + lr.map(r => `<tr><td>${esc(LANG[r.lang] || r.lang)}</td>${SYS.map(([k]) => cell(cellv(r, k))).join('')}</tr>`).join('');
 
   const C = await (await fetch('/api/calibration')).json();
   const fams = Object.entries(C.families || {}).sort((a, b) => b[1].n - a[1].n);
-  $('#calib').innerHTML = `<tr><th>how the answer was made</th><th>confidence</th><th class="money">questions</th><th>right</th></tr>` +
+  $('#calib').innerHTML = `<tr><th>how the answer was made</th><th>confidence</th><th class="r">questions</th><th class="r">right</th></tr>` +
     fams.flatMap(([, f]) => {
       const bins = Object.entries(f.bins).map(([lo, b]) => [+lo, b]).sort((a, b) => b[0] - a[0]);
       const big = bins.filter(([, b]) => b.n >= (C.min_n || 200));
       const show = f.n >= 2000 && big.length > 1 ? bins.map(([lo, b], i) => [`${Math.round(lo * 100)}–${Math.round(100 * (i ? bins[i - 1][0] : 1))} %`, b])
         : [['all', {n: f.n - (f.abstained || 0), right: f.right}]];
-      return show.map(([band, b], i) => `<tr><td class="g">${i ? '' : esc(f.label)}</td><td>${band}</td><td class="money">${num(b.n)}</td>
-        <td><div class="cell"><span class="bar"><i style="width:${100 * b.right / b.n}%;background:var(--ours)"></i></span><b>${b.right === b.n ? "100%" : (Math.floor(1000 * b.right / b.n) / 10).toFixed(1) + "%"}</b></div></td></tr>`);
+      return show.map(([band, b], i) => `<tr><td>${i ? '' : esc(f.label)}</td><td>${band}</td><td class="r">${num(b.n)}</td>
+        <td class="r">${b.right === b.n ? '100' + NB + '%' : (Math.floor(1000 * b.right / b.n) / 10).toFixed(1) + NB + '%'}</td></tr>`);
     }).join('');
 
   const {runs} = await (await fetch('/api/results')).json();
-  $('#allruns').innerHTML = '<tr><th>run</th><th>solver</th><th>split</th><th>n</th><th>accuracy</th><th class="money">$ / 1k q</th></tr>' +
+  $('#allruns').innerHTML = '<tr><th>run</th><th>solver</th><th>split</th><th class="r">n</th><th class="r">right</th><th class="r">$ / 1k</th></tr>' +
     runs.sort((a, b) => b.mtime - a.mtime).map(r => {
       const a = (r.sections['By type'] || []).find(x => x.group === 'ALL');
-      return `<tr><td>${esc(r.name)}</td><td>${esc(r.solver)}</td><td>${esc(r.split)}${r.note ? ' · ' + esc(r.note) : ''}</td><td>${r.n}</td>
-        <td>${a ? a.accuracy.toFixed(1) + '%' : '—'}</td><td class="money">${a ? '$' + a.usd_per_1k.toFixed(2) : '—'}</td></tr>`;
+      return `<tr><td>${esc(r.name)}</td><td>${esc(r.solver)}</td><td>${esc(r.split)}${r.note ? ' · ' + esc(r.note) : ''}</td><td class="r">${num(r.n)}</td>
+        <td class="r">${a ? a.accuracy.toFixed(1) + NB + '%' : '—'}</td><td class="r">${a ? '$' + a.usd_per_1k.toFixed(2) : '—'}</td></tr>`;
     }).join('');
-  markScroll(); document.fonts?.ready.then(markScroll);  // widths change once the web font arrives
+  // tables wider than the screen scroll inside their box: make those boxes keyboard-focusable
+  const mark = () => document.querySelectorAll('.tw').forEach(b => { const over = b.scrollWidth > b.clientWidth + 1;
+    if (over) { b.tabIndex = 0; b.setAttribute('role', 'region'); b.setAttribute('aria-label', b.previousElementSibling?.textContent || 'table'); } else b.removeAttribute('tabindex'); });
+  mark(); addEventListener('resize', mark); document.addEventListener('toggle', mark, true);
 })();
-
-// tables wider than their card scroll sideways: say so, and shade the edge that hides columns
-function markScroll() {
-  for (const box of document.querySelectorAll('.card2')) {
-    let hint = box.previousElementSibling;
-    if (!hint || !hint.classList.contains('scrollhint')) {
-      hint = document.createElement('p'); hint.className = 'scrollhint'; hint.textContent = 'scroll sideways for more columns →';
-      box.before(hint);
-    }
-    const over = box.scrollWidth > box.clientWidth + 1;
-    box.classList.toggle('scrolls', over); hint.classList.toggle('on', over);
-    if (over) box.tabIndex = 0; else box.removeAttribute('tabindex');  // a keyboard can scroll it only when focusable
-  }
-}
-addEventListener('resize', markScroll);
-document.addEventListener('toggle', markScroll, true);  // the "every run" table is inside <details>
 </script>
 </body>
 </html>
