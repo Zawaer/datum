@@ -1712,9 +1712,46 @@ def _base_conf(A):
 
 
 # ----------------------------------------------------------------------------------------------- answer
+_OUT_OF_SCOPE = (r"\bcosts?\b|\bprice|\bpay\b|€|\$|\bdollars?\b|\beuros?\b|budget|\blabou?r\b|man-?hours?|duration|"
+                 r"\bhow long (?:will|does|to)\b|\bweigh|\bheavy|\bmass\b|\bkg\b|\btonn?es?\b|\btons?\b|strength|\bmpa\b|\bpsi\b|"
+                 r"\bwho\b|\bwhen\b|\bdate\b|warrant|supplier|manufacturer of|carbon|co2|emission")
+_VOLUME = r"\bvolume|\bm3\b|m³|cubic|\byd3\b|\bcy\b|how much concrete|\bft3\b"
+
+
+def _vol_or_area(r, A, ql):
+    """Volume results: evidence carries m³; imperial sheets answer in cubic yards (ft³ when asked)."""
+    if r.get("unit") != "m³":
+        return r
+    if r.get("method", "").endswith("area"):
+        r["method"] = r["method"][:-4] + "volume"
+    elif r.get("method", "").endswith("area-by-type"):
+        r["method"] = r["method"].replace("area-by-type", "volume-by-type")
+    r.pop("sheet_how", None)
+    for e in r["evidence"]:
+        if e.get("kind") == "polygon":
+            e["unit"] = "m³"
+    if A.get("imperial"):
+        f, u = (35.3147, "ft³") if re.search(r"ft3|ft³|cubic f", ql) else (1.30795, "CY")
+        if isinstance(r["answer"], (int, float)):
+            r["answer"] = round(r["answer"] * f, 1)
+        elif isinstance(r["answer"], str):
+            r["answer"] = re.sub(r"(\d[\d,]*\.?\d*) m³", lambda m: f"{float(m.group(1).replace(',', '')) * f:,.1f} {u}",
+                                 r["answer"])
+        r["explanation"] += f" (1 m³ = {f:g} {u})"
+        r["unit"] = u
+        for e in r["evidence"]:
+            if e.get("unit") == "m³" and isinstance(e.get("value"), (int, float)):
+                e["value"], e["unit"] = round(e["value"] * f, 2), u
+    return r
+
+
 def answer(path, question, meta) -> dict | None:
     q = question.strip()
     ql = q.lower()
+    # intent check: only what a slab plan states or measures (areas, volumes, bars, thickness, elevations, trench
+    # lengths, counts). Prices, quantities the sheet does not give, people, dates -> None (the general reader decides)
+    if re.search(_OUT_OF_SCOPE, ql):
+        return None
     A = analyse(meta)
     W, H = A["W"], A["H"]
     conf0 = _base_conf(A)
@@ -1818,7 +1855,7 @@ def answer(path, question, meta) -> dict | None:
 
     # ---- reinforcement / thickness / elevation (text)
     if re.search(r"\bbars?\b|reinforc|rebar|mesh|thick|elevation|top of slab|\bt\.?o\.?s\b|\bel\b", ql) \
-            and not re.search(r"\barea\b|how much|m2|m²|square", ql):
+            and not re.search(r"\barea\b|how much|m2|m²|square|" + _VOLUME, ql):
         sel, desc = _match_zones(q, A)
         tys = [(z, _type_of(z, A)) for z in (zones if sel is None else sel) if _type_of(z, A)]
         if sel is not None and not tys:  # the note exists but no zone took it: answer from the note itself
@@ -1865,7 +1902,9 @@ def answer(path, question, meta) -> dict | None:
                     + " | ".join(t["text"][:90] for _, t in tys), ev, A, "note")
 
     # ---- areas
-    if re.search(r"\barea\b|how much slab|m2|m²|square|how big|size of", ql) or "slab" in ql:
+    volume = bool(re.search(_VOLUME, ql))
+    if volume or re.search(r"\barea\b|how much slab|\bm2\b|m²|square|\bsq\.?\s?f|\bsf\b|how big|size of|footprint",
+                           ql):
         if not zones or not k or not any(_type_of(z, A) for z in zones):
             return None  # no slab zone tied to a slab note: not a plan this module understands (let generic answer)
         rows = []
@@ -1894,8 +1933,22 @@ def answer(path, question, meta) -> dict | None:
             conf *= 0.75  # ragged outline: the zone probably leaked or lost a corner
         if any(z.get("dim_note") for z in zones):
             conf *= 0.85  # a zone rebuilt from the dimension strings: right size, assumed rectangular
+        U = "m²"
+        if volume:  # concrete volume = slab area x slab thickness, per zone
+            vrows = []
+            for z, a, how, used in rows:
+                t = _type_of(z, A)
+                if not t or not t.get("thickness_mm"):
+                    continue
+                th = t["thickness_mm"] / 1000
+                vrows.append((z, a * th, f"{a:.2f} m² × {th:.3f} m = {a * th:.2f} m³ (area: {how})", used))
+            if not vrows:
+                return None
+            rows, U = vrows, "m³"
+            zones = [r[0] for r in rows]
         sel, desc = _match_zones(q, A)
-        by_type = re.search(r"by type|per type|each type|each slab|by thickness|breakdown|types? of slab", ql)
+        by_type = re.search(r"by (?:slab )?type|per (?:slab )?type|each (?:slab )?type|each slab|by thickness|breakdown|"
+                            r"types? of slab", ql)
         if sel is not None:
             rs = [r for r in rows if r[0] in sel]
             if not rs:
@@ -1908,8 +1961,8 @@ def answer(path, question, meta) -> dict | None:
                 ev.append(_text_ev(t["bbox"], f"type note: {t['text'][:80]}"))
             expl = " + ".join(f"[{_type_name(_type_of(z, A))}] {how}" for z, a, how, used in rs)
             if len(rs) > 1:
-                expl += f" → total {tot:.2f} m²"
-            return _res(round(tot, 2), conf, f"{desc} slab: {expl}", ev, A, "area", "m²")
+                expl += f" → total {tot:.2f} {U}"
+            return _vol_or_area(_res(round(tot, 2), conf, f"{desc} slab: {expl}", ev, A, "area", U), A, ql)
         tot = sum(r[1] for r in rows)
         ev = []
         for z, a, how, used in rows:
@@ -1922,13 +1975,14 @@ def answer(path, question, meta) -> dict | None:
             for z, a, how, used in rows:
                 t = _type_of(z, A)
                 groups.setdefault(_type_name(t) if t else "untyped", []).append(a)
-            ans = "; ".join(f"{n}: {sum(v):.1f} m²" for n, v in groups.items()) + f" (total {tot:.1f} m²)"
+            ans = "; ".join(f"{n}: {sum(v):.1f} {U}" for n, v in groups.items()) + f" (total {tot:.1f} {U})"
             expl = " | ".join(f"[{_type_name(_type_of(z, A)) if _type_of(z, A) else 'untyped'}] {how}"
                               for z, a, how, used in rows)
-            return _res(ans, conf, expl, ev, A, "area-by-type", "m²")
-        expl = " + ".join(f"{a:.2f}" for _, a, _, _ in rows) + f" = {tot:.2f} m² (" + " | ".join(
+            return _vol_or_area(_res(ans, conf, expl, ev, A, "area-by-type", U), A, ql)
+        expl = " + ".join(f"{a:.2f}" for _, a, _, _ in rows) + f" = {tot:.2f} {U} (" + " | ".join(
             f"[{_type_name(_type_of(z, A)) if _type_of(z, A) else 'untyped'}] {how}" for z, a, how, used in rows) + ")"
-        return _res(round(tot, 2), conf, f"total slab area: {expl}", ev, A, "area", "m²")
+        what = "total concrete volume" if volume else "total slab area"
+        return _vol_or_area(_res(round(tot, 2), conf, f"{what}: {expl}", ev, A, "area", U), A, ql)
 
     if re.search(r"how many .*(slab types|types of slab|slab zones)", ql):
         n = len({_type_name(t) for t in A["types"]})

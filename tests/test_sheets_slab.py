@@ -178,3 +178,18 @@ def test_heldout_S100A_imperial(tmp_path, sid):
     a6 = slab.answer(str(p), "What is the area of the 6 inch slab?", m)["answer"]
     assert a12 == pytest.approx(2868, rel=0.05)  # S-100B (pump shelter) has the same room dimensions
     assert a6 == pytest.approx(555, rel=0.04)
+
+
+def test_intent_and_volume(meta):
+    """Only the asked quantity: prices and things the sheet does not state abstain; volume = area x thickness."""
+    for q in ["What does the concrete cost per m³?", "How heavy is the rebar?", "Who designed this slab?",
+              "Tell me about the slab"]:
+        assert slab.answer(IMG, q, meta) is None, q
+    r = ask(meta, "What is the concrete volume of the 150 mm slab?")
+    a150 = ask(meta, "What is the area of the 150 mm slab?")["answer"]
+    assert r["unit"] == "m³" and r["answer"] == pytest.approx(a150 * 0.150, abs=0.01)
+    assert "× 0.150 m =" in r["explanation"]
+    r = ask(meta, "Concrete volume by slab type")
+    assert "m³" in r["answer"] and "D13" in r["answer"]
+    tot = ask(meta, "How much concrete is in the slabs in total?")["answer"]
+    assert tot == pytest.approx(sum(float(e["value"]) for e in r["evidence"] if e["kind"] == "polygon"), rel=1e-3)
