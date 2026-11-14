@@ -39,6 +39,8 @@ printf 'SITE=%s\nPREFIX=%s\n' "$SITE" "$PREFIX" | ssh_ 'umask 077; cat > /opt/bp
 
 echo "== build + restart"
 ssh_ 'cd /opt/bp/src/deploy && docker compose --env-file /opt/bp/site.env up -d --build --remove-orphans 2>&1 | tail -5'
+# compose does not recreate caddy when only the bind-mounted Caddyfile changed (and its admin API is off): restart it
+ssh_ 'cd /opt/bp/src/deploy && docker compose --env-file /opt/bp/site.env restart caddy 2>&1 | tail -1'
 ssh_ 'for i in $(seq 60); do s=$(docker inspect -f "{{.State.Health.Status}}" deploy-app-1 2>/dev/null); [ "$s" = healthy ] && break; sleep 5; done; echo "app: $s"'
 if [ "$WARM" = 1 ]; then
   echo "== warm caches"
