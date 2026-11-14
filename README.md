@@ -26,11 +26,25 @@ our own CV detector (trained on a local RTX 4070), our fine-tuned 8B VLM as seco
 a small frontier LLM, only for free text. Share of the 25,420 test questions per route: CAD / IFC geometry 34.7 %,
 detector 64.9 %, Haiku 0.4 % (the 110 free-text questions).
 
-![Counting doors on a Swiss apartment plan: 20 numbered doors read from the CAD layers, "Very likely right", and a second, independent method that agrees](docs/deck/img/step-1.jpg)
+![Counting doors on a Swiss apartment plan: the plan risen into a 3D model with the 20 counted doors lit in blue and numbered, next to the answer 20, "Very likely right", and a second, independent method that agrees](docs/deck/img/feat-3d.jpg)
 <sub>Drawing: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0 (rendered by the Junction dataset authors).</sub>
 
 - **Demo:** TODO public URL &nbsp;·&nbsp; **Video (2 min):** TODO link &nbsp;·&nbsp; **Deck:** [docs/deck/deck.pdf](docs/deck/deck.pdf)
 - **Full results** (every table, figure and CI): [docs/RESULTS.md](docs/RESULTS.md) &nbsp;·&nbsp; **Costs:** [docs/COSTS.md](docs/COSTS.md)
+
+## What you can do in the demo
+
+| | |
+|---|---|
+| ![X-ray count: the plan greyed out while each counted door lights up in turn, 16 of 20 so far](docs/deck/img/feat-xray-card.jpg) | ![Our answer, 62.74 m², on a line next to five frontier models' answers to the same question, each with how far it is off the dataset answer](docs/deck/img/feat-ghost.jpg) |
+| **X-ray count.** The drawing fades back and each door lights up as the number ticks up, so you watch the count happen instead of trusting a total. | **Side by side with frontier models.** Our number next to what five frontier models answered on the same drawing, and how far each one is off. |
+| ![Room heat-map: every room of a Swiss apartment floor shaded by its net area, with a legend and each apartment's total](docs/deck/img/feat-heatmap.jpg) | ![Asking by voice in Finnish: the listening strip under the ask box shows the question being heard, next to a Finnish plan with boxed doors](docs/deck/img/feat-voice.jpg) |
+| **Heat-map and takeoff sheet.** Every room shaded by its area, and a printable room schedule with door, window and fixture counts, ready to check and sign off. | **Ask by voice.** Press the mic and say the question in the language spoken on site; it is turned into text and asked straight away. |
+
+Also: **See it in 3D** (top image) raises a Swiss plan into a building with the counted doors lit and numbered
+([how it rises](docs/deck/img/feat-3d-rise.jpg)), BIM models open in 3D with the measured elements lit, and the
+**How it works** page (`/how`) walks through routing, the proof on the drawing, the four checks and the cost.
+<sub>Drawings: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0 (X-ray, heat-map, 3D); CubiCasa5K, © 2019 CubiCasa, CC BY-NC-SA 4.0 (voice). Each image shows its credit line.</sub>
 
 ## Results
 

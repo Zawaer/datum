@@ -115,6 +115,15 @@
   .person { font-size: 56px; font-weight: 800; }
   .links { margin-top: 70px; font-size: 32px; line-height: 1.7; color: var(--ink2); }
   .links code { font-family: "DejaVu Sans Mono", monospace; font-size: 28px; color: var(--ink); }
+
+  /* feature grid */
+  .feats { display: grid; grid-template-columns: 1fr 1fr; gap: 34px 48px; }
+  .feat { display: flex; gap: 26px; align-items: flex-start; }
+  .feat .fimg { flex: 0 0 470px; height: 334px; display: flex; align-items: center; justify-content: center; background: var(--soft); border-radius: 14px; border: 1px solid var(--line); overflow: hidden; box-shadow: 0 10px 30px rgba(15,23,42,.12); }
+  .feat .fimg img { max-width: 100%; max-height: 100%; display: block; }
+  .feat .ft { font-size: 25px; line-height: 1.38; color: var(--ink2); }
+  .feat .ft b { display: block; font-size: 29px; margin-bottom: 8px; }
+  .feat .ft em { font-style: normal; color: var(--ours); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -130,8 +139,8 @@
       <div class="vstat"><div class="n" style="color:#fdba74">69.8&nbsp;%</div><div class="l">best frontier model<br>(Claude Sonnet 5.5) given the same files</div></div>
       <div class="vstat"><div class="n">$0.013</div><div class="l">API per 1,000 questions, + ~$0.006 local<br>compute (Sonnet with the files: $25.76)</div></div>
     </div>
-    <div class="shot" style="flex:0 0 720px"><img src="img/deck-swiss-doors.jpg" alt="20 doors numbered on a Swiss plan" style="border-color:#334155">
-      <div class="cap" style="color:#cbd5e1; font-size:22px; margin-top:12px">“How many doors?” 20, each numbered on the plan.</div></div>
+    <div class="shot" style="flex:0 0 720px"><img src="img/feat-3d.jpg" alt="A Swiss plan risen into a 3D model, the 20 counted doors lit and numbered, next to the answer 20" style="border-color:#334155">
+      <div class="cap" style="color:#cbd5e1; font-size:22px; margin-top:12px">“How many doors?” 20, each one lit and numbered in 3D.</div></div>
   </div>
   <div class="foot">Toivo and Rene · held-out test split of the Junction dataset (split by whole drawing), evaluation cross-audited by a second AI agent (Codex) · ours: <code>runs/router_full_test_v7</code>; Sonnet: 400-question sample re-weighted to the test mix, API list price · Drawing: Swiss Dwellings v3.0.0 (Archilyse AG), CC BY 4.0</div>
 </section>
@@ -232,9 +241,28 @@
   </div>
 </section>
 
-<!-- 7 · results -->
+<!-- 7 · beyond the answer -->
 <section class="slide">
   <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">7</div>
+  <div class="kicker">Beyond the answer</div>
+  <h2 style="font-size:58px; margin-bottom:34px">See it, watch it counted, check it against others.</h2>
+  <div class="feats">
+    <div class="feat"><div class="fimg"><img src="img/feat-3d-card.jpg" alt="A Swiss plan risen into 3D, counted doors lit in blue and numbered"></div>
+      <div class="ft"><b>See it in 3D</b>One click and the plan rises into a building; every counted door glows with its number. <em>Check where each counted door is, room by room.</em></div></div>
+    <div class="feat"><div class="fimg"><img src="img/feat-xray-card.jpg" alt="X-ray count: the drawing greyed out, doors lighting up one by one, 16 of 20 counted"></div>
+      <div class="ft"><b>X-ray count</b>The drawing fades back and each door lights up as the number ticks up: 16 of 20 here. <em>Watch the count happen instead of trusting a total.</em></div></div>
+    <div class="feat"><div class="fimg" style="background:#fff"><img src="img/feat-ghost.jpg" alt="Our 62.74 m² against five frontier models, each with how far it is off the dataset answer"></div>
+      <div class="ft"><b>Side by side with frontier models</b>Our 62.74&nbsp;m² next to what five frontier models answered on the same drawing, and how far each is off. <em>See who is right, and by how much.</em></div></div>
+    <div class="feat"><div class="fimg" style="background:#fff"><img src="img/feat-takeoff.jpg" alt="Printable takeoff sheet: rooms shaded by area, room schedule and symbol counts"></div>
+      <div class="ft"><b>Heat-map and takeoff sheet</b>Every room shaded by its area, then a printable room schedule with door, window and fixture counts. <em>Ready to check line by line and sign off.</em></div></div>
+  </div>
+  <div class="foot">Also in the demo: <b style="color:var(--ink2)">ask by voice</b> (the mic in the ask box, in the language spoken on site) and an interactive <b style="color:var(--ink2)">“How it works”</b> page. All four views are drawn from the same evidence as the answer, at no extra model cost.
+    Drawings: Swiss Dwellings v3.0.0, M. Standfest et al. (Archilyse AG), doi:10.5281/zenodo.7788422, CC BY 4.0.</div>
+</section>
+
+<!-- 8 · results -->
+<section class="slide">
+  <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">8</div>
   <div class="kicker">Results · drawings we never trained on · accuracy and cost</div>
   <h2 style="font-size:54px; max-width:none; margin-bottom:14px">+20 points over the best frontier model, at 1/1,900 of the cost.</h2>
   <p style="font-size:25px; line-height:1.38; margin:0 0 16px; max-width:1680px">Where a CAD or IFC file exists, the exact answer is in it and we read it; a frontier model given the same files still misses about 1 in 5 on the Swiss plans and 2–9&nbsp;% on IFC. Scanned plans have no such file: there we score <b>85.1&nbsp;%</b> vs 63.6&nbsp;% (<b>93.4&nbsp;% when answered</b>). Whole drawings held out: no test drawing was used to build anything.</p>
@@ -257,9 +285,9 @@
     * 400-question sample re-weighted to the test mix (CI 60.9–78.4), API list price; Gemini 3.1 Pro 64.2&nbsp;% ($52.47), Nemotron 3.5 Super VL 49.0&nbsp;% ($2.59). ** LLM judge, same rubric for every system. <code>docs/RESULTS.md</code></div>
 </section>
 
-<!-- 8 · verified -->
+<!-- 9 · verified -->
 <section class="slide">
-  <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">8</div>
+  <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">9</div>
   <div class="kicker">Verified, not just claimed · four layers</div>
   <h2 style="margin-bottom:26px">Four ways to check an answer.</h2>
   <div class="row" style="gap:40px">
@@ -278,9 +306,9 @@
   <div class="foot">Sources: <code>docs/EVIDENCE_QUALITY.md</code>, <code>docs/RESULTS.md</code> §3, <code>runs/crosscheck_test.summary.md</code>, <code>runs/crosscheck_vlm_test_v7.summary.md</code>, <code>docs/PROVENANCE.md</code>. Confidence levels set on development drawings only. On scans the second opinion is weaker: the detector is right 94.9&nbsp;% when the vision model agrees vs 57.3&nbsp;% when it doesn’t.</div>
 </section>
 
-<!-- 9 · not obsolete -->
+<!-- 10 · not obsolete -->
 <section class="slide">
-  <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">9</div>
+  <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">10</div>
   <div class="kicker">Why this won’t be obsolete next year</div>
   <h2>A better model still guesses from pixels. We read the number from the geometry.</h2>
   <div class="row" style="gap:60px; align-items:flex-start">
@@ -296,9 +324,9 @@
   </div>
 </section>
 
-<!-- 10 · product -->
+<!-- 11 · product -->
 <section class="slide">
-  <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">10</div>
+  <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">11</div>
   <div class="kicker">Path to product for Stoa</div>
   <h2>A takeoff engine inside the AI-native construction OS.</h2>
   <div class="row">
@@ -319,7 +347,7 @@
   </div>
 </section>
 
-<!-- 11 · team -->
+<!-- 12 · team -->
 <section class="slide title" style="padding-top:130px">
   <div class="row" style="gap:60px; align-items:flex-start">
   <div style="flex:0 0 640px">
