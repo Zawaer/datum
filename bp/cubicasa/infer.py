@@ -95,7 +95,7 @@ FLIPS = [
 ]
 
 
-def _predict_flips(model, path, imgsz, conf, iou):
+def _predict_flips(model, path, imgsz, conf, iou, views_only=False):
     img = np.asarray(Image.open(path).convert("RGB"))[:, :, ::-1]  # BGR like cv2
     views = []
     for op, inv in FLIPS:
@@ -104,24 +104,36 @@ def _predict_flips(model, path, imgsz, conf, iou):
         H, W = r.orig_shape
         views.append([(r.names[int(c)], float(s), inv([b[0] / W, b[1] / H, b[2] / W, b[3] / H]))
                       for b, c, s in zip(r.boxes.xyxy.tolist(), r.boxes.cls.tolist(), r.boxes.conf.tolist())])
-    return wbf(views)
+    return views if views_only else wbf(views)
 
 
 def load(weights):
     """A YOLO model, or a list of them for an ensemble: weights may be a .txt file listing member .pt paths
-    (relative to the .txt), whose detections are merged per class (highest score wins)."""
+    (relative to the .txt), whose detections are merged per class (highest score wins; in flip mode all
+    members' views go through one weighted box fusion). RT-DETR checkpoints get ultralytics' RTDETR wrapper."""
     from pathlib import Path
 
     from ultralytics import YOLO
 
+    def one(p):
+        m = YOLO(p)
+        if type(m.model).__name__ == "RTDETRDetectionModel":  # needs RT-DETR's own predictor / postprocess
+            from ultralytics import RTDETR
+
+            m = RTDETR(p)
+        return m
+
     w = Path(weights)
     if w.suffix == ".txt":
-        return [YOLO(str((w.parent / ln.strip()).resolve())) for ln in w.read_text().split("\n") if ln.strip()]
-    return YOLO(str(w))
+        return [one(str((w.parent / ln.strip()).resolve())) for ln in w.read_text().split("\n") if ln.strip()]
+    return one(str(w))
 
 
 def predict(model, path, mode, tile_classes=None, conf=0.05, iou=0.5):
     """Detections [(cls, score, [x0, y0, x1, y1] normalised)] for one image path (iou = the detector's NMS IoU)."""
+    if isinstance(model, list) and str(mode).startswith("f"):  # ensemble + flips: one WBF over all views
+        imgsz = int(str(mode).lstrip("f"))
+        return wbf([v for m in model for v in _predict_flips(m, path, imgsz, conf, iou, views_only=True)])
     if isinstance(model, list):
         return _merge([d for m in model for d in predict(m, path, mode, tile_classes, conf, iou)])
     tiled = str(mode).startswith("t")

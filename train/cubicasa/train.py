@@ -37,17 +37,30 @@ def main():
     ap.add_argument("--close-mosaic", type=int, default=10)
     ap.add_argument("--cache", default="", help="'ram' or 'disk' to cache decoded images")
     ap.add_argument("--patience", type=int, default=20)
+    ap.add_argument("--time", type=float, default=None, help="hours; overrides --epochs (LR schedule fitted to it)")
+    ap.add_argument("--fraction", type=float, default=1.0, help="share of the training images (dry runs)")
+    ap.add_argument("--optimizer", default="auto")
+    ap.add_argument("--lr0", type=float, default=None)
+    ap.add_argument("--val", type=int, default=1, help="0: skip per-epoch validation (final validation still runs)")
     a = ap.parse_args()
     root = Path(__file__).resolve().parents[2]
     data = str(Path(a.data).resolve())
     work = root / "cache" / "cubicasa"
     work.mkdir(parents=True, exist_ok=True)
     os.chdir(work)  # ultralytics drops helper downloads (AMP check weights) in the cwd
-    if a.resume:
+    if a.resume:  # (RT-DETR runs: resume with ultralytics.RTDETR by hand)
         YOLO(str(work / "runs" / a.name / "weights" / "last.pt")).train(resume=True)
         return
-    m = YOLO(a.model if Path(a.model).exists() else a.model)
-    m.train(data=data, imgsz=a.imgsz, epochs=a.epochs, batch=a.batch, workers=a.workers,
+    if "rtdetr" in Path(a.model).name:
+        from ultralytics import RTDETR as Model
+    else:
+        Model = YOLO
+    m = Model(a.model)
+    extra = {"time": a.time} if a.time else {}
+    if a.lr0 is not None:
+        extra["lr0"] = a.lr0
+    m.train(**extra, fraction=a.fraction, optimizer=a.optimizer, val=bool(a.val),
+            data=data, imgsz=a.imgsz, epochs=a.epochs, batch=a.batch, workers=a.workers,
             project=str(work / "runs"), name=a.name, exist_ok=True, cache=a.cache or False,
             cos_lr=a.cos_lr, save_period=a.save_period,
             # plans come in any orientation (some upside down, text rotated): flip both ways
