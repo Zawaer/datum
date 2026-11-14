@@ -12,7 +12,13 @@
 		X-Content-Type-Options "nosniff"
 		Strict-Transport-Security "max-age=31536000"
 		-Access-Control-Allow-Origin
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'"
+		X-Frame-Options "DENY"
+		Permissions-Policy "microphone=(self), camera=()"
+		Cross-Origin-Opener-Policy "same-origin"
 	}
+	# compress text (HTML / JS / CSS / JSON); responses that are already encoded are passed through as they are
+	encode zstd gzip
 	request_body {
 		max_size 200MB
 	}

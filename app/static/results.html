@@ -8,11 +8,14 @@
 <meta property="og:title" content="Blueprints that talk · scoreboard">
 <meta property="og:image" content="/static/og.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233e9bff'/%3E%3Cpath d='M7 7h18v18H7z M7 15h9 M16 7v18' fill='none' stroke='%23001' stroke-width='2.6'/%3E%3Ccircle cx='21' cy='20' r='3' fill='%23ff3b6b'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="/static/app.css">
 <style>
   /* scoreboard: same design system as the app (app.css); series colours are Okabe-Ito, the prior is neutral grey */
   body { display: block; overflow: auto; background: var(--bg); }
   .viz-root { --ours: #0072b2; --frontier: #d55e00; --fair: #cc79a7; --gemini: #009e73; --haiku: #e69f00; --nemotron: #56b4e9; --prior: #8a929d; }
+  main.wrap { display: block; overflow: visible; min-height: auto; }  /* app.css lays out the app's <main> as a grid */
   .wrap { max-width: 1120px; margin: 0 auto; padding: 24px 24px 64px; }
   h1 { font-size: 28px; font-weight: 600; letter-spacing: -.3px; margin: 0 0 8px; }
   .lede { color: var(--mut); margin: 0 0 16px; max-width: 780px; font-size: 14px; }
@@ -25,7 +28,13 @@
   #hero { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }  /* all seven systems on one row on a laptop */
   .tile { padding: 12px 16px 14px; border-left: 1px solid var(--line); }
   .tile:first-child { border-left: 0; }
-  .tile h4 { margin: 0 0 6px; font-size: 11px; color: var(--mut); font-weight: 600; text-transform: uppercase; letter-spacing: .6px; }
+  /* the tiles are filled in from /api/analysis: reserve their measured height so the page below does not jump (CLS) */
+  #hero { min-height: 211px; } #tiles { min-height: 178px; }
+  @media (max-width: 1024px) { #hero { min-height: 370px; } }
+  @media (max-width: 640px) { #hero { min-height: 398px; } #tiles { min-height: 347px; } }
+  @media (max-width: 430px) { #hero { min-height: 606px; } #tiles { min-height: 397px; } }
+  @media (max-width: 400px) { #hero { min-height: 657px; } #tiles { min-height: 432px; } }
+  .tile h3 { margin: 0 0 6px; font-size: 11px; color: var(--mut); font-weight: 600; text-transform: uppercase; letter-spacing: .6px; }
   .tile .hero { font-size: 32px; font-weight: 600; letter-spacing: -.5px; line-height: 1.1; }
   .tile .hero small { font-size: 13px; color: var(--mut); font-weight: 400; letter-spacing: 0; }
   .tile .vs { margin-top: 6px; font-size: 12px; color: var(--mut); border: 0; border-radius: 0; overflow: visible; }
@@ -74,40 +83,41 @@
   <a class="brand" href="/"><span class="logo">▦</span> Blueprints <em>that talk</em></a>
   <nav class="links" style="margin-left:auto"><a class="linkbtn" href="/">← Ask a drawing</a></nav>
 </header>
-<div class="wrap">
+<main class="wrap">
   <h1>Scoreboard</h1>
-  <p class="headl" id="headl"><b>90.0 %</b> right on all 25,420 held-out test questions: every question in every language, not a sample (95 % CI 89.7–90.4).</p>
+  <p class="headl" id="headl"><b>90.0 %</b> right on all 25,420 held-out test questions: every question in every language, not a sample (95 % CI 89.7–90.4). Claude Sonnet given the same drawing and its CAD / IFC files: 69.8%.
+      Model-API fees per 1,000 questions: <b>$0.013</b> vs $25.76.</p>
   <p class="lede">Accuracy on the held-out test split, split by whole drawing: each drawing goes to test or dev by a SHA-1 hash of its id
     (20 % test), so every format of a drawing lands on the same side and no drawing seen during development is scored.
     Ours and the prior answer all <b id="ntest">25,420</b> test questions; the frontier and open-weights models were asked 400 questions sampled
     across every source and type, re-weighted to the test mix (so each source counts as much as it does in the test split).
     Counts must be exact; areas, lengths and volumes within 2 %; an abstention counts as wrong; IFC-bench free text is judged.
     The brackets are 95 % intervals. Same numbers as the README, read from <code>analysis/out/</code>.</p>
-  <div class="legend" id="legend"></div>
+  <div class="legend" id="legend"><span><i style="background:var(--ours)"></i><b>Ours</b> routed solvers, full test split</span><span><i style="background:var(--frontier)"></i><b>Claude Sonnet</b> frontier VLM asked directly</span><span><i style="background:var(--fair)"></i><b>Sonnet + files</b> Sonnet given the drawing and its CAD / IFC files</span><span><i style="background:var(--gemini)"></i><b>Gemini 3.1 Pro</b> frontier VLM asked directly</span><span><i style="background:var(--haiku)"></i><b>Claude Haiku</b> smaller frontier VLM asked directly</span><span><i style="background:var(--nemotron)"></i><b>Nemotron 3.5 Super VL</b> open-weights VLM asked directly</span><span><i style="background:var(--prior)"></i><b>Prior</b> most common answer, never looks</span></div>
   <div class="tiles" id="hero"></div>
   <h2>By source</h2>
   <div class="tiles" id="tiles"></div>
   <h2>By source: answer everything, or only when confident (ours)</h2>
-  <div class="card2"><table id="sel"></table></div>
+  <div class="card2" role="region" aria-label="By source: answer everything, or only when confident"><table id="sel"></table></div>
   <p class="note" id="selnote">“Answer everything” counts a “not sure” as wrong (the headline). The app also says how far to trust each
     answer; accepting only answers with confidence ≥ 0.5 gives the accuracy when answered, and the rest are declined.</p>
   <h2>By source and question type</h2>
-  <div class="card2"><table id="tbl"></table></div>
+  <div class="card2" role="region" aria-label="Accuracy by source and question type"><table id="tbl"></table></div>
   <p class="note">Each cell: accuracy and the number of questions it is measured on (n). Frontier cells rest on few questions; hover for the interval.</p>
   <h2>By question language</h2>
-  <div class="card2"><table id="lang"></table></div>
+  <div class="card2" role="region" aria-label="Accuracy by question language"><table id="lang"></table></div>
   <h2>Cost and speed per 1,000 questions</h2>
-  <div class="card2"><table id="cost"></table></div>
+  <div class="card2" role="region" aria-label="Cost and speed per 1,000 questions"><table id="cost"></table></div>
   <p class="note">API = paid model calls; compute = our GPU / CPU time at cloud prices. Ours makes no paid calls on the dataset sources, except the free-text questions about IFC models (a small LLM writes the answer from facts extracted from the model).</p>
   <h2>Does the confidence mean what it says?</h2>
-  <div class="card2"><table id="calib"></table></div>
+  <div class="card2" role="region" aria-label="Does the confidence mean what it says"><table id="calib"></table></div>
   <p class="note">Every answer in the demo carries one of these lines: “answers like this were right N % of the time”. Measured on the
     full held-out test split by how the answer was made and the confidence it came with; bands with fewer than 200 questions are pooled.</p>
   <h2>Every run</h2>
   <details><summary>show all raw evaluation runs (including dev, preview and partial ones, not re-weighted)</summary>
-    <div class="card2"><table id="allruns"></table></div></details>
+    <div class="card2" role="region" aria-label="Every evaluation run"><table id="allruns"></table></div></details>
   <p class="note" style="margin-top:32px">How a question is routed, proved on the drawing and checked: <a href="/how">How it works</a>.</p>
-</div>
+</main>
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
@@ -145,7 +155,7 @@ const usd3 = v => '$' + (+v).toFixed(+v > 0 && +v < 0.1 ? 3 : 2);  // $0.013, no
       Model-API fees per 1,000 questions: <b>$${(+me.api_usd_per_1k).toFixed(3)}</b> vs $${(+fair.api_usd_per_1k).toFixed(2)}.` : '.');
   }
   $('#hero').innerHTML = SYS.map(([k, l, , c]) => { const r = ov[k]; if (!r) return '';
-    return `<div class="tile" style="box-shadow:inset 0 3px ${c}"><h4>${l}</h4><div class="hero">${pct(r.accuracy)}</div>
+    return `<div class="tile" style="box-shadow:inset 0 3px ${c}"><h3>${l}</h3><div class="hero">${pct(r.accuracy)}</div>
       <div class="vs">[${pct(r.ci_lo)} – ${pct(r.ci_hi)}] · n=${num(r.n)}<br>${usd3(r.api_usd_per_1k)} API + ${usd3(r.compute_usd_per_1k)} compute per 1k questions ·
       ${(+r.mean_latency_s) < 1 ? (r.mean_latency_s * 1000).toFixed(0) + ' ms' : (+r.mean_latency_s).toFixed(1) + ' s'} each</div></div>`; }).join('');
 
@@ -158,7 +168,7 @@ const usd3 = v => '$' + (+v).toFixed(+v > 0 && +v < 0.1 ? 3 : 2);  // $0.013, no
     const acc = k => { let w = 0, v = 0; for (const r of rs) { const c = cellv(r, k); if (c) { w += +r.n_test; v += c.acc * +r.n_test; } } return w ? v / w : null; };
     const [o, ...rest] = SYS.map(([k]) => acc(k));
     const others = SYS.slice(1).map(([, l], i) => `${esc(l)} ${rest[i] == null ? '—' : pct(rest[i])}`).join(' · ');
-    return `<div class="tile"><h4>${esc(NICE[src] || src)}</h4><div class="hero">${o == null ? '—' : pct(o)} <small>ours</small></div>
+    return `<div class="tile"><h3>${esc(NICE[src] || src)}</h3><div class="hero">${o == null ? '—' : pct(o)} <small>ours</small></div>
       <div class="vs">${others}<br>${num(N)} test questions</div></div>`;
   }).join('');
 
@@ -233,6 +243,7 @@ function markScroll() {
     }
     const over = box.scrollWidth > box.clientWidth + 1;
     box.classList.toggle('scrolls', over); hint.classList.toggle('on', over);
+    if (over) box.tabIndex = 0; else box.removeAttribute('tabindex');  // a keyboard can scroll it only when focusable
   }
 }
 addEventListener('resize', markScroll);

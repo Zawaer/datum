@@ -12,15 +12,20 @@
 <meta property="og:image" content="/static/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%2316191d'/%3E%3Cpath d='M7 7h18v18H7z M7 15h9 M16 7v18' fill='none' stroke='%23fff' stroke-width='2.2'/%3E%3Ccircle cx='21' cy='20' r='3' fill='%230072b2' stroke='%23fff' stroke-width='1.2'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
 <header>
+  <h1 class="sr-only">Blueprints that talk: ask a construction drawing, see the evidence</h1>
+  <div class="sr-only" role="status" id="sr-status"></div>
   <button class="iconbtn only-phone" id="drawerbtn" aria-label="Drawings">☰</button>
   <a class="brand" href="/"><span class="logo">▦</span> Blueprints <em>that talk</em></a>
   <nav class="links">
     <button class="linkbtn" id="tourbtn" title="A guided 7-step tour, about a minute (Esc to leave, ← → to step)"><span class="only-desk">Demo </span>tour</button>
     <a class="linkbtn" href="/results">Score<span class="only-desk">board</span></a>
+    <a class="linkbtn" href="/how">How<span class="only-desk"> it works</span></a>
   </nav>
   <div class="meter" id="meter" data-n="0" data-short="this session: ours $0 vs frontier $0" title="What your questions in this session cost us, vs what a frontier vision model (Claude Sonnet) charged for the same kind of question in our baseline run">
     <div class="mrow"><span class="mlab">ours</span><span class="mbar"><i id="bar-ours"></i></span><b id="m-ours">$0</b></div>
@@ -51,7 +56,7 @@
   <section id="viewer">
     <div id="stage"><img id="img" alt=""><svg id="ov" viewBox="0 0 1 1"></svg></div>
     <div id="three"></div>
-    <div class="modes" id="modes"><button id="m2d" class="on">Plan</button><button id="m3d">3D model</button></div>
+    <div class="modes" id="modes"><button id="m2d" class="on" aria-pressed="true">Plan</button><button id="m3d" aria-pressed="false">3D model</button></div>
     <div class="tools3d" id="tools3d">
       <label>Storey <select id="storey"></select></label>
       <label class="cut">Section <input type="range" id="cut" min="0" max="1000" value="1000"></label>
@@ -75,7 +80,6 @@
       <span>Or pick a question below, or type your own in any language. Every answer shows its evidence on the plan, says in words how far to trust it, and you can correct it with a click.</span>
       <span class="keys"><kbd>Enter</kbd> ask · <kbd>/</kbd> focus · <kbd>Esc</kbd> cancel · <kbd>f</kbd> fit drawing</span>
     </div>
-    <div class="qs"><h3 id="qstitle">Questions for this drawing</h3><div class="chips" id="chips"></div></div>
     <div class="card" id="answer" hidden></div>
     <div id="evwrap" hidden>
       <div class="evhead"><h3 id="evtitle">Evidence</h3>
@@ -83,6 +87,8 @@
       <div class="evhelp" id="evhelp"></div>
       <div class="ev" id="ev"></div>
     </div>
+    <!-- after the answer and its evidence in tab order (Ask, answer, evidence, correction); CSS order: places it on screen -->
+    <div class="qs"><h3 id="qstitle">Questions for this drawing</h3><div class="chips" id="chips"></div></div>
   </aside>
 </main>
 <script type="importmap">{"imports": {"three": "https://unpkg.com/three@0.170.0/build/three.module.js",
