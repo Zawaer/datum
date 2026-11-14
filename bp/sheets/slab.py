@@ -1695,6 +1695,7 @@ def analyse(meta) -> dict:
            "chains": _chains(dims),
            "dims": [{k2: d[k2] for k2 in ("v", "vertical", "bbox", "span", "k", "inlier") if k2 in d} for d in dims], "cost_usd": cost,
            "text": full_text,
+           "labels_text": "\n".join(ln["text"] for ln in (ocr_lines(hor) if hor else []) + (ocr_lines(ver) if ver else [])),
            "stairs": [b["bbox"] for b in blocks if re.search(r"\bSTAIR", b["text"], re.I) and b["bbox"][2] > b["bbox"][0]]}
     meta["slab"] = res
     return res
@@ -1987,6 +1988,19 @@ def answer(path, question, meta) -> dict | None:
                            "label": f"joint {len(ev) + 1}", "value": 1})
         return _res(n, conf0 * 0.8, f"{n} bold wall-to-wall joint lines ({len(A['cj_words'])} 'CJ' labels read)", ev,
                     A, "cj")
+
+    # ---- equipment pads (pump / generator pads): labelled, not hatched
+    em = re.search(r"\b(pump|equipment|generator|genset|machine|transformer|tank)\s+pads?\b", ql)
+    if em:
+        word = em.group(1).upper()
+        nums = sorted({int(n) for n in re.findall(rf"{word}\s*PAD\s*(?:NO\.?|#)?\s*(\d{{1,2}})\b",
+                                                   A.get("labels_text") or A.get("text") or "", re.I)})
+        if not nums or nums != list(range(1, len(nums) + 1)) or not re.search(r"how many|number|count", ql):
+            return None  # the general reader looks (the hatched areas are bottom reinforcement, not these pads;
+            # an incomplete run of labels, "#7" alone, is a misreading)
+        n = len(nums)
+        return _res(n, conf0 * 0.8, f"{n} '{word} PAD #n' labels read on the plan: "
+                    + ", ".join(f"#{k}" for k in nums), [], A, "pads")
 
     # ---- bottom reinforcement pads (hatched)
     if re.search(r"bottom reinforc|hatch|shaded|pad", ql):
