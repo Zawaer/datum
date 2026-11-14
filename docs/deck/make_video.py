@@ -72,8 +72,8 @@ Q_DOORS_FI = "Kuinka monta ovea pohjapiirustuksessa on?"
 IFC_PLAN = "data/ifc_models/bsc-molio_molio-with-uris_plan-03-grundplan.pdf"
 Q_IFC_WALLS = "How many doors are shown on the floor plan of 'Grundplan'?"
 
-# A line is L(speaker, caption, spoken): T = Toivo, R = Rene (two cloned ElevenLabs voices, eleven_v3). The spoken
-# form spells numbers out and carries v3 audio tags ([confident], [leaning in], ...); the caption is the plain text.
+# A line is L(speaker, caption, spoken): A / B are the two narrators (see VOICE_SET). The spoken form spells numbers
+# out and may carry v3 audio tags ([confident], ...), dropped for other models; the caption is the plain text.
 # Sources for every number: README.md, docs/RESULTS.md, docs/COSTS.md (listed in docs/video.md).
 # "cuts": which cut a scene is in; "short": the lines it speaks in the 60 s cut (default: the same lines).
 
@@ -82,96 +82,96 @@ def L(spk, cap, say=None):
     return (spk, cap, say or cap)
 
 
-FI_Q = L("T", "Kuinka monta ovea pohjapiirustuksessa on?", "[curious] Kuinka monta ovea pohjapiirustuksessa on?")
+FI_Q = L("F", "Kuinka monta ovea pohjapiirustuksessa on?", "[curious] Kuinka monta ovea pohjapiirustuksessa on?")
 
 SCENES = [
     {"id": "hook", "kind": "shot", "cuts": "full short", "min": 8.5, "lines": [  # min: room for both chips
-        L("T", "Ask a floor plan how many doors it has.", "[confident] Ask a floor plan how many doors it has."),
-        L("R", "Twenty. And here is every single one.", "Twenty. And here's every single one."),
+        L("A", "Ask a floor plan how many doors it has.", "[confident] Ask a floor plan how many doors it has."),
+        L("B", "Twenty. And here is every single one.", "Twenty. And here's every single one."),
     ]},
     {"id": "problem", "kind": "card", "cuts": "full short", "lines": [
-        L("R", "Takeoffs are still counted by hand.", "Takeoffs are still counted by hand."),
-        L("T", "And general AI, given the very same files? Seven answers in ten,",
+        L("B", "Takeoffs are still counted by hand.", "Takeoffs are still counted by hand."),
+        L("A", "And general AI, given the very same files? Seven answers in ten,",
           "[leaning in] And general A.I., given the very same files? Seven answers in ten."),
-        L("T", "and just as sure when it's wrong.", "[serious] And just as sure when it's wrong."),
+        L("A", "and just as sure when it's wrong.", "[serious] And just as sure when it's wrong."),
     ], "short": [
-        L("T", "General AI gets seven answers in ten right, and is just as sure when it's wrong.",
+        L("A", "General AI gets seven answers in ten right, and is just as sure when it's wrong.",
           "[leaning in] General A.I. gets seven answers in ten right. [serious] And it's just as sure when it's wrong."),
     ]},
     {"id": "ghost", "kind": "shot", "cuts": "full short", "lines": [
-        L("T", "Datum shows its work. Ask, in German, for the living area,",
+        L("A", "Datum shows its work. Ask, in German, for the living area,",
           "[confident] Datum shows its work. Ask, in German, for the living area,"),
-        L("R", "and every room is outlined with its square metres, adding up on the drawing.",
+        L("B", "and every room is outlined with its square metres, adding up on the drawing.",
           "and every room is outlined with its square metres, adding up on the drawing."),
-        L("T", "Five AI models, same drawing: all five wrong.",
+        L("A", "Five AI models, same drawing: all five wrong.",
           "Five A.I. models, same drawing. [chuckles] All five wrong."),
     ], "short": [
-        L("T", "Datum shows its work. Ask, in German, for the living area:",
+        L("A", "Datum shows its work. Ask, in German, for the living area:",
           "[confident] Datum shows its work. Ask, in German, for the living area,"),
-        L("R", "every room outlined, adding up on the drawing. Five AI models: all five wrong.",
+        L("B", "every room outlined, adding up on the drawing. Five AI models: all five wrong.",
           "and every room is outlined, adding up on the drawing. Five A.I. models? All five wrong."),
     ]},
     {"id": "xray", "kind": "shot", "cuts": "", "lines": [   # out of the 2:00 cut since the project beat
-        L("T", "Every answer shows its proof: the X-ray counts each door,",
+        L("A", "Every answer shows its proof: the X-ray counts each door,",
           "[confident] Every answer shows its proof. The X-ray counts each door,"),
-        L("R", "and a second, independent method agrees.", "and a second, independent method agrees."),
+        L("B", "and a second, independent method agrees.", "and a second, independent method agrees."),
     ]},
     {"id": "correct", "kind": "shot", "cuts": "full", "lines": [
-        L("R", "Check it in seconds: untick one, or click one in. The total follows.",
+        L("B", "Check it in seconds: untick one, or click one in. The total follows.",
           "Check it in seconds. Untick one, or click one in. The total follows."),
     ]},
     {"id": "voice", "kind": "shot", "cuts": "full short", "lines": [
-        L("T", "On site? Just ask out loud, in Finnish.", "[leaning in] On site? Just ask out loud. In Finnish."),
+        L("A", "On site? Just ask out loud, in Finnish.", "[leaning in] On site? Just ask out loud. In Finnish."),
         FI_Q,
-        L("R", "Every door is boxed on the scan, and the plan rises into 3D.",
+        L("B", "Every door is boxed on the scan, and the plan rises into 3D.",
           "Every door is boxed on the scan, and the plan rises into 3D."),
     ], "short": [
-        L("T", "Or ask out loud, in Finnish.", "[leaning in] Or ask out loud. In Finnish."),
+        L("A", "Or ask out loud, in Finnish.", "[leaning in] Or ask out loud. In Finnish."),
         FI_Q,
     ]},
     {"id": "ifc", "kind": "shot", "cuts": "full", "lines": [
-        L("T", "From a BIM model, the answer comes from the model itself.",
+        L("A", "From a BIM model, the answer comes from the model itself.",
           "[confident] From a BIM model, the answer comes from the model itself."),
-        L("R", "Explode the storeys, and the evidence glows.", "Explode the storeys, and the evidence glows."),
+        L("B", "Explode the storeys, and the evidence glows.", "Explode the storeys, and the evidence glows."),
     ]},
     {"id": "sheet", "kind": "shot", "cuts": "full short", "min": 16.0, "min_short": 8.5, "lines": [
-        L("R", "And a sheet it has never seen? Here's a school plan, uploaded.",
+        L("B", "And a sheet it has never seen? Here's a school plan, uploaded.",
           "And a sheet it has never seen? Here's a school plan, uploaded."),
-        L("T", "Upload it, ask, and watch it count the group rooms on the drawing.",
+        L("A", "Upload it, ask, and watch it count the group rooms on the drawing.",
           "[confident] Upload it, ask, and watch it count the group rooms, right on the drawing."),
-        L("R", "Then tilt it up into 3D.", "Then tilt it up into 3D."),
+        L("B", "Then tilt it up into 3D.", "Then tilt it up into 3D."),
     ], "short": [
-        L("R", "And a school sheet it has never seen: upload, ask, watch it count.",
+        L("B", "And a school sheet it has never seen: upload, ask, watch it count.",
           "And a school sheet it has never seen? Upload, ask, and watch it count."),
     ]},
     {"id": "project", "kind": "shot", "cuts": "full", "min": 9.5, "lines": [
-        L("T", "A whole project? Drop in both floors and ask for every door in the school.",
+        L("A", "A whole project? Drop in both floors and ask for every door in the school.",
           "[leaning in] And the whole project? Drop in both floors, and ask for every door in the school."),
-        L("R", "171, floor by floor. Tap one to see its doors.",
+        L("B", "171, floor by floor. Tap one to see its doors.",
           "One hundred seventy-one, floor by floor. Tap one to see its doors."),
     ]},
     {"id": "results", "kind": "card", "cuts": "full short", "lines": [
-        L("T", "90.7 % right on all 25,420 held-out test questions.",
+        L("A", "90.7 % right on all 25,420 held-out test questions.",
           "[confident] Ninety point seven percent right, on all twenty-five thousand held-out questions."),
-        L("R", "A leading AI model, given the same files: 69.8 %.",
+        L("B", "A leading AI model, given the same files: 69.8 %.",
           "A leading A.I. model, given the same files: sixty-nine point eight."),
     ], "short": [
-        L("T", "90.7 % right on all 25,420 held-out test questions.",
+        L("A", "90.7 % right on all 25,420 held-out test questions.",
           "[confident] Ninety point seven percent right, on all twenty-five thousand held-out questions."),
     ]},
     {"id": "cost", "kind": "card", "cuts": "full short", "lines": [
-        L("T", "$0.013 per 1,000 questions.", "[persuasive] At one point three cents per thousand questions."),
-        L("R", "The AI model: $25.76.", "The A.I. model? Twenty-five dollars seventy-six."),
+        L("A", "$0.013 per 1,000 questions.", "[persuasive] At one point three cents per thousand questions."),
+        L("B", "The AI model: $25.76.", "The A.I. model? Twenty-five dollars seventy-six."),
     ], "short": [
-        L("T", "$0.013 per 1,000 questions.", "[persuasive] At one point three cents per thousand questions."),
+        L("A", "$0.013 per 1,000 questions.", "[persuasive] At one point three cents per thousand questions."),
     ]},
     {"id": "end", "kind": "card", "cuts": "full short", "min": 3.5, "lines": [
-        L("R", "Not sure? It says so instead of guessing. Low-res scans are its weak spot.",
+        L("B", "Not sure? It says so instead of guessing. Low-res scans are its weak spot.",
           "Not sure? It says so, instead of guessing. Low-res scans are its weak spot."),
-        L("T", "Exact. Verifiable. Cheap. Datum: blueprints that talk.",
+        L("A", "Exact. Verifiable. Cheap. Datum: blueprints that talk.",
           "[confident] Exact. Verifiable. Cheap. [warmly] Datum: blueprints that talk."),
     ], "short": [
-        L("T", "Exact. Verifiable. Cheap. Datum: blueprints that talk.",
+        L("A", "Exact. Verifiable. Cheap. Datum: blueprints that talk.",
           "[confident] Exact. Verifiable. Cheap. [warmly] Datum: blueprints that talk."),
     ]},
 ]
@@ -207,20 +207,38 @@ def tts_worker():
 
 
 ENGINE = "elevenlabs"
-# Two cloned voices (Toivo's decision): T = Toivo, R = Rene, both on eleven_v3. Keys, voice ids and models come from
-# a root-only env file (--voices-env, default below); they only ever go into request headers / URLs, never printed.
-# Each key is used for its own speaker's text-to-speech only.
+# Two narrators, A (male) and B (female), alternate the lines. Default ("premade", Toivo's decision of 14 Nov):
+# ElevenLabs premade voices George and Sarah on eleven_multilingual_v2 (steadier than v3; v3 audio tags in the spoken
+# text are dropped for it), with the project key (ELEVENLABS_API_KEY in data/secrets/elevenlabs.env). "cloned"
+# (--voices cloned, the first take) reads Toivo's and Rene's cloned voices, keys and models from a root-only env file;
+# each key speaks only its own voice. Keys only ever go into request headers, never printed.
+VOICE_SET = "protege"
+PREMADE = {"A": ("George", "JBFqnCBsd6RMkjVDRZzb"), "B": ("Sarah", "EXAVITQu4vr4xnSDxMaL"),
+           "F": ("George", "JBFqnCBsd6RMkjVDRZzb")}   # F: the spoken Finnish question
+# "protege" (Toivo's decision, 14 Nov, final): one narrator for every line, Toivo's "Protégé narrator (clone)" voice on
+# his account's key (TOIVO_ELEVENLABS_KEY in VOICES_ENV); the Finnish question stays the premade George clip.
+PROTEGE = ("Protégé narrator", "AesrdOgpgZSXUSHb7gw3")
+PROTEGE_MODEL = os.environ.get("PROTEGE_MODEL", "eleven_multilingual_v2")
+PREMADE_MODEL = "eleven_multilingual_v2"
+PREMADE_SETTINGS = {"stability": 0.6, "similarity_boost": 0.75, "style": 0.0, "use_speaker_boost": True}
 VOICES_ENV = Path("/data/attachments/s_G5o6eFRtoL/secrets/elevenlabs.env")
-SPEAKERS = {"T": ("TOIVO_ELEVENLABS_KEY", "TOIVO_VOICE_ID", "TOIVO_MODEL_ID"),
-            "R": ("RENE_ELEVENLABS_KEY", "RENE_VOICE_ID", "RENE_MODEL_ID")}
-SPEAKER_NAME = {"T": "Toivo", "R": "Rene"}
+CLONED = {"A": ("Toivo", "TOIVO_ELEVENLABS_KEY", "TOIVO_VOICE_ID", "TOIVO_MODEL_ID"),
+          "B": ("Rene", "RENE_ELEVENLABS_KEY", "RENE_VOICE_ID", "RENE_MODEL_ID"),
+          "F": ("Toivo", "TOIVO_ELEVENLABS_KEY", "TOIVO_VOICE_ID", "TOIVO_MODEL_ID")}
+SPEAKERS = ("A", "B", "F")
 V3_STABILITY = 0.5   # eleven_v3 takes 0.0 (creative), 0.5 (natural) or 1.0 (robust); tags work in 0.0 / 0.5
 
 
-def voices_env():
+def speaker_name(spk):
+    if VOICE_SET == "protege":
+        return PREMADE["F"][0] if spk == "F" else PROTEGE[0]
+    return (PREMADE if VOICE_SET == "premade" else CLONED)[spk][0]
+
+
+def read_env(path, *names):
     env = {}
-    if VOICES_ENV.exists():
-        for ln in VOICES_ENV.read_text().splitlines():
+    if Path(path).exists():
+        for ln in Path(path).read_text().splitlines():
             k, _, v = ln.strip().partition("=")
             if k and not k.startswith("#"):
                 env[k.strip()] = v.strip().strip('"').strip("'")
@@ -228,27 +246,45 @@ def voices_env():
 
 
 def voice_of(spk):
-    env = voices_env()
-    kk, vk, mk = SPEAKERS[spk]
+    """-> (key, voice id, model, voice settings)"""
+    if VOICE_SET == "protege" and spk != "F":
+        key = read_env(VOICES_ENV).get("TOIVO_ELEVENLABS_KEY")
+        if not key:
+            raise SystemExit(f"protege voice: TOIVO_ELEVENLABS_KEY missing in {VOICES_ENV}")
+        vs = PREMADE_SETTINGS if PROTEGE_MODEL != "eleven_v3" else {"stability": V3_STABILITY}
+        return key, PROTEGE[1], PROTEGE_MODEL, vs
+    if VOICE_SET in ("premade", "protege"):
+        key = os.environ.get("ELEVENLABS_API_KEY") or read_env(ROOT / "data/secrets/elevenlabs.env").get("ELEVENLABS_API_KEY")
+        if not key:
+            raise SystemExit("premade voices: ELEVENLABS_API_KEY missing (env or data/secrets/elevenlabs.env)")
+        return key.strip(), PREMADE[spk][1], PREMADE_MODEL, PREMADE_SETTINGS
+    env = read_env(VOICES_ENV)
+    name, kk, vk, mk = CLONED[spk]
     if not env.get(kk) or not env.get(vk):
-        raise SystemExit(f"voice {SPEAKER_NAME[spk]}: key or voice id missing in {VOICES_ENV}")
-    return env[kk], env[vk], env.get(mk) or "eleven_v3"
+        raise SystemExit(f"voice {name}: key or voice id missing in {VOICES_ENV}")
+    return env[kk], env[vk], env.get(mk) or "eleven_v3", {"stability": V3_STABILITY}
 
 
-def clip_path(text, spk="T"):
+def spoken(text, model):
+    """eleven_v3 reads the audio tags; other models would speak them: drop them there."""
+    return text if model == "eleven_v3" else re.sub(r"\s*\[[^\]]*\]\s*", " ", text).strip()
+
+
+def clip_path(text, spk="A"):
     if ENGINE == "kokoro":
         tag = f"{VOICE}|{SPEED}|{text}"
     else:
-        _, vid, model = voice_of(spk)
-        tag = f"eleven|{vid}|{model}|{V3_STABILITY}|{text}"
+        _, vid, model, vs = voice_of(spk)
+        tag = (f"eleven|{vid}|{model}|{V3_STABILITY}|{text}" if model == "eleven_v3"
+               else f"eleven|{vid}|{model}|{json.dumps(vs, sort_keys=True)}|{spoken(text, model)}")
     return TTS_CACHE / f"{hashlib.sha1(tag.encode()).hexdigest()[:16]}.wav"
 
 
 def eleven_tts(text, spk):
     """-> 16-bit mono PCM at SR, or raises urllib.error.HTTPError. The key only ever goes into the request header."""
-    key, vid, model = voice_of(spk)
+    key, vid, model, vs = voice_of(spk)
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{vid}?output_format=pcm_{SR}"
-    body = json.dumps({"text": text, "model_id": model, "voice_settings": {"stability": V3_STABILITY}}).encode()
+    body = json.dumps({"text": spoken(text, model), "model_id": model, "voice_settings": vs}).encode()
     req = urllib.request.Request(url, data=body, method="POST",
                                  headers={"xi-api-key": key, "Content-Type": "application/json", "Accept": "audio/pcm"})
     with urllib.request.urlopen(req, timeout=120) as r:
@@ -273,8 +309,8 @@ def pick_engine(want):
     ENGINE = "kokoro" if want == "kokoro" else "elevenlabs"
     if ENGINE == "elevenlabs":
         for spk in SPEAKERS:
-            voice_of(spk)     # fails early if the env file lacks a voice
-        print("voice: ElevenLabs eleven_v3, Toivo + Rene")
+            voice_of(spk)     # fails early if a key or voice is missing
+        print(f"voice: ElevenLabs {VOICE_SET}: {speaker_name('A')} / {speaker_name('B')} ({voice_of('A')[2]})")
     return ENGINE
 
 
@@ -290,7 +326,7 @@ def synthesize(scenes, cut):
             with wave.open(it["path"], "wb") as w:
                 w.setnchannels(1), w.setsampwidth(2), w.setframerate(SR)
                 w.writeframes(pcm)
-            print(f"tts {SPEAKER_NAME[it['spk']]:5s} {len(pcm) / 2 / SR:5.2f} s  {it['text'][:80]}")
+            print(f"tts {speaker_name(it['spk']):5s} {len(pcm) / 2 / SR:5.2f} s  {it['text'][:80]}")
         return
     env = {**os.environ, "HF_HOME": str(ROOT / "cache/tts/hf")}
     subprocess.run([str(TTS_PY), "-I", __file__, "--tts-worker"], input=json.dumps(
@@ -1195,7 +1231,8 @@ tick();
 
 
 def cards_html():
-    voice = "Kokoro-82M (Apache-2.0)" if ENGINE == "kokoro" else "Toivo and Rene, ElevenLabs v3"
+    voice = "Kokoro-82M (Apache-2.0)" if ENGINE == "kokoro" else (
+        "ElevenLabs" if VOICE_SET == "premade" else "Toivo and Rene, ElevenLabs v3")
     return f"""<!doctype html><html><head><meta charset="utf-8">{PLEX}<style>{CARD_CSS}</style></head><body>
 <section class="card" id="problem">
   <h2 class="in">General AI gets 7 answers in 10 right, and is just as sure when it is wrong.</h2>
@@ -1243,7 +1280,7 @@ def update_doc(plan, caps, total, cut):
     words = sum(len(c[2].split()) for c in caps)
     table = ("| # | time | shot | voice-over (caption text) |\n|---|---|---|---|\n" + "\n".join(rows) +
              f"\n\nTotal {total:.2f} s; {words} words; voice {ENGINE}"
-             + (f" `{VOICE}` at speed {SPEED}" if ENGINE == "kokoro" else " eleven_v3, Toivo (T) + Rene (R)") + ". Generated by `make_video.py`.")
+             + (f" `{VOICE}` at speed {SPEED}" if ENGINE == "kokoro" else f" ElevenLabs {voice_of('A')[2]}, {speaker_name('A')} (A) + {speaker_name('B')} (B)") + ". Generated by `make_video.py`.")
     tag = "TIMING" if cut == "full" else "TIMING60"
     src = doc.read_text()
     new = re.sub(rf"(<!-- {tag} -->\n).*?(<!-- /{tag} -->)", lambda m: m.group(1) + table + "\n" + m.group(2), src, flags=re.S)
@@ -1280,6 +1317,8 @@ def main():
     ap.add_argument("--reuse", action="store_true", help="re-cut from the shots recorded last time")
     ap.add_argument("--voice-only", action="store_true", help="only synthesize and print the timing")
     ap.add_argument("--tts", choices=["kokoro", "elevenlabs"], default="elevenlabs")
+    ap.add_argument("--voices", choices=["protege", "premade", "cloned"], default="protege",
+                    help="one narrator (Protégé clone; default), premade George + Sarah, or the cloned Toivo + Rene take")
     ap.add_argument("--slow", type=float, default=8.0, help="page-clock slow-motion factor while recording")
     ap.add_argument("--dpr", type=float, default=2.5, help="device pixels per CSS px (2.5 = 3840x2160 captures)")
     ap.add_argument("--draft", action="store_true", help="--dpr 1.25 --slow 4: quick, no sharp punch-ins")
@@ -1301,6 +1340,8 @@ def main():
         print(f"{out}: {probe_dur(out):.2f} s")
         return
 
+    global VOICE_SET
+    VOICE_SET = a.voices
     pick_engine(a.tts)
     scenes = scenes_of(a.cut)
     synthesize(scenes, a.cut)
