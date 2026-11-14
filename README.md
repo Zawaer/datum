@@ -30,8 +30,10 @@ small CV detector, a fine-tuned 8B VLM as second opinion, and a frontier LLM onl
 
 ## Results
 
-Held-out test split of the full Junction dataset, **split by drawing**: every format of a drawing and every
-language twin of a question stay on the same side, so nothing used in development is scored. Official
+Held-out test split of the full Junction dataset, **split by whole drawing**: each drawing goes to test or dev by a
+SHA-1 hash of its id (20 % test, [`bp/data.py`](bp/data.py) `split_of`), so every format of a drawing (PDF, PNG,
+DXF, IFC and the plans rendered from it) and every language twin of a question stay on the same side, and nothing
+used in development (training, thresholds, prompts) is scored. An independent audit found 0 leaking groups. Official
 tolerance: counts exact, areas / lengths / volumes within 2 %. An abstention counts as wrong.
 
 | system | accuracy [95 % CI] | API $ / 1,000 questions | s / question |
@@ -44,11 +46,22 @@ tolerance: counts exact, areas / lengths / volumes within 2 %. An abstention cou
 | Nemotron 3.5 Super VL (open weights), drawing only¹ | 49.0 % [40.0–58.0] | $2.59 | 40.1 |
 | Most common answer per question template (no drawing) | 41.6 % [41.0–42.2] | $0 | 0 |
 
-**By source (ours):** Swiss apartment plans 99.95 % (8,210 of 8,214 questions: counts 99.96 %, room areas 99.92 %),
-IFC models 100 % on all 600 numeric questions (counts, areas, volumes, lengths), Finnish raster plans
-(CubiCasa) 84.2 % (16,496 counts, YOLO11m detector), IFC-Bench free text 38.2 % (110 questions, LLM judge;
-our weakest area). On the same 400 sampled questions, Sonnet with sibling files is right on 3 that we miss; we
-are right on 57 that it misses. Per-source tables for every system: [docs/RESULTS.md](docs/RESULTS.md) §2.
+**By source (ours).** "Answer everything" is the headline above (a "not sure" counts as wrong). The app also
+says how far to trust each answer; if you only accept answers with confidence ≥ 0.5, this is what you get:
+
+| family | test questions | answer everything | accuracy when answered (≥ 0.5) | declines |
+|---|---:|---:|---:|---:|
+| Swiss apartment plans: counts | 5,580 | 99.96 % | 99.96 % | 0 % |
+| Swiss apartment plans: room areas | 2,634 | 99.92 % | 99.92 % | 0 % |
+| IFC models: counts, areas, volumes, lengths | 600 | 100 % | 100 % | 0 % |
+| Finnish raster plans (CubiCasa, YOLO11m detector) | 16,496 | 84.2 % | 92.8 % | 19.1 % |
+| IFC-Bench free text (LLM judge; our weakest area) | 110 | 38.2 % | 41.1 % | 13.6 % |
+| **all** | **25,420** | **89.5 %** | **95.4 %** | **12.5 %** |
+
+Stricter thresholds trade coverage for accuracy: on the Finnish plans, answering the most confident half (48.4 %)
+is 97.1 % right. On the same 400 sampled questions, Sonnet with sibling files is right on 3 that we miss; we are
+right on 57 that it misses. Per-source tables for every system: [docs/RESULTS.md](docs/RESULTS.md) §2; coverage
+curves: §3.
 
 ¹ **Frontier numbers come from a 400-question sample of the test split, stratified by source × type**
 (~54 per cell, so each cell is ±~13 pp), **re-weighted to the true test-split mix**, CI from a stratified bootstrap. Cost is the API list

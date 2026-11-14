@@ -33,7 +33,7 @@ _Character count of the block between the rules below: 4,362 (limit 5,000)._
 
 ### 1. Accuracy
 
-Held-out test split, split by drawing (every format and language twin on the same side). Counts exact, measures within 2 %, abstentions count as wrong.
+Held-out test split, split by whole drawing (hash of the drawing id, 20 % test; every format and language twin on the same side). Counts exact, measures within 2 %, abstentions count as wrong.
 
 | | accuracy [95 % CI] | $ / 1,000 q |
 |---|---|---|
@@ -55,7 +55,7 @@ By source: Swiss plans 99.95 % (8,214), IFC numeric 100 % (600), Finnish raster 
 The answer is counted out on the drawing: numbered boxes, rooms outlined with their m², IFC elements lit up in 3D by GlobalId. Four layers:
 
 - **Evidence that adds up.** Untick an item or click a missed one and the total updates. The boxes themselves are right: >90 % precision and recall against independent gold; only ~2.5 % of right counts are right by luck.
-- **Calibrated confidence**, measured on test: answering only at ≥ 0.5 keeps 87.5 % of questions at 95.4 % and turns 1,658 wrong answers into an honest "not sure".
+- **Calibrated confidence**, measured on test: answering only at ≥ 0.5 keeps 87.5 % of questions at 95.4 % and turns 1,658 wrong answers into an honest "not sure" (Finnish plans: 92.8 % when answered, 19 % declined; Swiss and IFC numeric: 99.9–100 %, none declined).
 - **Independent cross-check.** A second method re-derives 98 % of numeric answers (PDF re-read for CAD plans, the SVG sheet for IFC, a fine-tuned vision model for scans). Where they agree, Swiss and IFC answers were right 99.98 % of the time (all but 2 of 8,184); it caught a real error in our own CAD reading of an apartment area. On conflict, confidence is halved and both readings are shown.
 - **Provenance.** Every number in an LLM-written answer is traced to the facts it cites, or flagged.
 
