@@ -1,6 +1,6 @@
 # Tools used and challenges entered
 
-_Locked in Sat 14.11.2026 by Toivo. Main challenge: **Stoa, "Make Blueprints Talk"**._
+_The challenge list is locked in (Toivo, Sat 14.11.2026). The tools list is not: it records what we use now, and new tools can still be added if they help. Main challenge: **Stoa, "Make Blueprints Talk"**._
 
 ## Challenges we enter with this project
 
@@ -13,7 +13,7 @@ _Locked in Sat 14.11.2026 by Toivo. Main challenge: **Stoa, "Make Blueprints Tal
 
 **Not entered** (decided Sat 14.11): Codex (used only for one independent audit, too light to compete), Nemotron and Gemini (baselines in our comparison, not part of the product), Gemma (a PaliGemma 2 fine-tune was tried and not shipped), Modal, MariaDB, Aiven, Cloudinary and the other tech challenges (not used).
 
-## Tools and services
+## Tools and services (current; open to additions)
 
 | Tool | Used for | In the product? |
 |---|---|---|
