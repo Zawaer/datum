@@ -35,11 +35,25 @@ let askSeq = 0, animating = false;
 // ------------------------------------------------------------ pan / zoom (mouse, wheel, touch pinch)
 let view = {s: 1, x: 0, y: 0};
 const stage = $('#stage'), viewer = $('#viewer'), img = $('#img'), ov = $('#ov');
-function apply() { stage.style.transform = `translate(${view.x}px,${view.y}px) scale(${view.s})`; ov.style.setProperty('--u', (1 / view.s) + 'px'); }
+function apply() {
+  stage.style.transform = `translate(${view.x}px,${view.y}px) scale(${view.s})`; ov.style.setProperty('--u', (1 / view.s) + 'px');
+  if (pin2d != null) pinFollow();
+}
+// phone "quick ask" (<= 600 px): the answer sheet and the ask bar float over the bottom of the drawing and the tour
+// caption over its top, so fitting and zooming aim at the part of the drawing that is still in view
+const QA = matchMedia('(max-width: 600px)');
+let pin2d = null;  // the evidence item whose card is open beside its pin on the 2D drawing (phone)
+function insets() {
+  if (!QA.matches) return {t: 0, b: 20};
+  const vr = viewer.getBoundingClientRect(), sr = $('#side').getBoundingClientRect(), c = $('#caption');
+  const ct = c.hidden ? 0 : c.getBoundingClientRect().bottom - vr.top;
+  return {t: Math.max(8, ct + 8), b: Math.max(0, vr.bottom - sr.top) + 8};
+}
 function fit() {
   const W = viewer.clientWidth, H = viewer.clientHeight, w = img.naturalWidth, h = img.naturalHeight;
   if (!w) return;
-  view.s = Math.min(W / w, (H - 24) / h) * 0.97; view.x = (W - w * view.s) / 2; view.y = (H - 20 - h * view.s) / 2; apply();
+  const {t, b} = insets(), Hv = H - t - b;
+  view.s = Math.min(W / w, (Hv - 4) / h) * 0.97; view.x = (W - w * view.s) / 2; view.y = t + (Hv - h * view.s) / 2; apply();
   rescaleLabels();
 }
 function zoomAt(mx, my, k) {
@@ -92,7 +106,8 @@ function endPtr(e) {
 }
 window.addEventListener('pointerup', endPtr); window.addEventListener('pointercancel', endPtr);
 img.addEventListener('load', () => { fit(); if (pendingDraw) { const a = pendingDraw; pendingDraw = null; a(); } });
-window.addEventListener('resize', () => { if (mode === '2d') fit(); });
+// on a phone the keyboard and the browser bars resize the window: keep the evidence in view rather than refit
+window.addEventListener('resize', () => { if (mode !== '2d') return; if (QA.matches && res && items.length) zoomToEvidence(pin2d != null ? [items[pin2d]] : null, 3, true); else fit(); });
 $('#zin').onclick = () => zoomAt(viewer.clientWidth / 2, viewer.clientHeight / 2, 1.4);
 $('#zout').onclick = () => zoomAt(viewer.clientWidth / 2, viewer.clientHeight / 2, 1 / 1.4);
 $('#zfit').onclick = fit;
@@ -105,6 +120,7 @@ function setAdding(on) {
 }
 $('#addbtn').onclick = () => setAdding(!adding);
 viewer.addEventListener('click', e => {
+  if (QA.matches && !adding && pin2d != null && !moved && !e.target.closest('button, .caption, .tip3d')) pickTip(null);  // a tap beside the pins closes the card
   if (!adding || !res || moved || longPress() || mode === '3d' || e.target.closest('button, .caption')) return;
   addAt(e.clientX, e.clientY);
 });
@@ -198,20 +214,51 @@ const tip3d = document.createElement('div'); tip3d.className = 'tip3d'; tip3d.hi
 viewer.appendChild(tip3d);
 for (const t of ['pointerdown', 'pointerup', 'wheel', 'click']) tip3d.addEventListener(t, e => e.stopPropagation());
 function pickTip(i, pt) {
-  if (i == null || !items[i] || mode !== '3d') { tip3d.hidden = true; return; }
+  const on2d = mode === '2d' && QA.matches && i != null && items[i] && items[i].kind !== 'ifc';
+  pin2d = on2d ? i : null;
+  if (i == null || !items[i] || (mode !== '3d' && !on2d)) { tip3d.hidden = true; return; }
   const e = items[i], k = items.slice(0, i + 1).filter(numbered).length;
   const name = (e.label || 'item').replace(/ \d+$/, '').replace(/^Ifc[A-Za-z]+ /, '');
   tip3d.title = e.label || '';
-  tip3d.innerHTML = `<span class="tn">${numbered(e) ? `#${k} ` : ''}<b></b></span><span class="ts">${e.on ? 'counted' : 'dropped'}</span>
+  const val = e.value != null && res && res.type !== 'count' ? `${fmt(e.value, res.type)} ${unitOf(res.type)}` : '';
+  const score = modelRead(e) && e.score != null ? ` · found by a model, ${Math.round(100 * e.score)} %` : modelRead(e) ? ' · found by a model' : '';
+  tip3d.innerHTML = `<span class="tn">${numbered(e) ? `#${k} ` : ''}<b></b></span><span class="ts">${val ? `<b class="tv">${val}</b> · ` : ''}${e.on ? (res && res.type === 'count' ? 'counted' : 'included') : 'dropped'}${score}</span>
     <button type="button" class="tb">${e.on ? 'Drop from answer' : 'Put back'}</button><button type="button" class="tx" aria-label="Close">✕</button>`;
   tip3d.querySelector('b').textContent = name;
-  tip3d.querySelector('.tb').onclick = () => { e.on = !e.on; redraw(); flashRow(i); const p = V3.screenPos(e.guids); pickTip(i, p); };
-  tip3d.querySelector('.tx').onclick = () => { sel3d = null; V3.select(null); pickTip(null); };
+  tip3d.querySelector('.tb').onclick = () => {
+    e.on = !e.on; redraw(); flashRow(i);
+    if (on2d) pickTip(i); else pickTip(i, V3.screenPos(e.guids));
+  };
+  tip3d.querySelector('.tx').onclick = () => { sel3d = null; if (window.V3) V3.select(null); pickTip(null); };
+  tip3d.classList.toggle('pin', on2d);
   tip3d.hidden = false;
+  if (on2d) { pinFollow(); return; }
   const vr = viewer.getBoundingClientRect(), w = tip3d.offsetWidth, h = tip3d.offsetHeight;
   const p = pt || {x: vr.left + vr.width / 2, y: vr.top + vr.height / 2};
+  if (QA.matches) { placeCard(p.x - vr.left, p.y - vr.top, 14); return; }
   tip3d.style.left = Math.max(8, Math.min(vr.width - w - 8, p.x - vr.left + 12)) + 'px';
   tip3d.style.top = Math.max(56, Math.min(vr.height - h - 30, p.y - vr.top - h - 12)) + 'px';
+}
+// phone: the card sits next to its pin (above it, or below when there is no room), inside the part of the drawing in view
+function placeCard(x, y, gap) {
+  const vr = viewer.getBoundingClientRect(), w = tip3d.offsetWidth, h = tip3d.offsetHeight, {t, b} = insets();
+  const lo = t, hi = vr.height - b - h;
+  let top = y - h - gap;
+  if (top < lo) top = y + gap;
+  tip3d.style.left = Math.max(8, Math.min(vr.width - w - 8, x - w / 2)) + 'px';
+  tip3d.style.top = Math.max(lo, Math.min(hi, top)) + 'px';
+}
+function pinFollow() {  // keep the 2D card beside its pin through pans and zooms
+  const e = items[pin2d]; if (!e || tip3d.hidden || mode !== '2d' || !img.naturalWidth) return;
+  const W = img.naturalWidth, H = img.naturalHeight, p = lay.get(pin2d);
+  let x, y;
+  if (p && numbered(e)) { x = p.x; y = p.y; }
+  else {
+    const pts = e.points || [[e.bbox[0], e.bbox[1]], [e.bbox[2], e.bbox[3]]];
+    const xs = pts.map(q => q[0]), ys = pts.map(q => q[1]);
+    x = (Math.min(...xs) + Math.max(...xs)) / 2 * W; y = (Math.min(...ys) + Math.max(...ys)) / 2 * H;
+  }
+  placeCard(view.x + x * view.s, view.y + y * view.s, numbered(e) ? labelSize() * view.s + 8 : 16);
 }
 window.onPress3d = () => { tip3d.hidden = true; };
 window.onPick3d = (g, pt) => {
@@ -291,7 +338,7 @@ let searchT; $('#search').oninput = e => { clearTimeout(searchT); searchT = setT
 
 // ------------------------------------------------------------ popovers: the drawing picker, the ⋯ view menu, the keyboard help
 // one open at a time; Esc, a click outside or picking something closes it and focus goes back to its button
-const POPS = {list: '#drawerbtn', vmenu: '#vmbtn', keys: '#keysbtn'};
+const POPS = {list: '#drawerbtn', vmenu: '#vmbtn', keys: '#keysbtn', pmenu: '#pmbtn'};
 let popOpen = null;
 function openPop(id) {
   if (popOpen && popOpen !== id) closePop(false);
@@ -312,6 +359,8 @@ function closePicker() { if (popOpen === 'list') closePop(false); }
 window.bpOpenPicker = t => { if (t && SRC[t]) tab = t; openPop('list'); };
 $('#drawerbtn').onclick = () => popOpen === 'list' ? closePop() : openPop('list');
 $('#keysbtn').onclick = () => popOpen === 'keys' ? closePop() : openPop('keys');
+$('#pmbtn').onclick = () => popOpen === 'pmenu' ? closePop() : openPop('pmenu');
+$('#pmtour').onclick = () => { closePop(false); startTour(false); };
 $('#vmbtn').onclick = () => { if (popOpen === 'vmenu') closePop(); else { viewMenu(); openPop('vmenu'); } };
 document.addEventListener('pointerdown', e => {
   if (!popOpen) return;
@@ -328,7 +377,7 @@ function setPickerLabel(d) {
 
 let pendingDraw = null;
 async function select(d, how = 'push') {
-  cur = {...d}; res = null; items = []; marks = []; ov.innerHTML = ''; setAdding(false); askSeq++; setHeat(false); closeSheet();
+  cur = {...d}; res = null; items = []; marks = []; ov.innerHTML = ''; setAdding(false); pickTip(null); stepI = -1; sheetFull(false); askSeq++; setHeat(false); closeSheet();
   $('#answer').hidden = true; $('#evwrap').hidden = true; hint(''); $('#empty').hidden = true; setAnswered(false); setPickerLabel(d); viewTools();
   syncURL(how);
   document.querySelectorAll('.item').forEach(e => e.classList.toggle('on', e.dataset.path === d.path));
@@ -452,6 +501,7 @@ async function ask() {
   const question = $('#q').value.trim(); if (!question || !cur) return;
   const seq = ++askSeq;
   setAdding(false); if (heat.on) setHeat(false);
+  pickTip(null); stepI = -1; sheetFull(false);
   const a = $('#answer'); a.hidden = false; a.classList.remove('pop'); setAnswered(true); $('#atail').innerHTML = '';
   if (PHONE.matches) $('#q').blur();  // drop the phone keyboard so the answer is visible
   const steps = THINK[cur.source || cur.split] || THINK[cur.path.startsWith('uploads/') ? 'upload' : ''] || ['reading the drawing'];
@@ -527,7 +577,7 @@ function setupEvidence() {
   }
 }
 
-function zoomToEvidence(only, maxK = 3) {  // cap: keep enough of the plan around one or two small items for context
+function zoomToEvidence(only, maxK = 3, instant = false) {  // cap: keep enough of the plan around one or two small items for context
   const all = (only || [...items, ...marks]).filter(e => e.kind !== 'ifc' && (e.points || e.bbox));
   if (!all.length || !img.naturalWidth) { fit(); return; }
   let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
@@ -535,11 +585,12 @@ function zoomToEvidence(only, maxK = 3) {  // cap: keep enough of the plan aroun
     const pts = e.points || [[e.bbox[0], e.bbox[1]], [e.bbox[2], e.bbox[3]]];
     for (const [x, y] of pts) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
   }
-  const W = viewer.clientWidth, H = viewer.clientHeight - 20, w = img.naturalWidth, h = img.naturalHeight;
+  const {t, b} = insets(), W = viewer.clientWidth, H = viewer.clientHeight - t - b, w = img.naturalWidth, h = img.naturalHeight;
   const pad = only ? 0.12 : 0.04; x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(1, x1 + pad); y1 = Math.min(1, y1 + pad);
   const fitS = Math.min(W / w, H / h) * 0.97;
   const s = Math.min(W / ((x1 - x0) * w), H / ((y1 - y0) * h));
-  view.s = Math.max(fitS, Math.min(s, fitS * maxK)); view.x = W / 2 - (x0 + x1) / 2 * w * view.s; view.y = H / 2 - (y0 + y1) / 2 * h * view.s;
+  view.s = Math.max(fitS, Math.min(s, fitS * maxK)); view.x = W / 2 - (x0 + x1) / 2 * w * view.s; view.y = t + H / 2 - (y0 + y1) / 2 * h * view.s;
+  if (instant || RMOTION.matches) { stage.style.transition = ''; apply(); rescaleLabels(); return; }
   stage.style.transition = 'transform .6s cubic-bezier(.2,.8,.2,1)'; apply(); setTimeout(() => stage.style.transition = '', 620);
 }
 
@@ -919,7 +970,7 @@ function downloadCSV(rows, filename) {  // UTF-8 with a BOM, so Excel opens the 
 const PHONE = matchMedia('(max-width: 860px)');
 const pgLabelY = (cy, by, fs) => Math.max(cy + fs * 2.4, by - fs * 0.9);
 const pgBadgeY = (cy, ty, fs) => Math.max(ty + fs * 1.1, cy - fs * 2.4);
-function labelSize() { return (PHONE.matches ? 11 : 14) / view.s; }
+function labelSize() { return (QA.matches ? 13 : PHONE.matches ? 11 : 14) / view.s; }
 // where the drawing's own printed text sits (PDF words, normalised boxes): numbers and m² labels keep off it
 let words = {key: '', boxes: []};
 function loadWords(file, page) {
@@ -1000,6 +1051,8 @@ function placeLabels(g, p, fs) {
     if (bg.tagName === 'circle') { bg.setAttribute('cx', p.x); bg.setAttribute('cy', p.y); bg.setAttribute('r', fs * 0.78); }
     else { const h = fs * 0.72; bg.setAttribute('x', p.x - h); bg.setAttribute('y', p.y - h); bg.setAttribute('width', 2 * h); bg.setAttribute('height', 2 * h); bg.setAttribute('rx', h * 0.15); }
   }
+  const hit = g.querySelector('circle.hit');  // phone: a tap target of at least 40 px around the number
+  if (hit) { hit.setAttribute('cx', p.x); hit.setAttribute('cy', p.y); hit.setAttribute('r', Math.max(fs * 0.78, 20 / view.s)); }
   if (t) { t.setAttribute('x', p.x); t.setAttribute('y', p.y); t.style.fontSize = (t.textContent.length > 2 ? fs * 0.62 : fs * 0.82) + 'px'; }
   if (pl) { pl.setAttribute('x', p.x); pl.setAttribute('y', p.y); pl.style.fontSize = fs + 'px'; }
   if (ln) {
@@ -1095,7 +1148,11 @@ function shapeFor(e, i, W, H) {
   shape.appendChild(tip);
   g.appendChild(shape);  // the shape stays the group's first rect / polygon: hover and flash look it up that way
   if (i >= 0) {
-    shape.addEventListener('click', ev => { if (adding) return; ev.stopPropagation(); if (moved || longPress() || performance.now() - xrSkipT < 500) return; e.on = !e.on; redraw(); flashRow(i); });
+    shape.addEventListener('click', ev => {
+      if (adding) return; ev.stopPropagation(); if (moved || longPress() || performance.now() - xrSkipT < 500) return;
+      if (QA.matches) { selectPin(i); return; }  // phone: a tap opens the item's card beside it; dropping is a button there
+      e.on = !e.on; redraw(); flashRow(i);
+    });
     shape.addEventListener('mouseenter', () => rowHot(i, true, true));
     shape.addEventListener('mouseleave', () => rowHot(i, false));
   } else if (e.guids) {
@@ -1115,6 +1172,10 @@ function shapeFor(e, i, W, H) {
     t.setAttribute('text-anchor', 'middle');
     t.setAttribute('dominant-baseline', 'central'); t.setAttribute('class', 'badge' + (e.on ? '' : ' off'));
     t.textContent = n; g.appendChild(t);
+    if (QA.matches) {
+      const hit = document.createElementNS(NS, 'circle'); hit.setAttribute('class', 'hit'); g.appendChild(hit);
+      hit.addEventListener('click', ev => { ev.stopPropagation(); if (adding || moved || longPress() || performance.now() - xrSkipT < 500) return; selectPin(i); });
+    }
   } else if (p) {
     const t = document.createElementNS(NS, 'text');
     t.setAttribute('text-anchor', 'middle'); t.setAttribute('class', 'pglabel');
@@ -1129,6 +1190,7 @@ function numbered(e) { return e.kind === 'box' || (e.kind === 'polygon' && res &
 
 // ------------------------------------------------------------ evidence list
 function renderEvidence() {
+  renderStepper();
   $('#evwrap').hidden = !items.length;
   if (!items.length) return;
   const ev = $('#ev'); ev.innerHTML = '';
@@ -1204,6 +1266,81 @@ function rowHot(i, on, scroll) {
   const s = ov.querySelector(`g[data-i="${i}"] rect, g[data-i="${i}"] polygon`); if (s) s.classList.toggle('hot', on);
 }
 function flashRow(i) { rowHot(i, true, true); setTimeout(() => rowHot(i, false), 700); }
+
+// ------------------------------------------------------------ phone "quick ask" (<= 600 px wide)
+// The drawing fills the screen; the ask bar (with example chips before the first answer) is pinned to the bottom and
+// the answer is a bottom sheet over the drawing. The sheet peeks (number, trust line, second opinion, a "1 / N" stepper
+// through the evidence); a tap or drag on its grip opens the folded sections. A tap on a pin opens a small card beside
+// it (what it is, its value, drop / put back), as the stepper does. Desktop is untouched: all of it is CSS-gated or QA-gated.
+const grip = document.createElement('button');
+grip.type = 'button'; grip.className = 'grip'; grip.setAttribute('aria-expanded', 'false'); grip.setAttribute('aria-label', 'Show details');
+$('#answer').prepend(grip);
+function sheetFull(on) {
+  document.body.classList.toggle('sheetfull', !!on);
+  grip.setAttribute('aria-expanded', String(!!on)); grip.setAttribute('aria-label', on ? 'Show less' : 'Show details');
+  if (!on) $('#answer').scrollTop = 0;
+  const d = $('#stepper .sd'); if (d) { d.setAttribute('aria-expanded', String(!!on)); d.textContent = on ? 'Less' : 'Details'; }
+}
+let sheetDrag = null;
+$('#answer').addEventListener('pointerdown', e => {  // drag the grip (or, while it peeks, the head) up to open, down to close
+  if (!QA.matches || !(e.target.closest('.grip') || (!document.body.classList.contains('sheetfull') && e.target.closest('#ahead') && !e.target.closest('button, a')))) return;
+  sheetDrag = {y: e.clientY, id: e.pointerId, moved: false};
+});
+window.addEventListener('pointermove', e => {
+  if (!sheetDrag || e.pointerId !== sheetDrag.id) return;
+  const dy = e.clientY - sheetDrag.y, full = document.body.classList.contains('sheetfull');
+  if (Math.abs(dy) > 8) sheetDrag.moved = true;
+  if (dy < -36 && !full) { sheetFull(true); sheetDrag.y = e.clientY; }
+  else if (dy > 36 && full) { sheetFull(false); sheetDrag.y = e.clientY; }
+});
+window.addEventListener('pointerup', () => { if (sheetDrag) setTimeout(() => { sheetDrag = null; }, 0); });  // after the click below
+grip.onclick = () => { if (!(sheetDrag && sheetDrag.moved)) sheetFull(!document.body.classList.contains('sheetfull')); };
+
+// the evidence stepper: "‹ 3 / 20 · Door ›" zooms to each item in turn and opens its card; the middle shows them all again
+let stepI = -1;
+const stepper = document.createElement('div'); stepper.className = 'stepper'; stepper.id = 'stepper';
+$('#evwrap').before(stepper);
+const itemName = e => e.kind === 'box' ? (e.label || 'item').replace(/ \d+$/, '').replace(/^Ifc[A-Za-z]+ /, '') : (e.label || (e.kind === 'polygon' ? 'region' : 'item'));
+function renderStepper() {
+  if (!res) { stepper.innerHTML = ''; return; }
+  const n = items.length, e = items[stepI], full = document.body.classList.contains('sheetfull');
+  const val = e && e.value != null && res.type !== 'count' ? ` · ${fmt(e.value, res.type)} ${unitOf(res.type)}` : '';
+  const mid = !n ? '' : stepI < 0 ? `<span class="sk">Evidence</span> ${n} item${n === 1 ? '' : 's'}`
+    : `<b>${stepI + 1} / ${n}</b> <span class="sl${e.on ? '' : ' off'}">${esc(itemName(e))}${val}</span>`;
+  stepper.innerHTML = (n ? `<button type="button" class="sp" aria-label="Previous item"${stepI <= 0 ? ' disabled' : ''}>‹</button>
+      <button type="button" class="st" title="${stepI < 0 ? 'Walk through the evidence on the drawing' : 'Show all of it'}">${mid}</button>
+      <button type="button" class="sn" aria-label="Next item"${stepI >= n - 1 ? ' disabled' : ''}>›</button>` : '<span class="grow"></span>')
+    + `<button type="button" class="sd" aria-expanded="${full}">${full ? 'Less' : 'Details'}</button>`;
+  const q = c => stepper.querySelector(c);
+  if (n) {
+    q('.sp').onclick = () => stepTo(stepI - 1); q('.sn').onclick = () => stepTo(stepI + 1);
+    q('.st').onclick = () => { if (stepI < 0) stepTo(0); else { stepI = -1; pickTip(null); renderStepper(); if (mode === '2d') zoomToEvidence(); } };
+  }
+  q('.sd').onclick = () => sheetFull(!document.body.classList.contains('sheetfull'));
+}
+function stepTo(i) {
+  if (!items.length) return;
+  i = Math.max(0, Math.min(items.length - 1, i)); stepI = i;
+  sheetFull(false); focusItem(i); renderStepper();
+  if (mode === '2d') pickTip(i);
+}
+function selectPin(i) { stepI = i; renderStepper(); flashRow(i); pickTip(i); }
+
+// the drawing picker moves into the top bar; the page links fold into a ⋯ menu
+function placePicker() {
+  const b = $('#drawerbtn');
+  if (QA.matches) { if (b.parentElement !== $('header')) $('.brand').after(b); }
+  else if (b.parentElement !== viewer) viewer.insertBefore(b, $('#vtools'));
+}
+placePicker();
+// how much of the drawing the bottom dock covers: the zoom button, the X-ray counter and the credit sit just above it
+function dockInset() {
+  const v = QA.matches ? Math.max(0, viewer.getBoundingClientRect().bottom - $('#side').getBoundingClientRect().top) : 0;
+  document.body.style.setProperty('--insetb', v + 'px');
+  if (pin2d != null) pinFollow();
+}
+if (window.ResizeObserver) new ResizeObserver(dockInset).observe($('#side'));
+QA.addEventListener('change', () => { placePicker(); sheetFull(false); pickTip(null); dockInset(); if (mode === '2d') { if (res && items.length) zoomToEvidence(null, 3, true); else fit(); } if (res) draw(false); });
 
 function recompute() {
   if (!res || typeof res.answer !== 'number') return;
@@ -1741,7 +1878,9 @@ async function openSec(name, keepView = false) {
   if (name !== 'ev') secOpen[name] = true;
   d.open = true;
   await sleep(50);
-  if (PHONE.matches) { if (!keepView) d.scrollIntoView({behavior: smooth(), block: 'start'}); }
+  if (QA.matches) {  // the sheet opens to show it, unless the drawing is the point of the step
+    if (!keepView) { sheetFull(true); await sleep(50); const a = $('#answer'); a.scrollTo({top: Math.max(0, d.offsetTop - 8), behavior: smooth()}); }
+  } else if (PHONE.matches) { if (!keepView) d.scrollIntoView({behavior: smooth(), block: 'start'}); }
   else {
     const side = $('#side'), top = el => el.getBoundingClientRect().top - side.getBoundingClientRect().top + side.scrollTop;
     const card = top($('#answer')) - 12, want = top(d) + d.offsetHeight - side.clientHeight + 16;
@@ -1754,6 +1893,12 @@ async function doAction(act) {
   if (k === 'wait') await sleep(+arg);
   else if (k === 'toggle') {
     const i = +arg, r0 = res; if (!items[i]) return;
+    if (QA.matches) {  // phone: the card beside the pin does it, the drawing stays in view
+      stepTo(i); await sleep(1300);
+      if (res !== r0 || !items[i]) return;
+      items[i].on = !items[i].on; redraw(); pickTip(i); await sleep(1400);
+      return;
+    }
     await openSec('ev');  // the evidence list is folded: open it so the change is seen
     const row = $(`#ev div[data-i="${i}"]`); if (row && PHONE.matches) { row.scrollIntoView({behavior: smooth(), block: 'center'}); await sleep(600); }
     if (res !== r0 || !items[i]) return;
@@ -1769,6 +1914,7 @@ async function doAction(act) {
   else if (k === 'trace') { if (arg === 'close') { secOpen.how = false; const d = $('#answer details[data-sec="how"]'); if (d) d.open = false; } else await openSec('how', mode === '3d'); }
   else if (k === 'scroll') await openSec(arg === '.vs' ? 'vs' : arg.replace(/^\./, ''));
   else if (k === 'open') await openSec(arg);
+  else if (k === 'hover' && QA.matches) { const i = +arg; if (!items[i]) return; if (mode === '2d') selectPin(i); else focusItem(i); await sleep(1400); }
   else if (k === 'hover') { const i = +arg; if (!items[i]) return; hotItem(i, true); rowHot(i, true, true); await sleep(1400); hotItem(i, false); rowHot(i, false); }
 }
 function endTour() { tour = null; $('#caption').hidden = true; document.body.classList.remove('touring'); capFit(); }

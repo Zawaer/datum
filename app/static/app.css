@@ -37,15 +37,11 @@ a { color: var(--ev-ink); }
 code { font-family: var(--mono); font-size: .92em; }
 kbd { font: 500 11px var(--mono); background: var(--panel2); border: 1px solid var(--line2); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; color: var(--text); }
 
-/* ------------------------------------------------------------ header: name, one claim, three links */
+/* ------------------------------------------------------------ header: name and three links (the track record lives on /results and in each answer's trust line) */
 header { position: relative; z-index: 20; display: flex; align-items: center; gap: 20px; height: 56px; flex: none; padding: 0 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
 .brand { font-size: 15px; font-weight: 600; color: var(--ink); text-decoration: none; white-space: nowrap; display: flex; align-items: center; gap: 10px; letter-spacing: -.01em; }
 .brand em { font-style: normal; font-weight: 400; color: var(--mut); margin-left: -5px; }
 .logo { display: inline-flex; color: var(--ink); }
-.claim { font-size: 13px; color: var(--mut); text-decoration: none; white-space: nowrap; padding: 4px 12px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); }
-.claim b { color: var(--ev-ink); font-weight: 600; }
-.claim .dot { margin: 0 7px; color: var(--faint); }
-.claim:hover { color: var(--text); border-color: var(--line2); }
 .links { margin-left: auto; display: flex; align-items: center; gap: 2px; }
 .linkbtn { background: none; border: 0; color: var(--mut); border-radius: var(--r1); padding: 6px 10px; cursor: pointer; text-decoration: none; font-size: 13px; font-weight: 500; white-space: nowrap; }
 .linkbtn:hover { color: var(--text); background: var(--panel2); }
@@ -188,6 +184,10 @@ h3 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing
 .moreqs .chips { max-height: 260px; overflow: auto; padding: 2px 2px 4px; }
 .moreqs .chip { font-size: 12px; padding: 6px 10px; }
 #upnote { font-size: 12px; color: var(--mut); line-height: 1.45; }
+/* one quiet line under the examples on the landing panel */
+.tested { font-size: 12px; color: var(--mut); text-decoration: none; margin-top: 6px; align-self: flex-start; }
+.tested:hover { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+#side.answered .tested { display: none; }
 
 /* ------------------------------------------------------------ the answer: question, big number, one trust line; the rest folds */
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r3); padding: 20px 20px 0; box-shadow: 0 1px 2px rgba(16,24,40,.04); }
@@ -422,7 +422,6 @@ svg .ping.model { stroke: var(--chk); }
 
 /* ------------------------------------------------------------ narrower screens and phones */
 @media (max-width: 1100px) { main { grid-template-columns: minmax(0, 1fr) 360px; } }
-@media (max-width: 1040px) { .claim { display: none; } }
 @media (max-width: 860px) {
   .only-phone { display: inline-block; } .only-desk { display: none; }
   header { height: 52px; gap: 8px; padding: 0 6px 0 12px; }
@@ -583,3 +582,121 @@ svg .ping.model { stroke: var(--chk); }
 /* inside the folded "Frontier models" section the summary already names it: keep only the dataset-answer key */
 .sec .ghostcmp .gh { justify-content: flex-end; }
 .sec .ghostcmp .gh > span:first-child { display: none; }
+
+/* ------------------------------------------------------------ phone "quick ask" (<= 600 px): drawing first, ask bar at the
+   bottom, the answer as a bottom sheet over the drawing, evidence as pins with a card beside them. Wider screens are unchanged. */
+.pmbtn, .grip, .stepper { display: none; }
+.pmenu { right: 8px; top: calc(52px + env(safe-area-inset-top)); min-width: 250px; padding: 6px; display: grid; gap: 2px; }
+.pmenu > * { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-height: 48px; justify-content: center; padding: 8px 12px; border: 0; background: none;
+  border-radius: var(--r1); font-size: 16px; color: var(--text); text-decoration: none; text-align: left; cursor: pointer; }
+.pmenu > *:hover { background: var(--panel2); }
+.pmenu small { color: var(--mut); font-size: 12px; }
+.pmenu #pmtour { color: var(--ev-ink); font-weight: 600; }
+@media (max-width: 600px) {
+  html, body { overflow: hidden; overscroll-behavior: none; }
+  body { font-size: 15px; }
+  header { height: calc(52px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 2px 0 10px; gap: 6px; }
+  .brand { font-size: 0; gap: 0; flex: none; }  /* the logo only: the drawing's name takes the room */
+  .logo svg { width: 28px; height: 28px; }
+  .links > :not(.pmbtn) { display: none; }
+  .pmbtn { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; color: var(--text); }
+  header .picker { position: static; flex: 1; min-width: 0; max-width: none; height: 40px; box-shadow: none; padding: 0 10px 0 12px; font-size: 15px; justify-content: space-between; }
+  main { display: block; overflow: hidden; }
+  #viewer, body.touring #viewer { position: absolute; inset: 0; height: auto; min-height: 0; border-bottom: 0; }
+  .vtools { top: 10px; right: 10px; }
+  .modes button { height: 34px; }
+  .vmbtn { width: 40px; height: 40px; }
+  .hlegend { top: 10px; }
+  .hint { top: 10px; }
+  .zoom { right: 10px; bottom: calc(var(--insetb, 0px) + 22px); }
+  .zoom #zin, .zoom #zout { display: none; }  /* pinch to zoom; one button brings the whole drawing back */
+  .zoom button { width: 44px; height: 44px; font-size: 18px; }
+  .credit { bottom: var(--insetb, 0px); padding: 2px 10px; }
+  .xhud { top: auto; left: 10px; bottom: calc(var(--insetb, 0px) + 24px); }
+
+  /* the bottom dock: answer sheet, example chips, voice strip, ask bar */
+  #side, #side:not(.answered) { position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; padding: 0; gap: 0; border: 0; background: none; overflow: visible;
+    display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "answer answer" "cta qs" "up up" "voice voice" "ask ask"; pointer-events: none; }
+  body.touring #side { padding-bottom: 0; }
+  #side > * { pointer-events: auto; }
+  #intro, #or, .tested, .nophone { display: none; }
+  #side.answered #qs { display: none; }
+  #ctatour { grid-area: cta; align-self: end; height: 40px; margin: 0 0 10px 10px; padding: 0 14px; font-size: 14px; border-radius: 999px; box-shadow: var(--pop); }
+  #qs { grid-area: qs; display: block; min-width: 0; padding-bottom: 10px; }
+  #moreqs { display: none; }
+  #chips3 { flex-direction: row; overflow-x: auto; gap: 8px; padding: 0 10px 0 8px; scrollbar-width: none; }
+  #chips3::-webkit-scrollbar { display: none; }
+  #chips3 .chip { flex: none; width: auto; max-width: 80vw; height: 40px; padding: 0 14px; border-radius: 999px; font-size: 14px; box-shadow: var(--pop); border-color: var(--line2);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; line-height: 38px; }
+  #chips3 .chip::after { content: none; }
+  #upnote { grid-area: up; background: var(--panel); padding: 8px 16px; border-top: 1px solid var(--line); }
+  #upnote[hidden] { display: none; }
+  .voice { grid-area: voice; margin: 0; border-radius: 0; border: 0; border-top: 1px solid var(--line); border-left: 3px solid var(--ink); padding: 8px 14px; }
+  .ask { grid-area: ask; margin: 0; gap: 4px; border: 0; border-top: 1px solid var(--line); border-radius: 0; box-shadow: none; background: var(--panel);
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom)) 16px; }
+  .ask:focus-within { box-shadow: none; border-color: var(--line); }
+  .ask input { font-size: 17px; padding: 10px 0; }
+  .ask .mic, .ask #go { width: 44px; height: 44px; }
+
+  /* the answer sheet: peeks by default (question, number, trust line, stepper); the grip or "Details" opens the rest */
+  #answer, .card { grid-area: answer; position: relative; margin: 0; padding: 0 16px; border: 0; border-top: 1px solid var(--line); border-radius: 16px 16px 0 0;
+    box-shadow: 0 -8px 28px rgba(16,24,40,.14); overflow: hidden; }
+  body:not(.sheetfull) #answer #evwrap, body:not(.sheetfull) #answer #atail { display: none !important; }
+  body.sheetfull #answer { max-height: calc(100svh - 52px - env(safe-area-inset-top) - 140px); overflow: auto; overscroll-behavior: contain; }
+  .grip { display: block; position: sticky; top: 0; z-index: 2; width: calc(100% + 32px); height: 20px; margin: 0 -16px; border: 0; background: var(--panel); cursor: grab; touch-action: none; }
+  .grip::before { content: ''; display: block; width: 40px; height: 5px; border-radius: 3px; background: var(--line2); margin: 7px auto 0; }
+  /* while it peeks, the question is the one in the ask bar: the sheet starts with the number, its tools to the right */
+  body:not(.sheetfull) #answer .qecho { display: none; }
+  body:not(.sheetfull) #answer .qrow { position: absolute; top: 24px; right: 10px; z-index: 1; }
+  #ahead { padding-bottom: 10px; touch-action: none; }
+  body:not(.sheetfull) #ahead .big.abstain, body:not(.sheetfull) #ahead .big.limit, body:not(.sheetfull) #ahead .textans { margin-right: 84px; }
+  body.sheetfull #ahead { touch-action: auto; }
+  .qecho { font-size: 14px; -webkit-line-clamp: 1; }
+  .qtools button { width: 40px; height: 40px; }
+  .big { font-size: 42px; margin: 4px 0 8px; }
+  .big small { font-size: 20px; }
+  .trust { font-size: 14px; }
+  .second { font-size: 14px; }
+  .stepper { display: flex; align-items: center; gap: 4px; margin: 0 -16px; padding: 4px 8px; border-top: 1px solid var(--line); background: var(--panel); }
+  body.sheetfull .stepper { position: sticky; top: 20px; z-index: 2; }
+  .stepper .grow { flex: 1; }
+  .stepper button { height: 44px; border: 0; background: none; color: var(--text); cursor: pointer; border-radius: var(--r1); font-size: 15px; }
+  .stepper .sp, .stepper .sn { width: 44px; flex: none; font-size: 26px; line-height: 1; color: var(--ev-ink); }
+  .stepper .sp:disabled, .stepper .sn:disabled { color: var(--line2); cursor: default; }
+  .stepper .st { flex: 1; min-width: 0; text-align: left; padding: 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--mut); }
+  .stepper .st b { color: var(--ev-ink); font-weight: 600; margin-right: 4px; }
+  .stepper .st .sk { color: var(--ev-ink); font-weight: 600; margin-right: 2px; }
+  .stepper .st .sl { color: var(--text); }
+  .stepper .st .sl.off { color: var(--faint); text-decoration: line-through; }
+  .stepper .sd { flex: none; padding: 0 12px; border: 1px solid var(--line2); height: 36px; font-size: 14px; font-weight: 500; }
+  .stepper .sd::after { content: ''; display: inline-block; width: 6px; height: 6px; margin: 0 0 2px 8px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-135deg); vertical-align: middle; }
+  .stepper .sd[aria-expanded="true"]::after { transform: rotate(45deg); margin-bottom: 4px; }
+  .sec { margin: 0 -16px; padding: 0 16px; }
+  .sec > summary { min-height: 48px; font-size: 15px; }
+  .afoot { margin: 0 -16px; padding: 10px 16px calc(10px + 0px); border-radius: 0; }
+  .afoot .act { min-height: 36px; }
+  .ev div { min-height: 44px; }
+  .ev .tg { width: 24px; height: 24px; }
+  #evwrap .ev { max-height: none; }
+
+  /* evidence on the drawing: rooms filled more strongly, numbers bigger, a 40 px tap target around each */
+  svg .pg { fill: rgba(0,114,178,.22); }
+  svg .pg.off { fill: rgba(120,120,120,.08); }
+  body.sheetfull .tip3d.pin { display: none; }
+  svg circle.hit { fill: transparent; stroke: none; pointer-events: all; cursor: pointer; }
+  /* the card beside a pin (2D) or a picked element (3D) */
+  .tip3d { flex-wrap: wrap; gap: 4px 8px; width: max-content; max-width: min(260px, calc(100% - 16px)); padding: 10px 10px 10px 14px; border-radius: var(--r2); box-shadow: var(--pop); font-size: 15px; z-index: 12; }
+  .tip3d .tn { flex: 1 1 100%; white-space: normal; }
+  .tip3d .ts { font-size: 13px; flex: 1; white-space: normal; }
+  .tip3d .ts .tv { color: var(--text); font-weight: 600; }
+  .tip3d .tb { min-height: 40px; padding: 0 12px; font-size: 14px; }
+  .tip3d .tx { position: absolute; top: 2px; right: 2px; width: 40px; height: 40px; font-size: 14px; }
+  .tip3d .tn { padding-right: 32px; }
+
+  /* the tour caption: a compact card over the top of the drawing, so the evidence and the answer stay in view */
+  .caption { position: absolute; top: 8px; bottom: auto; left: 8px; right: 8px; width: auto; transform: none; border-radius: var(--r3); padding: 10px 12px; z-index: 9; }
+  body.touring .vtools, body.touring .hlegend { display: none; }
+  .capnav button { height: 36px; }
+  #texit { width: 36px; }
+}
+@media (max-width: 600px) and (prefers-reduced-motion: reduce) { .grip, .stepper { transition: none; } }
