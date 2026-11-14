@@ -25,7 +25,10 @@ def ask(prompt: str, system: str, model: str = "haiku", tag: str = "", timeout: 
     for attempt in range(retries + 1):
         with tempfile.TemporaryDirectory(prefix="bpllm_") as d:
             try:
-                out = subprocess.run(cmd, cwd=d, capture_output=True, text=True, timeout=timeout)
+                # each prompt is used once, so a prompt-cache write (2x input price) is pure overhead:
+                # measured 5 Haiku calls $0.0247 with caching vs $0.0142 without
+                env = {**os.environ, "DISABLE_PROMPT_CACHING": os.environ.get("DISABLE_PROMPT_CACHING", "1")}
+                out = subprocess.run(cmd, cwd=d, capture_output=True, text=True, timeout=timeout, env=env)
                 res = json.loads(out.stdout)
             except Exception as e:  # noqa: BLE001
                 err = repr(e)[:300]
