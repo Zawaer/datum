@@ -185,7 +185,8 @@ def _variants(image_path: str):
         for sv in sorted({s, min(4.0, s * 4 / 3)}):
             u = np.asarray(g.resize((round(g.width * sv), round(g.height * sv)), Image.LANCZOS))
             ink = (u < 170).astype(np.uint8) * 255
-            L = max(15, round(12 * sv))
+            # longer than ~2 letter heights: ~0.6 % of the sheet (a fixed pixel length ate the letters of hi-res scans)
+            L = max(15, round(0.006 * max(g.size) * sv))
             hl = cv2.morphologyEx(ink, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (L, 1)))
             vl = cv2.morphologyEx(ink, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (1, L)))
             clean = cv2.subtract(ink, cv2.bitwise_or(hl, vl))
@@ -369,7 +370,56 @@ def _calibrate(vis: list[dict], tess: list[dict]) -> list[dict]:
     return vis
 
 
+def _scan_image(path: str, page: int) -> str | None:
+    """A scanned PDF page (one full-page raster, no rotation): the embedded image at its own resolution. Re-rendering
+    it resamples the scan (blurrier letters for OCR); its normalised coordinates are the page's."""
+    try:
+        import pymupdf
+
+        pg = pymupdf.open(path)[page]
+        if pg.rotation:
+            return None
+        imgs = pg.get_images(full=True)
+        if len(imgs) != 1:
+            return None
+        rects = pg.get_image_rects(imgs[0][0])
+        if len(rects) != 1:
+            return None
+        r, pr = rects[0], pg.rect
+        if abs(r.x0 - pr.x0) > 0.01 * pr.width or abs(r.x1 - pr.x1) > 0.01 * pr.width or \
+                abs(r.y0 - pr.y0) > 0.01 * pr.height or abs(r.y1 - pr.y1) > 0.01 * pr.height:
+            return None
+        CACHE.mkdir(parents=True, exist_ok=True)
+        out = CACHE / f"{_sha(path)}_p{page}_scan.png"
+        if not out.exists():
+            pix = pymupdf.Pixmap(pg.parent, imgs[0][0])
+            if pix.n - pix.alpha >= 4:
+                pix = pymupdf.Pixmap(pymupdf.csRGB, pix)
+            if max(pix.width, pix.height) < 1000:
+                return None
+            pix.save(str(out))
+        return str(out)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _small(image: str) -> bool:
+    """A raster under 3000 px on its long side (the contract's low_res)."""
+    try:
+        from PIL import Image
+
+        Image.MAX_IMAGE_PIXELS = None
+        with Image.open(image) as im:
+            return max(im.size) < 3000
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _image_of(path: str, meta: dict) -> str | None:
+    if path.lower().endswith(".pdf"):
+        scan = _scan_image(path, int(meta.get("page", 0) or 0))
+        if scan:
+            return scan
     if meta.get("image"):
         return meta["image"]
     ext = path.rsplit(".", 1)[-1].lower()
@@ -631,8 +681,9 @@ def dedupe_items(items: list[dict]) -> list[dict]:
     for it in order:
         if not re.search(r"[A-Za-z0-9]", it["text"]) or it["bbox"][3] - it["bbox"][1] < 1e-3:
             continue
-        if _src_kind(it["src"]) == "tesseract" and it.get("conf", 100) < 20:
-            continue
+        if _src_kind(it["src"]) == "tesseract" and (it.get("conf", 100) < 20 or (
+                len(re.sub(r"[^A-Za-z0-9]", "", it["text"])) < 4 and it.get("conf", 100) < 60)):
+            continue  # tesseract's noise on hatching / symbols ('XN', 'ka', '<4)')
         if any(_overlap(it["bbox"], k["bbox"]) > 0.5 for k in kept):
             continue
         kept.append(it)
@@ -803,6 +854,7 @@ def notes(items: list[dict]) -> dict | None:
     # paragraphs: a new note starts at a printed number ('4.' / a lone '4') or after a wider line gap
     hs = sorted(ln["bbox"][3] - ln["bbox"][1] for ln in body)
     med_h = hs[len(hs) // 2]
+    x_text = sorted(ln["bbox"][0] for ln in body)[len(body) // 2]  # where note text starts (numbers sit left)
     n_num = sum(bool(re.match(r"\s*\d{1,2}\s*[.)]?(\s|$)", ln["text"])) for ln in body)
     n_gap = 1 + sum(b["bbox"][1] - a["bbox"][3] > 0.6 * med_h for a, b in zip(body, body[1:]))
     by_number = n_num >= 2 and n_num >= 0.8 * n_gap  # every note carries its number: split on numbers only
@@ -811,7 +863,7 @@ def notes(items: list[dict]) -> dict | None:
     last_y1 = None
     for ln in body:
         t = ln["text"].strip()
-        lone = re.fullmatch(r"(\d{1,2})\s*[.)]?", t)
+        lone = re.fullmatch(r"(\d{1,2})\s*[.)]?", t) if ln["bbox"][2] <= x_text + 0.002 else None
         if lone:
             pending_num = int(lone.group(1))
             continue
@@ -901,9 +953,12 @@ def _base(meta) -> dict:
             "explanation": "", "unit": None}
 
 
-def _ev(bbox, label, value=None, page=0, kind="box"):
-    return {"kind": kind, "page": page, "bbox": [round(min(max(v, 0.0), 1.0), 5) for v in bbox], "label": label,
-            "value": value}
+def _ev(bbox, label, value=None, page=0, kind="box", tag=None):
+    e = {"kind": kind, "page": page, "bbox": [round(min(max(v, 0.0), 1.0), 5) for v in bbox], "label": label,
+         "value": value}
+    if tag:  # the UI groups tag boxes into chips by family
+        e["tag"], e["group"] = tag, re.split(r"-", tag)[0]
+    return e
 
 
 def _families_asked(q: str, present: set) -> list[str] | None:
@@ -973,32 +1028,39 @@ def _recheck(sheet: dict, fam: str, found: list[dict], cost: list) -> list[dict]
     Image.MAX_IMAGE_PIXELS = None
     im = Image.open(sheet["image"]).convert("RGB")
     W, H = im.size
-    pad_x, pad_y = max(0.04, 0.15 * w), max(0.05, 0.3 * h)
+    pad_x, pad_y = max(0.25, 0.15 * w), max(0.04, 0.3 * h)  # tags of one family usually sit in a row
     r = [max(0.0, b[0] - pad_x), max(0.0, b[1] - pad_y), min(1.0, b[2] + pad_x), min(1.0, b[3] + pad_y)]
     cw, ch = (r[2] - r[0]) * W, (r[3] - r[1]) * H
-    f = min(3.0, SEND_PX / max(cw, ch))
-    if f < 1.0:  # spread over the whole sheet: a crop would not be any sharper than the tiles were
+    # the band in up to 4 pieces, each zoomed >= 1x (else a crop is no sharper than the tiles were)
+    n = max(1, min(4, math.ceil(cw / (SEND_PX / 2))))
+    f = min(3.0, SEND_PX / max(cw / n, ch))
+    if f < 1.0:
         return None
-    key = hashlib.sha1(f"{sheet['image']}|{os.path.getsize(sheet['image'])}|{fam}|{[round(x, 4) for x in r]}".encode()
-                       ).hexdigest()[:16]
-    cf = CACHE / "recheck" / f"{key}.json"
-    if cf.exists():
-        lines = json.loads(cf.read_text())["lines"]
-    else:
-        crop = im.crop((round(r[0] * W), round(r[1] * H), round(r[2] * W), round(r[3] * H)))
-        crop = crop.resize((round(crop.width * f), round(crop.height * f)), Image.LANCZOS)
-        res = llm.ask(RECHECK_PROMPT.format(w=crop.width, h=crop.height, fam=fam, ex=found[0]["tag"]), [crop],
-                      model="haiku", system="You read drawings exactly. Output only the requested lines.",
-                      timeout=120, tag="sheets-piping-recheck")
-        cost.append(float(res.get("cost_usd") or 0.0))
-        lines = (res.get("text") or "").splitlines()
-        if res.get("text"):
-            cf.parent.mkdir(parents=True, exist_ok=True)
-            cf.write_text(json.dumps({"fam": fam, "lines": lines}))
+    pieces = [[r[0] + (r[2] - r[0]) * i / n - (0.01 if i else 0), r[1],
+               r[0] + (r[2] - r[0]) * (i + 1) / n + (0.01 if i < n - 1 else 0), r[3]] for i in range(n)]
+    found_lines = []
+    for pc in pieces:
+        key = hashlib.sha1(f"{sheet['image']}|{os.path.getsize(sheet['image'])}|{fam}|{[round(x, 4) for x in pc]}"
+                           .encode()).hexdigest()[:16]
+        cf = CACHE / "recheck" / f"{key}.json"
+        if cf.exists():
+            lines = json.loads(cf.read_text())["lines"]
+        else:
+            crop = im.crop((round(pc[0] * W), round(pc[1] * H), round(pc[2] * W), round(pc[3] * H)))
+            crop = crop.resize((round(crop.width * f), round(crop.height * f)), Image.LANCZOS)
+            res = llm.ask(RECHECK_PROMPT.format(w=crop.width, h=crop.height, fam=fam, ex=found[0]["tag"]), [crop],
+                          model="haiku", system="You read drawings exactly. Output only the requested lines.",
+                          timeout=120, tag="sheets-piping-recheck")
+            cost.append(float(res.get("cost_usd") or 0.0))
+            lines = (res.get("text") or "").splitlines()
+            if res.get("text"):
+                cf.parent.mkdir(parents=True, exist_ok=True)
+                cf.write_text(json.dumps({"fam": fam, "lines": lines}))
+        found_lines += [(pc, ln) for ln in lines]
     ink = _inked(sheet["image"])
     have = {t["tag"] for t in found}
     new = []
-    for line in lines:
+    for r, line in found_lines:
         m = re.match(r"\s*(-?\d+(?:\.\d+)?)[\s,]+(-?\d+(?:\.\d+)?)[\s,]+(-?\d+(?:\.\d+)?)[\s,]+(-?\d+(?:\.\d+)?)"
                      r"\s*[|:]\s*(.+?)\s*$", line)
         if not m:
@@ -1064,7 +1126,7 @@ def _count(q: str, sheet: dict, insts: list[dict], base: dict, cost: list) -> di
         for i, tg in enumerate(tags, 1):
             for j, t in enumerate(by_tag[tg]):
                 ev.append(_ev(t["bbox"], f"{i}: {tg}" + (f" (label {j + 1} of {len(by_tag[tg])})"
-                                                         if len(by_tag[tg]) > 1 else ""), 1 if j == 0 else 0))
+                                                         if len(by_tag[tg]) > 1 else ""), 1 if j == 0 else 0, tag=tg))
         n = len(tags) + len(unnum)
         for f in fams:
             nums = sorted({t["num"] for t in numbered if t["family"] == f})
@@ -1084,10 +1146,17 @@ def _count(q: str, sheet: dict, insts: list[dict], base: dict, cost: list) -> di
     else:
         n = len(sel)
         for i, t in enumerate(sel, 1):
-            ev.append(_ev(t["bbox"], f"{i}: {t['tag']}", 1))
+            ev.append(_ev(t["bbox"], f"{i}: {t['tag']}", 1, tag=t["tag"]))
         parts.append(f"{n} {'/'.join(fams)} labels on the sheet" +
                      (" (every printed label counted, repeats included)" if numbered else ""))
         conf = 0.55 if unnum else 0.7
+    ql_valve = re.search(r"valve", ql)
+    if ql_valve:
+        others = sorted(f for f in present if f not in fams and len(f) > 1
+                        and re.search(r"valve", FAMILIES.get(f, ("",))[0]))
+        if others:
+            parts.append("other valve tags on the sheet, not counted here: " + ", ".join(
+                f"{f} ({FAMILIES[f][1]}, {len({t['tag'] for t in insts if t['family'] == f})})" for f in others))
     for f, new in rechecked:
         parts.append(f"numbering gap in {f} re-checked on a zoomed crop: " +
                      (f"found {', '.join(t['tag'] for t in new)}" if new else "nothing more found"))
@@ -1203,7 +1272,7 @@ def _where(q, sheet, insts, base) -> dict | None:
                                    "available": sorted({t['tag'] for t in insts})[:12]})
         locs = [f"{t['tag']} at {where(t['bbox'], g)}" for t in sel]
         return dict(base, answer="; ".join(locs), confidence=0.75,
-                    evidence=[_ev(t["bbox"], f"{i}: {t['tag']}") for i, t in enumerate(sel, 1)],
+                    evidence=[_ev(t["bbox"], f"{i}: {t['tag']}", tag=t["tag"]) for i, t in enumerate(sel, 1)],
                     explanation=f"Located {len(sel)} label(s) on the sheet; grid squares from the sheet border.")
     size = None
     ms = sizes_in(qn)
@@ -1393,5 +1462,9 @@ def answer(path, question, meta) -> dict | None:
         res["confidence"] = max(res["confidence"], 0.9)  # exact vector text: misses come only from the parsing
     res["cost_usd"] = round(sum(cost), 5)
     res["readers"] = sheet["readers"]
+    pdf = "pdf text layer" in sheet["readers"]
+    res.setdefault("sheet_how", "read from the PDF's text" if pdf else "read from the sheet (OCR + vision)")
+    if meta.get("low_res") or (not pdf and sheet.get("image") and _small(sheet["image"])):
+        res["low_res"] = True
     res["method"] = METHOD
     return res
