@@ -76,6 +76,47 @@ def table(rows, key):
     return "\n".join(lines)
 
 
+def write_summary(name, rows, args, headline=None):
+    """runs/<name>.summary.md: accuracy tables by type, source, language (+ any solver errors)."""
+    summary = [f"# {name}", "", f"solver `{args.solver}`, split `{args.split}`, n={len(rows)}"
+               + (f", stratified sample {args.sample}" if args.sample else "")
+               + (f", questions of `{args.ids_from}`" if args.ids_from else "")
+               + (f", text scored by LLM judge (judge cost ${sum(r.get('judge_cost_usd', 0) for r in rows):.3f},"
+                  " not in $/1k q)" if args.judge else ""), "",
+               *([headline, ""] if headline else []),
+               "accuracy = correct / all questions (abstain counts as wrong); precision = correct / answered.", "",
+               "## By type", table(rows, lambda r: r["type"]), "",
+               "## By source", table(rows, lambda r: r["source"]), "",
+               "## By source and type", table(rows, lambda r: f"{r['source']} / {r['type']}"), "",
+               "## By language", table(rows, lambda r: r["lang"]), ""]
+    errs = collections.Counter(str(r["error"])[:120] for r in rows if r.get("error"))
+    if errs:
+        summary += [f"**{sum(errs.values())} questions hit a solver error** (they count as abstains):", ""] + \
+            [f"- {n} x `{e}`" for e, n in errs.most_common(5)] + [""]
+        print(f"WARNING: {sum(errs.values())} solver errors, e.g. {errs.most_common(1)[0][0]}", file=sys.stderr)
+    text = "\n".join(summary)
+    (Path("runs") / f"{name}.summary.md").write_text(text)
+    print(text)
+
+
+def _headline(name):
+    """The number README / RESULTS quote for a sampled baseline: re-weighted to the test mix, text judge-scored
+    (analysis/common.py). None if that analysis cannot run here (e.g. the full router run is missing)."""
+    try:
+        from analysis import common as C
+
+        rows = C.load(name)
+        est, lo, hi, n, how = C.accuracy(rows)
+        cost = C.api_cost_per_1k(rows)
+    except Exception:  # noqa: BLE001
+        return None
+    raw = sum(r["ok"] for r in rows) / len(rows)
+    return (f"**Headline (as quoted in README / docs/RESULTS.md): {est:.1%} [{lo:.1%}, {hi:.1%}], {how} to the "
+            f"held-out test mix, text answers scored by the LLM judge; API cost ${cost:.2f} / 1k questions.** "
+            f"The tables below are unweighted means over this sample as logged (text by the token-F1 proxy); "
+            f"the unweighted mean with judge verdicts is {raw:.1%}. Both differ from the headline.")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--solver", required=True)
@@ -91,8 +132,18 @@ def main():
                     help="score text/other answers with the LLM judge (bp/judge.py) instead of the token-F1 proxy")
     ap.add_argument("--crosscheck", action="store_true",
                     help="run the second-method cross-check (bp/crosscheck.py) on every answer and log it")
+    ap.add_argument("--summarize", action="store_true",
+                    help="only (re)write runs/<name>.summary.md from the existing runs/<name>.jsonl; runs no solver")
     args = ap.parse_args()
     import os
+
+    if args.summarize:
+        if not args.name:
+            sys.exit("--summarize needs --name")
+        with open(Path("runs") / f"{args.name}.jsonl") as f:
+            rows = [json.loads(l) for l in f if l.strip()]
+        write_summary(args.name, rows, args, headline=_headline(args.name))
+        return
 
     os.environ["BP_CROSSCHECK"] = "1" if args.crosscheck else "0"  # the router's hook follows this flag
 
@@ -137,8 +188,10 @@ def main():
             "confidence": res.get("confidence"), "cost_usd": float(res.get("cost_usd") or 0.0),
             "latency_s": round(dt, 3), "method": res.get("method"),
             "evidence": res.get("evidence", []),
-            **{k: res[k] for k in ("error", "raw", "turns", "normalized_question", "normalize") if k in res},
+            **{k: res[k] for k in ("error", "route", "raw", "turns", "normalized_question", "normalize") if k in res},
         }
+        if row["pred"] is None and res.get("explanation"):
+            row["explanation"] = str(res["explanation"])[:300]  # why it abstained (a swallowed error shows here)
         if "crosscheck" in res:
             xc = res["crosscheck"]
             sec = xc.get("second") or {}
@@ -161,18 +214,7 @@ def main():
                 ok = sum(1 for x in rows if x["correct"])
                 print(f"  {i}/{len(qs)}  acc so far {ok / i:.1%}", file=sys.stderr)
 
-    summary = [f"# {name}", "", f"solver `{args.solver}`, split `{args.split}`, n={len(rows)}"
-               + (f", stratified sample {args.sample}" if args.sample else "")
-               + (f", text scored by LLM judge (judge cost ${sum(r.get('judge_cost_usd', 0) for r in rows):.3f},"
-                  " not in $/1k q)" if args.judge else ""), "",
-               "accuracy = correct / all questions (abstain counts as wrong); precision = correct / answered.", "",
-               "## By type", table(rows, lambda r: r["type"]), "",
-               "## By source", table(rows, lambda r: r["source"]), "",
-               "## By source and type", table(rows, lambda r: f"{r['source']} / {r['type']}"), "",
-               "## By language", table(rows, lambda r: r["lang"]), ""]
-    text = "\n".join(summary)
-    (Path("runs") / f"{name}.summary.md").write_text(text)
-    print(text)
+    write_summary(name, rows, args)
     print(f"\nlog: {out_path}")
 
 

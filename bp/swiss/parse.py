@@ -7,12 +7,13 @@ can draw evidence over the drawing the user actually asked about.
 """
 from __future__ import annotations
 
-import functools
 import hashlib
 import math
 import os
 import pickle
 import re
+import threading
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -311,32 +312,71 @@ def _fit_page_transform(dxf_texts, page):
     return (float(ax), float(bx), float(ay), float(by)), float(np.sqrt(np.mean(res ** 2)))
 
 
-CACHE_DIR = Path(__file__).resolve().parents[2] / "cache" / "swiss"
+# swiss cache dir: BP_SWISS_CACHE, else $BP_CACHE/swiss, else <repo>/cache/swiss
+CACHE_DIR = Path(os.environ.get("BP_SWISS_CACHE")
+                 or Path(os.environ.get("BP_CACHE") or Path(__file__).resolve().parents[2] / "cache") / "swiss")
 _CODE_KEY = hashlib.sha1(Path(__file__).read_bytes()).hexdigest()[:10]
 
+# In-process memo + one lock per drawing: eval.py --jobs and the demo server call this from many threads, and
+# questions on one drawing arrive together, so concurrent first calls must parse once and wait for each other.
+# Only complete parses are memoised (an exception or an empty floor is raised / returned again next call).
+_MEMO: dict[tuple, Floor] = {}
+_MEMO_MAX = 256
+_LOCKS: dict[tuple, threading.Lock] = {}
+_LOCKS_GUARD = threading.Lock()
 
-@functools.lru_cache(maxsize=256)
+
+def _usable(fl) -> bool:
+    """A parse worth caching: a Floor with rooms (every Swiss drawing has some). Guards against a stale or
+    half-built object ever being memoised or written to disk, which would make a whole drawing abstain."""
+    return isinstance(fl, Floor) and bool(fl.rooms) and not hasattr(fl, "_spare_unit_polys")
+
+
 def parse_floor(dxf_path: str, pdf_path: str | None = None) -> Floor:
-    """Parsed floor, memoised in-process and on disk (cache/swiss/, keyed by file stats and this module's
-    source so an edit here invalidates it). A broken cache file is just re-parsed."""
+    """Parsed floor, memoised in-process and on disk (CACHE_DIR, keyed by file stats and this module's source
+    so an edit here invalidates it). Thread-safe; a broken cache file is just re-parsed. Raises if the drawing
+    cannot be parsed (callers report it), and never caches a failed or empty parse."""
+    k = (dxf_path, pdf_path)
+    fl = _MEMO.get(k)
+    if fl is not None:
+        return fl
+    with _LOCKS_GUARD:
+        lock = _LOCKS.setdefault(k, threading.Lock())
+    with lock:
+        fl = _MEMO.get(k)
+        if fl is None:
+            fl = _load_or_parse(dxf_path, pdf_path)
+            if _usable(fl):
+                if len(_MEMO) >= _MEMO_MAX:
+                    _MEMO.pop(next(iter(_MEMO)), None)
+                _MEMO[k] = fl
+        return fl
+
+
+def _load_or_parse(dxf_path: str, pdf_path: str | None) -> Floor:
     key = f"{dxf_path}|{os.stat(dxf_path).st_mtime_ns}|{pdf_path}|"
     if pdf_path and Path(pdf_path).exists():
         key += str(os.stat(pdf_path).st_mtime_ns)
     f = CACHE_DIR / f"{Path(dxf_path).stem}-{hashlib.sha1((key + _CODE_KEY).encode()).hexdigest()[:16]}.pkl"
     try:
         with open(f, "rb") as fh:
-            return pickle.load(fh)
+            fl = pickle.load(fh)
+        if _usable(fl):
+            return fl
     except Exception:  # noqa: BLE001  missing / stale / unreadable
         pass
     fl = _parse_floor(dxf_path, pdf_path)
+    if not _usable(fl):
+        return fl  # not written to disk: the next call parses again
+    # tmp unique per process, thread and call, so concurrent writers never share (and truncate) one file
+    tmp = f.with_name(f"{f.name}.{os.getpid()}.{threading.get_ident()}.{uuid.uuid4().hex[:8]}.tmp")
     try:
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        tmp = f.with_suffix(f".{os.getpid()}.tmp")
         with open(tmp, "wb") as fh:
             pickle.dump(fl, fh, protocol=pickle.HIGHEST_PROTOCOL)
         os.replace(tmp, f)
     except OSError:
-        pass
+        tmp.unlink(missing_ok=True)
     return fl
 
 

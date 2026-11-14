@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import os
 import re
+import threading
+import time
 
 from bp.solvers import get_solver
 
@@ -17,6 +19,8 @@ ROUTES = {
     "cubicasa5k": "cubicasa",
     "opening_design": "generic",  # real US drawing sets: vector text + grounded vision
 }
+
+LOAD_RETRY_S = 30.0  # a solver that failed to load is retried after this long, not on every question
 
 # uploads: app/server.py sets q["kind"] from the file (ifc / dxf / pdf-vector / pdf-raster / raster)
 UPLOAD_ROUTES = {
@@ -55,17 +59,34 @@ class Router:
         # second-method check (bp/crosscheck.py): on unless BP_CROSSCHECK=0 (eval.py sets it from --crosscheck)
         self.crosscheck = os.environ.get("BP_CROSSCHECK", "1") == "1" if crosscheck is None else crosscheck
         self._solvers = {}
+        self._load_errors = {}  # solver name -> why it could not be built (reported on the answer)
+        self._lock = threading.Lock()
+        self._locks = {}
         # free wording -> a supported template (bp/normalize.py), only when the solver could not parse the question
         self.normalize = os.environ.get("BP_NORMALIZE", "1") == "1"
 
     def _get(self, name):
-        if name not in self._solvers:
+        # one router serves many threads (eval.py --jobs, the demo server): build each solver once under a lock,
+        # so a thread never sees another's half-finished import, and keep a failure as a reported error that is
+        # retried after LOAD_RETRY_S instead of silently disabling a route for the rest of the run
+        s = self._solvers.get(name)
+        if s is not None:
+            return s
+        with self._lock:
+            lock = self._locks.setdefault(name, threading.Lock())
+        with lock:  # per solver: loading a slow one (detector weights) never blocks the others
+            if name in self._solvers:
+                return self._solvers[name]
+            err = self._load_errors.get(name)
+            if err and time.monotonic() - err[1] < LOAD_RETRY_S:
+                return None
             try:
                 self._solvers[name] = get_solver(name)
+                self._load_errors.pop(name, None)
+                return self._solvers[name]
             except Exception as e:  # noqa: BLE001
-                self._solvers[name] = e
-        s = self._solvers[name]
-        return None if isinstance(s, Exception) else s
+                self._load_errors[name] = (f"{type(e).__name__}: {str(e)[:200]}", time.monotonic())
+                return None
 
     def route_for(self, q) -> str | None:
         if q["source"] == "upload":
@@ -82,7 +103,8 @@ class Router:
             res = s(q)
         except Exception as e:  # noqa: BLE001  a crashing solver abstains, it never takes the router down
             res = {"answer": None, "confidence": 0.0, "evidence": [], "cost_usd": 0.0, "method": f"{name}-error",
-                   "explanation": f"{name} solver failed: {type(e).__name__}: {str(e)[:200]}"}
+                   "explanation": f"{name} solver failed: {type(e).__name__}: {str(e)[:200]}",
+                   "error": f"{type(e).__name__}: {str(e)[:200]}"}
         res["route"] = name
         return res
 
@@ -134,6 +156,10 @@ class Router:
             res = self._run(fb, q, self.fallback_name)
             res["cost_usd"] = res.get("cost_usd", 0.0) + prev_cost
             res["route"] = f"{name or '-'} -> {self.fallback_name}"
+        if res is None and name and name in self._load_errors:
+            res = {"answer": None, "confidence": 0.0, "evidence": [], "cost_usd": 0.0, "method": f"{name}-error",
+                   "explanation": f"the {name} solver could not be loaded", "route": name,
+                   "error": f"load {name}: {self._load_errors[name][0]}"}
         if res is None:
             res = {"answer": None, "confidence": 0.0, "evidence": [], "cost_usd": 0.0, "method": "none",
                    "explanation": "no solver for this drawing type yet", "route": "-"}

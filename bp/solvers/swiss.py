@@ -155,7 +155,8 @@ class SwissSolver:
         try:
             fl = self.floor_for(q)
         except Exception as e:  # noqa: BLE001  one unreadable drawing must not take the run down
-            return {**base, "explanation": f"DXF twin could not be parsed: {type(e).__name__}: {str(e)[:120]}"}
+            return {**base, "method": "swiss-error", "error": f"parse: {type(e).__name__}: {str(e)[:200]}",
+                    "explanation": f"DXF twin could not be parsed: {type(e).__name__}: {str(e)[:120]}"}
         if fl is None:
             return {**base, "explanation": "no DXF twin"}
         if intent is None:
@@ -171,7 +172,8 @@ class SwissSolver:
                 out["explanation"] = f"read as: {rq} | {out.get('explanation') or ''}"
             return out
         except Exception as e:  # noqa: BLE001
-            return {**base, "explanation": f"solver error: {type(e).__name__}: {str(e)[:120]}"}
+            return {**base, "method": "swiss-error", "error": f"answer: {type(e).__name__}: {str(e)[:200]}",
+                    "explanation": f"solver error: {type(e).__name__}: {str(e)[:120]}"}
 
     def _answer(self, q, fl, intent, base):
         # evidence goes on the asked drawing if it is the PDF or its PNG render (same page, same
