@@ -37,7 +37,7 @@ tolerance: counts exact, areas / lengths / volumes within 2 %. An abstention cou
 | system | accuracy [95 % CI] | API $ / 1,000 questions | s / question |
 |---|---:|---:|---:|
 | **Blueprints That Talk** (all 25,420 questions) | **89.5 %** [89.1–89.8] | **$0.013** | **0.04** |
-| Claude Sonnet 5.5 + sibling CAD / IFC files¹ (fair comparison) | 69.8 % [60.9–78.4] | $25.76 | 15.6 |
+| Claude Sonnet 5.5 + sibling CAD / IFC files¹ (fair comparison) | 69.8 % [60.9–78.4] | $25.76 | 15.7 |
 | Claude Sonnet 5.5, drawing only¹ | 63.2 % [54.4–71.8] | $13.06 | 12.9 |
 | Claude Haiku 5.5, drawing only¹ | 60.6 % [51.5–69.3] | $1.21 | 28.6 |
 | Gemini 3.1 Pro, drawing only¹ | 64.2 % [55.9–72.3] | $52.47 | 31.4 |
@@ -64,7 +64,7 @@ Sources: ours = [`runs/router_full_test_v6.summary.md`](runs/router_full_test_v6
 
 ## How we verify
 
-Judges, reviewers and users should not have to take our word for any number. Four layers on every answer,
+Judges, reviewers and users should not have to take our word for any number. Four verification layers,
 plus an audit of the whole evaluation and a robustness suite:
 
 1. **Evidence that adds up.** Every solver returns `{answer, confidence, method, cost_usd, explanation,
@@ -73,8 +73,8 @@ plus an audit of the whole evaluation and a robustness suite:
    evidence items add up to the answer**, so a reviewer checks the arithmetic, not just a picture, and unticking
    an item or adding a missed one recomputes the answer on the spot ([`docs/EVIDENCE.md`](docs/EVIDENCE.md)).
    We measured that the boxes are right, not just the totals ([`docs/EVIDENCE_QUALITY.md`](docs/EVIDENCE_QUALITY.md)):
-   against independent gold instances, CubiCasa boxes reach over 90 % precision and recall, and only about
-   2.5 % of correct counts are right by luck (a missed object and a false box cancelling out).
+   against independent gold instances, CubiCasa boxes reach over 90 % precision and recall (box centres matched; 91 % / 86 % at
+   IoU ≥ 0.5), and only about 2.5 % of correct counts are right by luck (a missed object and a false box cancelling out).
 2. **Calibrated confidence.** Measured on the test split, not asserted ([RESULTS.md](docs/RESULTS.md) §3,
    fig. 3; the demo states it per answer from [`app/calibration.json`](app/calibration.json)). Raster-plan
    answers at confidence ≥ 0.95 are right 98.3 % of the time. If the router answers only at confidence ≥ 0.5 and
@@ -84,7 +84,8 @@ plus an audit of the whole evaluation and a robustness suite:
    ([`runs/crosscheck_test.summary.md`](runs/crosscheck_test.summary.md), `bp/crosscheck.py`): Swiss answers are
    re-read from the PDF alone (text layer, fill polygons × printed scale, vector symbols), IFC answers from the
    plan sheet's SVG, CubiCasa answers by a separately trained second detector. Where they **agree, the answer was
-   right on 100 % of Swiss and IFC test questions**; the check caught a real Swiss error (an apartment area
+   right on 99.98 % of Swiss and IFC test questions** (all but 2 of 8,184: one washbasin count, asked in two
+   languages, where a symbol missing from the drawing fools both readings); the check caught a real Swiss error (an apartment area
    read as 86.72 m² from the DXF, 95.38 m² from the PDF, gold 95.36). On a conflict the answer is kept but its
    confidence is halved and both sets of marks are shown, never silently swapped. On CubiCasa the two detectors
    share training data, so that check is weaker (90.7 % right on agree vs 47.8 % on conflict, measured with the
@@ -104,7 +105,8 @@ plus an audit of the whole evaluation and a robustness suite:
 **Robustness** ([`docs/ROBUSTNESS.md`](docs/ROBUSTNESS.md)): the 12,654 language-twin pairs (same question in
 English and Finnish / German / ...) agree 100 %; typed paraphrases go through a question normaliser (one cheap
 Haiku call, only for questions no parser understands, constrained to names that exist in the drawing) and score
-85.9 % vs 57.7 % before it, equal to the original wording; 50 of 50 must-abstain questions (unknown storeys,
+85.9 % vs 57.7 % before it, equal to the original wording (on a held-out set of 122 paraphrases written after
+the code: 81.1 % vs 49.2 % before, originals 82.0 %); 50 of 50 must-abstain questions (unknown storeys,
 nonsense) now abstain.
 
 **Independent audit, of the whole evaluation.** Codex (OpenAI) audited the repository read-only; a Claude
@@ -125,7 +127,7 @@ paid calls at all; only the 110 free-text IFC questions call Claude Haiku. In th
 no parser understands add one cached Haiku call for the normaliser (~$0.0003-0.003). Local compute (CAD / IFC parsing on
 CPU, the detector on one GPU, ~0.13 s per drawing) prices at about $0.005 per 1,000 questions at $0.50 per
 GPU-hour. Building everything (frontier baselines, fine-tuning runs, development calls, demo hosting) cost
-about $150 one-off so far (the two H100s still running at the time of writing are costed up to now). Per-answer and build costs, with every line item: [docs/COSTS.md](docs/COSTS.md)
+about $165 one-off so far (the demo server, still running at the time of writing, is costed up to now). Per-answer and build costs, with every line item: [docs/COSTS.md](docs/COSTS.md)
 (`.venv/bin/python analysis/costs.py` regenerates it).
 
 ## How it works

@@ -19,13 +19,13 @@ _(181 characters)_
 
 ## Short version (~600 chars, for quick paste)
 
-Blueprints That Talk answers questions about construction drawings and BIM models, in any language, and draws the proof: counted doors numbered on the plan, rooms outlined with their m², walls lit up in 3D, adding up to the answer. A router picks the cheapest exact method: CAD geometry, IfcOpenShell, a small detector. On all 25,420 held-out test questions (every one, not a sample): 89.5 % at $0.013 per 1,000, vs 69.8 % for Claude Sonnet 5.5 given the same files at $25.76. Each answer carries a calibrated confidence and an independent cross-check. The evaluation was audited: no leakage, recount reproduces.
+Blueprints That Talk answers questions about construction drawings and BIM models, in any language, and draws the proof: counted doors numbered on the plan, rooms outlined with their m², walls lit up in 3D, adding up to the answer. A router picks the cheapest exact method: CAD geometry, IfcOpenShell, a small detector. On all 25,420 held-out test questions (every one, not a sample): 89.5 % at $0.013 per 1,000, vs 69.8 % for Claude Sonnet 5.5 given the same files at $25.76. Each answer carries a calibrated confidence; numeric ones an independent cross-check. The evaluation was audited: no leakage, recount reproduces.
 
-_(586 characters)_
+_(622 characters)_
 
 ## Description (≤ 5000 chars, markdown)
 
-_Character count of the block between the rules below: 4,315 (limit 5,000)._
+_Character count of the block between the rules below: 4,362 (limit 5,000)._
 
 ---
 
@@ -56,10 +56,10 @@ The answer is counted out on the drawing: numbered boxes, rooms outlined with th
 
 - **Evidence that adds up.** Untick an item or click a missed one and the total updates. The boxes themselves are right: >90 % precision and recall against independent gold; only ~2.5 % of right counts are right by luck.
 - **Calibrated confidence**, measured on test: answering only at ≥ 0.5 keeps 87.5 % of questions at 95.4 % and turns 1,658 wrong answers into an honest "not sure".
-- **Independent cross-check.** A second method re-derives each answer (PDF re-read for CAD plans, the SVG sheet for IFC, a fine-tuned vision model for scans). Where they agree, Swiss and IFC answers were right 100 % of the time; it caught a real error in our own CAD reading of an apartment area. On conflict, confidence is halved and both readings are shown.
+- **Independent cross-check.** A second method re-derives 98 % of numeric answers (PDF re-read for CAD plans, the SVG sheet for IFC, a fine-tuned vision model for scans). Where they agree, Swiss and IFC answers were right 99.98 % of the time (all but 2 of 8,184); it caught a real error in our own CAD reading of an apartment area. On conflict, confidence is halved and both readings are shown.
 - **Provenance.** Every number in an LLM-written answer is traced to the facts it cites, or flagged.
 
-Robustness: 12,654 language-twin pairs agree 100 %; typed paraphrases 86 %, same as the original wording (58 % before our normaliser); 50/50 must-abstain questions abstain.
+Robustness: 12,654 language-twin pairs agree 100 %; held-out typed paraphrases 81 % vs 82 % for the original wording (49 % before our normaliser); 50/50 must-abstain questions abstain.
 
 ### 3. Creativity
 

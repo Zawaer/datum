@@ -202,7 +202,7 @@
       <div class="cap"><b>“How many doors?”</b> 20, each numbered on the plan, read from the CAD layers. “Very likely right”, and reading the PDF itself agrees. No model call, $0.
         <small>Swiss Dwellings v3.0.0, M. Standfest et al. (Archilyse AG), doi:10.5281/zenodo.7788422, CC BY 4.0</small></div></div>
     <div class="shot"><img src="img/deck-german-area.jpg" alt="Apartment area as the sum of 6 room polygons, next to five frontier models">
-      <div class="cap"><b>Asked in German:</b> net area of apartment A, 6 rooms outlined and summed to 62.74 m². Five frontier models given the same drawing: 5 of 5 wrong.
+      <div class="cap"><b>Asked in German:</b> net area of apartment A, 6 rooms outlined and summed to 62.74 m². Five frontier baselines on the same question: 5 of 5 wrong.
         <small>Swiss Dwellings v3.0.0, M. Standfest et al. (Archilyse AG), doi:10.5281/zenodo.7788422, CC BY 4.0</small></div></div>
   </div>
 </section>
@@ -255,22 +255,22 @@
 <section class="slide">
   <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">8</div>
   <div class="kicker">Verified, not just claimed · four layers + an audit</div>
-  <h2 style="margin-bottom:22px">Every answer is checked four ways, and the whole evaluation was audited.</h2>
+  <h2 style="margin-bottom:22px">Four ways to check an answer, and the whole evaluation was audited.</h2>
   <div class="row" style="gap:56px">
     <div style="flex:1.1">
       <ul class="points points-tight" style="--fs:25px">
         <li><b>1 · Evidence adds up.</b> Boxes, polygons and GlobalIds sum to the answer; untick one and it recomputes. Boxes vs independent gold: &gt;&nbsp;90&nbsp;% precision and recall; only ~2.5&nbsp;% of right counts are right by luck.</li>
         <li><b>2 · Calibrated confidence.</b> Raster answers at ≥&nbsp;0.95 are right 98.3&nbsp;%. “Not sure” below 0.5 keeps 87.5&nbsp;% of questions at 95.4&nbsp;%.</li>
-        <li><b>3 · Independent cross-check.</b> A second method (PDF re-read, IFC plan sheet, second detector) re-derives the answer. Agree → right on 100&nbsp;% of Swiss and IFC test questions; caught a real Swiss area error. Conflict → confidence halved, both shown.</li>
+        <li><b>3 · Independent cross-check.</b> A second method (PDF re-read, IFC plan sheet, fine-tuned VLM on scans) re-derives the answer. Agree → right on 99.98&nbsp;% of Swiss and IFC test questions; caught a real Swiss area error. Conflict → confidence halved, both shown.</li>
         <li><b>4 · Provenance.</b> Every number in an LLM-written answer is traced to the facts it cites, or flagged.</li>
-        <li><b>Robust + audited.</b> Language twins agree 100&nbsp;%; paraphrases 86&nbsp;% (58&nbsp;% before the normaliser); 50/50 must-abstain. Codex (OpenAI) audit: no leakage, recount reproduces.</li>
+        <li><b>Robust + audited.</b> Language twins agree 100&nbsp;%; held-out paraphrases 81&nbsp;% (49&nbsp;% before the normaliser); 50/50 must-abstain. Codex (OpenAI) audit: no leakage, recount reproduces.</li>
       </ul>
     </div>
     <div style="flex:0.9">
       <img src="../img/fig-3-accuracy-vs-coverage.png" alt="accuracy vs coverage" style="width:100%; border-radius:14px; border:1px solid var(--line)">
     </div>
   </div>
-  <div class="foot">Sources: <code>docs/EVIDENCE_QUALITY.md</code>, <code>docs/RESULTS.md</code> §3, <code>runs/crosscheck_test.summary.md</code>, <code>docs/PROVENANCE.md</code>, <code>docs/ROBUSTNESS.md</code>, audit in <code>docs/STATUS.md</code>. Detector confidence calibrated on dev drawings only. On CubiCasa the two detectors share training data, so the cross-check is weaker there (90.7&nbsp;% right on agree vs 47.8&nbsp;% on conflict).</div>
+  <div class="foot">Sources: <code>docs/EVIDENCE_QUALITY.md</code>, <code>docs/RESULTS.md</code> §3, <code>runs/crosscheck_{,vlm_}test.summary.md</code>, <code>docs/PROVENANCE.md</code>, <code>docs/ROBUSTNESS.md</code>, audit in <code>docs/STATUS.md</code>. Detector confidence calibrated on dev drawings only. On scans the cross-check is weaker: the detector is right 94.6&nbsp;% when the VLM agrees vs 55.1&nbsp;% on conflict.</div>
 </section>
 
 <!-- 9 · not obsolete -->
