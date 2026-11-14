@@ -16,9 +16,9 @@ parse is unlikely to repeat in the other:
 - ifc_models  (primary: IFC model)  ->  the SVG twin of the plan sheet (elements with their GUIDs, drawn
   per storey). Independence: medium. The sheet was rendered from the same model, so it catches
   query / filtering / storey-matching mistakes, not modelling errors.
-- cubicasa5k  (primary: YOLO11s detector)  ->  a second, separately trained detector (YOLO11m at 1280 px;
-  weights $BP_XCHECK_CC_WEIGHTS, default cache/crosscheck/cc_second_m1280.pt = a copy of
-  cache/cubicasa/runs/m1280/weights/best.pt taken at epoch ~19 of that run) with its own count thresholds
+- cubicasa5k  (primary: YOLO11m detector, v4)  ->  a second, separately trained detector (the earlier
+  YOLO11s, v3, at 1280 px; weights $BP_XCHECK_CC_WEIGHTS, default cache/cubicasa/weights_v3/best.pt;
+  measurements in runs/crosscheck_test.* used the reverse pairing, primary v3 / second m1280) with its own count thresholds
   tuned on dev (train/crosscheck_tune_cc.py). Independence: low (same public training annotations). If that
   model is ever folded into the primary's ensemble, this check stops being independent: pick another one.
   A quick Tesseract try on the room labels (mh, kt, wc) at native resolution read none of them (not pursued).
@@ -642,9 +642,9 @@ def cubicasa_second(q):
     kept = cc_count(t, dets, th)
     ev = [{"kind": "box", "file": q["path"], "page": 0, "bbox": b, "label": f"{LABEL[t]} {i} (2nd detector)",
            "value": 1, "score": s} for i, (n, s, b) in enumerate(kept, 1)]
-    return {"answer": len(kept), "method": "cubicasa-yolo11m-2nd",
+    return {"answer": len(kept), "method": "cubicasa-yolo11s-v3-2nd",
             "explanation": f"{len(kept)} {LABEL[t]}{'' if len(kept) == 1 else 's'} found by a second, separately "
-                           f"trained detector (YOLO11m at {CC_SECOND_IMGSZ} px)",
+                           f"trained detector (the earlier YOLO11s model, v3, at {CC_SECOND_IMGSZ} px)",
             "evidence": ev}
 
 
