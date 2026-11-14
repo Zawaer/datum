@@ -42,6 +42,10 @@ DRAWINGS: list[dict] = []
 SOLVER_TIMEOUT_S = 120
 FALLBACK_TIMEOUT_S = 75
 _pool = cf.ThreadPoolExecutor(8)
+# CubiCasa asks wait on one detector lock (CPU YOLO, ~1 s each on the demo VM): in the shared pool, a burst of them
+# filled all 8 workers and a $0 Swiss/IFC ask queued behind them for 15 s. They get their own small lane instead
+# (2 workers: the primary detector and the cross-check's second detector can still overlap).
+_cc_pool = cf.ThreadPoolExecutor(2)
 
 # ---------------------------------------------------------------- public-demo settings (all off unless set)
 # BP_ROOT_PATH       serve under a sub-path behind a proxy that strips it (e.g. Caddy handle_path): page and
@@ -782,7 +786,7 @@ def _fb_cache_put(key: str, res: dict):
 
 def _run_router(q: dict, timeout: float = SOLVER_TIMEOUT_S) -> dict:
     try:
-        fut = _pool.submit(router, q)
+        fut = (_cc_pool if router.route_for(q) == "cubicasa" else _pool).submit(router, q)
         res = fut.result(timeout=timeout)
     except cf.TimeoutError:
         return _abstain(f"the solver took longer than {timeout:.0f} s (the GPU may be busy), so we stopped "
