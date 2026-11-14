@@ -276,6 +276,12 @@ def _ink_free_gray_read(path):
     import cv2
     import numpy as np
 
+    # a quarter-size look first: a sheet without coloured strokes (most renders) is read in grey only, never
+    # holding a full-size colour copy (a 10,000 px sheet: ~200 MB colour + work arrays)
+    small = cv2.imread(path, cv2.IMREAD_REDUCED_COLOR_4)
+    if small is None or not ((small.max(axis=2).astype(np.int16) - small.min(axis=2)) > 45).any():
+        return cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+    del small
     c = cv2.imread(path, cv2.IMREAD_COLOR)
     if c is None:
         return cv2.imread(path, cv2.IMREAD_GRAYSCALE)
