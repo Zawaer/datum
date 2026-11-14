@@ -148,6 +148,8 @@ async def ui_sheet(browser, server, key, qs, shotdir: Path) -> list[dict]:
             break
         await pg.wait_for_timeout(500)
     path = await pg.evaluate("cur && cur.path")
+    if not (path or "").startswith("uploads/"):  # upload failed: the page still shows a built-in demo drawing
+        path = None
     up_s = round(time.time() - t0, 1)
     for q in qs:
         rec = {"path": path, "upload_s": up_s}
@@ -252,6 +254,12 @@ def summary(rows, name, commit=""):
     return "\n".join(L) + "\n"
 
 
+def scrub(obj, secret):
+    if not secret:
+        return obj
+    return json.loads(json.dumps(obj).replace(secret, "<live>").replace(secret.split("//", 1)[-1], "<live>"))
+
+
 def finish(rows, out: Path, name, commit):
     for r in rows:
         r["ok"], r["ok15"] = score(r, r["res"])
@@ -265,11 +273,19 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--server", default="http://127.0.0.1:3172")
     ap.add_argument("--name", default=time.strftime("%H%M"))
-    ap.add_argument("--forms", default=",".join(FORMS))
+    ap.add_argument("--forms", default="", help="default: all four locally; lowres,png2500,pdf on --live "
+                                                 "(hi-res uploads one at a time only, they can OOM the demo)")
     ap.add_argument("--only", default="", help="comma list of question ids or sheet keys")
     ap.add_argument("--jobs", type=int, default=3)
     ap.add_argument("--rescore", default="")
+    ap.add_argument("--live", action="store_true",
+                    help="the deployed demo (base URL read from data/secrets/demo_path.txt, never printed or saved)")
+    ap.add_argument("--subset", action="store_true", help="one question per sheet (the first in the file)")
     a = ap.parse_args()
+    secret = ""
+    if a.live:
+        secret = "https://<vm-ip>.sslip.io/" + (ROOT / "data/secrets/demo_path.txt").read_text().strip().strip("/")
+        a.server = secret
     qs = [json.loads(x) for x in QFILE.read_text().splitlines() if x.strip()]
     qmap = {q["id"]: q for q in qs}
     import subprocess
@@ -280,11 +296,16 @@ def main():
                 if x.strip()]
         print(finish(rows, Path(a.rescore), Path(a.rescore).stem.replace("judge_", ""), commit))
         return
+    if a.subset:
+        seen = set()
+        qs = [q for q in qs if not (q["sheet"] in seen or seen.add(q["sheet"]))]
     if a.only:
         keep = set(a.only.split(","))
         qs = [q for q in qs if q["id"] in keep or q["sheet"] in keep]
     build()
-    forms = a.forms.split(",")
+    forms = a.forms.split(",") if a.forms else (["lowres", "png2500", "pdf"] if a.live else list(FORMS))
+    if a.live:
+        a.jobs = 1  # one upload / ask at a time against the shared demo
     by_sheet = defaultdict(list)
     for q in qs:
         by_sheet[q["sheet"]].append(q)
@@ -293,11 +314,12 @@ def main():
     # API forms: upload every (sheet, form) once, then ask in parallel
     api_forms = [f for f in forms if f != "hires"]
     paths = {}
-    with cf.ThreadPoolExecutor(2) as ex:
+    with cf.ThreadPoolExecutor(1 if a.live else 2) as ex:
         futs = {ex.submit(api_upload, a.server, form_path(k, f)): (k, f) for k in by_sheet for f in api_forms}
         for fu in cf.as_completed(futs):
             paths[futs[fu]] = fu.result()
-            print(f"uploaded {futs[fu]} -> {paths[futs[fu]].get('path')} {paths[futs[fu]].get('upload_s')}s",
+            print(f"uploaded {futs[fu]} -> {paths[futs[fu]].get('path')} {paths[futs[fu]].get('upload_s')}s "
+                  f"{'error ' + str(scrub(paths[futs[fu]].get('error'), secret))[:80] if paths[futs[fu]].get('error') else ''}",
                   file=sys.stderr, flush=True)
 
     def one(job):
@@ -310,6 +332,7 @@ def main():
     jobs = [(q, f) for f in api_forms for q in qs]
     with cf.ThreadPoolExecutor(a.jobs) as ex:
         for r in ex.map(one, jobs):
+            r = scrub(r, secret)
             r["ok"], r["ok15"] = score(r, r["res"])
             rows.append(r)
             print(f"[{'OK' if r['ok'] else '--'}] {r['form']:8} {r['id']} -> {str(r['res'].get('answer'))[:50]} "
@@ -319,12 +342,13 @@ def main():
         ui = asyncio.run(ui_all(a.server, by_sheet, SHOTS / a.name, a.jobs))
         for k, recs in ui.items():
             for q, rec in zip(by_sheet[k], recs):
-                r = {**q, "form": "hires", **rec}
+                r = scrub({**q, "form": "hires", **rec}, secret)
                 r["ok"], r["ok15"] = score(r, r["res"])
                 rows.append(r)
                 print(f"[{'OK' if r['ok'] else '--'}] hires    {r['id']} -> {str(r['res'].get('answer'))[:50]} "
                       f"(gold {str(r['gold'])[:20]}; {r['res'].get('method')}, {r['res'].get('latency_s')}s)",
                       file=sys.stderr, flush=True)
+    rows = scrub(rows, secret)
     order = {q["id"]: i for i, q in enumerate(qs)}
     rows.sort(key=lambda r: (order[r["id"]], FORMS.index(r["form"])))
     out = ROOT / f"runs/judge_{a.name}.jsonl"

@@ -57,6 +57,15 @@ def main():
     tot = sum(r["ok"] for r in rows)
     L += ["", f"Total {tot}/{len(rows)} strict. Forms: lowres = ~2000 px JPG, png2500 = ~2500 px PNG, pdf = single-page "
               "vector PDF, hires = full-resolution PNG (asked through the real UI with Playwright).", ""]
+    if a.prev:
+        old = {(r["id"], r["form"]): r for r in load(a.prev)}
+        fixed = [(r["id"], r["form"]) for r in rows if r["ok"] and not old.get((r["id"], r["form"]), {}).get("ok", 1)]
+        broke = [(r["id"], r["form"], str(old[(r["id"], r["form"])]["res"].get("answer"))[:30], short(r["res"])[:40])
+                 for r in rows if not r["ok"] and old.get((r["id"], r["form"]), {}).get("ok")]
+        L += [f"Since `{Path(a.prev).stem.replace('judge_', '')}`: fixed {len(fixed)}: "
+              + ", ".join(f"{i}/{f}" for i, f in fixed), "",
+              f"**Regressions {len(broke)}**: " + ("; ".join(f"{i}/{f} (was `{o}`, now `{n}`)" for i, f, o, n in broke)
+                                                   or "none"), ""]
     by_id = defaultdict(dict)
     for r in rows:
         by_id[r["id"]][r["form"]] = r
