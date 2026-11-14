@@ -14,6 +14,9 @@ Environment (all optional; unset -> None, the caller keeps its current behaviour
 - BP_VLM_LIVE_RETRY    after a failed call, skip the server for this many seconds (default 60), so a dead
                        box costs one timeout per minute, not one per question
 
+With an on-demand GPU (BP_GPU_HOOK_URL, bp/vlm/gpu_power.py) a live call is made only while the box is ready,
+and each one resets its idle clock.
+
 Never raises. Successful replies are cached in memory per (image file, mtime, question).
 """
 from __future__ import annotations
@@ -66,6 +69,10 @@ def live_second_opinion(image_path, question: str, source: str = "cubicasa5k", f
             hit = _cache[key]
             return {**hit, "evidence": [dict(e, file=file or str(image_path)) for e in hit["evidence"]]}
     if time.monotonic() < _down_until:
+        return None
+    from bp.vlm.gpu_power import live_allowed
+
+    if not live_allowed():  # on-demand GPU (bp/vlm/gpu_power.py): stopped or still booting -> no live answer now
         return None
     if not _inflight.acquire(timeout=1.0):  # the server is saturated by other asks: skip, do not queue
         return None

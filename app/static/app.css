@@ -707,3 +707,9 @@ svg .ping.model { stroke: var(--chk); }
   #texit { width: 36px; }
 }
 @media (max-width: 600px) and (prefers-reduced-motion: reduce) { .grip, .stepper { transition: none; } }
+
+/* on-demand GPU: the quiet "warming up" line under an upload's answer (app.js gpuWarmHTML) */
+.gpuwarm { margin: 8px 0 4px; font-size: 14px; color: var(--mut); }
+.gpuwarm .gpubar { display: block; height: 2px; margin-top: 4px; background: var(--line); border-radius: 1px; overflow: hidden; }
+.gpuwarm .gpubar b { display: block; height: 100%; background: var(--acc); transition: width 2.5s linear; }
+@media (prefers-reduced-motion: reduce) { .gpuwarm .gpubar b { transition: none; } }

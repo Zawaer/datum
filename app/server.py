@@ -898,6 +898,7 @@ async def upload(request: Request, name: str):
         m.update({"name": safe, "kind": kind, "bytes": size, "uploaded": time.time(), "prep": PREP_VERSION})
         meta.write_text(json.dumps(m))
     path = f"uploads/{key}/{safe}"
+    _gpu_warm(m)
     return {"path": path, "source": "upload", "ext": Path(safe).suffix.lstrip("."), "kind": kind, "n": 0,
             "split": "upload", "view": view_path(path), **_upload_info(m, key)}
 
@@ -1429,6 +1430,7 @@ def ask(req: Ask, request: Request):
     if q["source"] == "upload":
         _fix_upload_evidence(res, q, req.path)
         _upload_honesty(res, q)
+        _gpu_second_pending(res, q, req.path)
     res.pop("raw", None)
     if res.get("error") not in (None, "timeout", "internal error"):  # raw exception / CLI text: log, don't return
         print(f"ask error ({res.get('method')}): {str(res['error'])[:500]}", flush=True)
@@ -1455,6 +1457,131 @@ def ask(req: Ask, request: Request):
     except Exception:  # noqa: BLE001
         traceback.print_exc()
         return _abstain("could not serialise the answer", method="error")
+
+
+# ---------------------------------------------------------------- on-demand GPU for the live second opinion
+# bp/vlm/gpu_power.py: with BP_GPU_HOOK_URL set the VLM box is started when a raster plan is uploaded and stopped
+# after BP_GPU_IDLE_MIN idle minutes. An upload's answer never waits for it: the answer carries
+# "second_pending": {"key", "eta_s"} and the UI polls GET /api/upload_second/{key}, which computes the live second
+# opinion once the box is ready. Without a hook nothing here changes behaviour (the box is always on, or off).
+
+_gpu_pending: collections.OrderedDict = collections.OrderedDict()  # key -> {q, primary, client_path, status, cc}
+_gpu_pending_lock = threading.Lock()
+GPU_PENDING_MAX = 500
+
+
+def _gpu():
+    from bp.vlm.gpu_power import get_power
+
+    return get_power()
+
+
+def _gpu_warm(m: dict):
+    """Upload of a single-page raster residential plan: start the box now (it boots while the user types)."""
+    try:
+        sh = m.get("sheets") or {}
+        pages = sh.get("pages") or []
+        if os.environ.get("BP_VLM_URL") and m.get("kind") == "raster" and (m.get("n_pages") or sh.get("n_pages") or 1) == 1 \
+                and any(x.get("residential_plan") for x in pages) and _gpu().hooked:
+            _gpu().ensure_started()
+    except Exception:  # noqa: BLE001  warming never breaks an upload
+        traceback.print_exc()
+
+
+def _gpu_second_pending(res: dict, q: dict, client_path: str):
+    """An upload answer that would have had a live VLM second opinion if the box were up: start it (non-blocking)
+    and tell the UI where to poll for that opinion."""
+    try:
+        from bp.crosscheck import VLM_METHOD, _vlm_upload_ok
+
+        cc = res.get("crosscheck")
+        if res.get("answer") is None or cc is None or not _vlm_upload_ok(q):
+            return
+        if ((cc.get("second") or {}).get("method")) == VLM_METHOD:
+            return  # already has it (the box was ready)
+        pw = _gpu()
+        if not pw.hooked:
+            return
+        st = pw.ensure_started()
+        if st not in ("starting", "ready"):
+            return  # refused (daily cap) or the hook is failing: the answer simply has no live second opinion
+        key = hashlib.sha1(f"{client_path}\x00{q.get('question')}".encode()).hexdigest()[:16]
+        prim = {k: res.get(k) for k in ("answer", "method", "confidence")}
+        with _gpu_pending_lock:
+            if key not in _gpu_pending or _gpu_pending[key]["status"] == "unavailable":
+                _gpu_pending[key] = {"q": dict(q), "primary": prim, "client_path": client_path, "status": "warming",
+                                     "cc": None, "t": time.time()}
+            _gpu_pending.move_to_end(key)
+            while len(_gpu_pending) > GPU_PENDING_MAX:
+                _gpu_pending.popitem(last=False)
+        res["second_pending"] = {"key": key, "eta_s": round(pw.eta_s()), "state": st}
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
+
+
+def _gpu_compute(key: str):
+    with _gpu_pending_lock:
+        p = _gpu_pending.get(key)
+    if p is None:
+        return
+    try:
+        from bp.crosscheck import VLM_METHOD, crosscheck
+
+        cc = crosscheck(p["q"], p["primary"])
+        sec = cc.get("second") or {}
+        if sec.get("method") != VLM_METHOD:
+            p["status"] = "unavailable"
+            return
+        _fix_upload_evidence(sec, p["q"], p["client_path"])
+        p["cc"], p["status"] = json.loads(json.dumps(cc, default=str)), "ready"
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
+        p["status"] = "unavailable"
+
+
+@app.get("/api/gpu")
+def gpu_status():
+    """{state: off|starting|ready, eta_s, spent_today, cap_usd, hooked, ...} of the live-VLM box."""
+    try:
+        return _gpu().status()
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
+        return {"state": "off", "eta_s": None, "spent_today": None, "hooked": False}
+
+
+@app.get("/api/upload_second/{key}")
+def upload_second(key: str):
+    """Poll for the live second opinion of an upload answer that carried second_pending.
+    {"status": "warming", "eta_s"} | {"status": "computing"} | {"status": "ready", "crosscheck", "confidence"} |
+    {"status": "unavailable"} (the box was refused / failed to boot / gave no answer: show nothing)."""
+    if not re.fullmatch(r"[0-9a-f]{16}", key):
+        raise HTTPException(404, "unknown key")
+    with _gpu_pending_lock:
+        p = _gpu_pending.get(key)
+    if p is None:
+        raise HTTPException(404, "unknown key")
+    if p["status"] == "ready":
+        cc, conf = p["cc"], p["primary"].get("confidence")
+        if cc.get("status") == "conflict" and conf is not None:  # the router's rule: a conflict halves confidence
+            conf = round(conf * 0.5, 4)
+        return {"status": "ready", "crosscheck": cc, "confidence": conf}
+    if p["status"] in ("computing", "unavailable"):
+        return {"status": p["status"]}
+    pw = _gpu()
+    st = pw.state()
+    if st == "off":
+        st = pw.ensure_started()  # a failed start is retried (the hook call is rate-limited inside)
+        if st == "refused" or time.time() - p["t"] > pw.boot_max_s:
+            p["status"] = "unavailable"
+            return {"status": "unavailable"}
+    if st == "ready":
+        with _gpu_pending_lock:
+            if p["status"] != "warming":
+                return {"status": p["status"]}
+            p["status"] = "computing"
+        threading.Thread(target=_gpu_compute, args=(key,), daemon=True).start()
+        return {"status": "computing"}
+    return {"status": "warming", "eta_s": round(pw.eta_s())}
 
 
 # ---------------------------------------------------------------- corrections become training data

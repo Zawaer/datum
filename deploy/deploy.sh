@@ -35,6 +35,8 @@ echo "== secrets + caps (chmod 600 on the VM)"
   # live VLM second opinion for uploads (deploy/vlm/serve.sh writes data/secrets/vlm.env); absent -> precomputed only
   if [ -f data/secrets/vlm.env ]; then grep -E '^BP_VLM_(URL|KEY|SERVED|LIVE_TIMEOUT)=' data/secrets/vlm.env || true
   elif [ -n "${BP_VLM_URL:-}" ]; then echo "BP_VLM_URL=$BP_VLM_URL"; fi
+  # on-demand GPU for that VLM (deploy/vlm/POWER.md): hook URL + secret + caps; absent -> the box is treated as always on
+  [ -f data/secrets/gpu_power.env ] && grep -E '^BP_GPU_[A-Z_]+=' data/secrets/gpu_power.env || true
   true; } | ssh_ 'umask 077; cat > /opt/bp/app.env'
 printf 'SITE=%s\nPREFIX=%s\n' "$SITE" "$PREFIX" | ssh_ 'umask 077; cat > /opt/bp/site.env'
 

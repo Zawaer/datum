@@ -848,7 +848,7 @@ function renderAnswer(shownSoFar) {
     ${res.normalized_question && res.normalized_question !== res.question ? `<div class="readas">read as: <i>${esc(res.normalized_question)}</i></div>` : ''}
     ${typeof res.answer === 'string' ? `<div class="textans">${esc(res.answer.trim().split('\n').map(l => l.replace(/^\s{1,4}(?=\S)/, '')).join('\n'))}</div>`
       : `<div class="big ${abst ? 'abstain' : ''} ${counting ? 'counting' : ''}">${abst ? 'Not sure, so no guess' : num ? `<span class="bn">${fmt(val, t)}</span>` : ''}${abst || !unitOf(t) ? '' : ` <small>${unitOf(t)}</small>`}</div>`}
-    ${corrected ? correctedTrustHTML(res, h) : trustHTML(res, h) + secondHTML(res)}
+    ${corrected ? correctedTrustHTML(res, h) : trustHTML(res, h) + secondHTML(res) + gpuWarmHTML(res)}
     <div class="corr" id="corr"></div>`;
   // the rest folds: compared with frontier models, and how it was worked out (method, track record, rule, arithmetic, cost)
   const fr = res.frontier || [], wrong = fr.filter(f => f.correct === false).length;
@@ -2034,3 +2034,41 @@ $('#scrim').onclick = () => closePop(false);
   await restore(true);
   if (p.has('tour')) startTour(p.get('tour') === 'auto');
 })();
+
+// ------------------------------------------------------------ on-demand GPU: an upload's live second opinion arrives later
+// (app/server.py "on-demand GPU"): the answer carries second_pending while our vision model's box boots; one quiet
+// line with a thin bar, polled until /api/upload_second says ready (the second-opinion line replaces it) or
+// unavailable (the line goes). Dataset drawings never carry second_pending (their second opinion is precomputed).
+var gpuWait = null;  // {key, seq, t0, eta, timer}
+function gpuEtaText(s) { return s >= 90 ? `~${Math.round(s / 60)} min` : `~${Math.max(5, Math.round(s / 5) * 5)} s`; }
+function gpuWarmHTML(r) {
+  const p = r && r.second_pending; if (!p || r.answer == null) return '';
+  if (!gpuWait || gpuWait.key !== p.key || gpuWait.seq !== r._seq) gpuWatch(r);
+  const w = gpuWait, pct = Math.min(95, 100 * (Date.now() - w.t0) / 1000 / Math.max(1, w.eta));
+  return `<div class="gpuwarm" id="gpuwarm" role="status"><span>Warming up our vision model for a second opinion… (${gpuEtaText(w.eta)})</span><i class="gpubar"><b style="width:${pct.toFixed(1)}%"></b></i></div>`;
+}
+function gpuWatch(r) {
+  if (gpuWait) clearTimeout(gpuWait.timer);
+  const w = gpuWait = {key: r.second_pending.key, seq: r._seq, t0: Date.now(), eta: Math.max(10, r.second_pending.eta_s || 150), timer: 0};
+  const live = () => gpuWait === w && res && res._seq === w.seq && res.second_pending;
+  const step = async () => {
+    if (!live()) return;
+    let j = null;
+    try { const resp = await fetch('/api/upload_second/' + w.key); j = resp.ok ? await resp.json() : {status: 'unavailable'}; } catch (e) { j = null; }
+    if (!live()) return;
+    if (j && j.status === 'ready') {
+      res.crosscheck = j.crosscheck; if (j.confidence != null) res.confidence = j.confidence;
+      delete res.second_pending; gpuWait = null; renderAnswer(null); return;
+    }
+    if (j && j.status === 'unavailable') { delete res.second_pending; gpuWait = null; const el = $('#gpuwarm'); if (el) el.remove(); return; }
+    if (j && j.eta_s != null) w.eta = Math.max(5, (Date.now() - w.t0) / 1000 + j.eta_s);  // the server's estimate wins
+    const el = $('#gpuwarm');
+    if (el) {
+      el.querySelector('.gpubar b').style.width = Math.min(95, 100 * (Date.now() - w.t0) / 1000 / w.eta).toFixed(1) + '%';
+      el.querySelector('span').textContent = j && j.status === 'computing' ? 'Our vision model is reading the drawing for a second opinion…'
+        : `Warming up our vision model for a second opinion… (${gpuEtaText(Math.max(5, w.eta - (Date.now() - w.t0) / 1000))})`;
+    }
+    w.timer = setTimeout(step, 3000);
+  };
+  w.timer = setTimeout(step, 1500);
+}

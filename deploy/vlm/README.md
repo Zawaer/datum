@@ -21,6 +21,7 @@ behind every shipped second-opinion number; `train/vlm/README.md`), served as Lo
 | `bp/vlm/live.py` | client: `live_second_opinion(image_path, question)` -> `{"answer", "confidence", "evidence", ...}` or `None`; `python -m bp.vlm.live [image question]` = health + one ask |
 | `deploy/vlm/check.py` | asks 3+ test questions live and compares count / boxes / latency with the precomputed answers |
 | `deploy/vlm/stub_server.py` | OpenAI-compatible stub that replays the precomputed replies (tests without a GPU) |
+| `bp/vlm/gpu_power.py`, `deploy/vlm/POWER.md` | on-demand GPU: start on upload, stop after 12 idle minutes, $15/day cap, through an infra hook (contract in POWER.md; stub `deploy/vlm/power_stub.py`) |
 | `deploy/deploy.sh` | forwards `BP_VLM_URL` / `BP_VLM_KEY` from `data/secrets/vlm.env` into the app's env file, if that file exists |
 
 The client uses the eval's exact request (`bp.vlm.infer.RemoteRunner`: system prompt and image budget from
