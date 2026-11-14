@@ -82,7 +82,7 @@
   <div class="card2"><table id="lang"></table></div>
   <h2>Cost and speed per 1,000 questions</h2>
   <div class="card2"><table id="cost"></table></div>
-  <p class="note">API = paid model calls; compute = our GPU / CPU time at cloud prices. Ours makes no paid calls on the dataset sources.</p>
+  <p class="note">API = paid model calls; compute = our GPU / CPU time at cloud prices. Ours makes no paid calls on the dataset sources, except the free-text questions about IFC models (a small LLM writes the answer from facts extracted from the model).</p>
   <h2>Does the confidence mean what it says?</h2>
   <div class="card2"><table id="calib"></table></div>
   <p class="note">Every answer in the demo carries one of these lines: “answers like this were right N % of the time”. Measured on the
@@ -102,10 +102,11 @@ const SYS = [['router_full_test', 'Ours', 'routed solvers, full test split', 'va
              ['prior_full_test', 'Prior', 'most common answer, never looks', 'var(--prior)']];
 const NICE = {swiss_dwellings: 'Swiss apartments', cubicasa5k: 'Finnish plans (CubiCasa)', ifc_models: 'IFC models', ifc_bench: 'IFC bench (free text)',
               opening_design: 'US drawing sets'};
-const LANG = {en: 'English', fi: 'Finnish', de: 'German', fr: 'French', it: 'Italian', da: 'Danish', nl: 'Dutch', et: 'Estonian', sv: 'Swedish', es: 'Spanish', no: 'Norwegian'};
+const LANG = {en: 'English', fi: 'Finnish', de: 'German', fr: 'French', it: 'Italian', da: 'Danish', nl: 'Dutch', et: 'Estonian', sv: 'Swedish', es: 'Spanish', no: 'Norwegian', pl: 'Polish'};
 const pct = v => (100 * v).toFixed(1) + '%';
 const num = v => Number(v).toLocaleString('en-US');
 const usd = v => '$' + (+v).toFixed(2);
+const usd3 = v => '$' + (+v).toFixed(+v > 0 && +v < 0.1 ? 3 : 2);  // $0.013, not $0.01
 
 (async () => {
   const A = await (await fetch('/api/analysis')).json();
@@ -146,12 +147,26 @@ const usd = v => '$' + (+v).toFixed(2);
       <b>${pct(c.acc)}</b></div><span class="nsub">n=${num(c.n)}</span></td>`;
   $('#tbl').innerHTML = `<tr><th>group</th>${SYS.map(([, l]) => `<th>${l}</th>`).join('')}</tr>` +
     rows.map(r => `<tr><td class="g">${esc(NICE[r.source] || r.source)} · ${esc(r.type)}</td>${SYS.map(([k, , , c]) => cell(cellv(r, k), c)).join('')}</tr>`).join('');
-  const lr = A.by_language || [];
+  // a handful of questions tagged with a stray language (n < 20 for us) are language-detector misreads, not a
+  // language the dataset covers: fold them into one row (Wilson 95 % interval on the pooled count)
+  const lr0 = A.by_language || [], small = r => +(r[SYS[0][0] + ':n'] || 0) < 20;
+  const lr = lr0.filter(r => !small(r)), few = lr0.filter(small);
+  if (few.length) {
+    const o = {lang: 'other (misdetected by language detector)'};
+    for (const [k] of SYS) {
+      let n = 0, right = 0;
+      for (const r of few) { const c = cellv(r, k); if (c) { n += c.n; right += c.acc * c.n; } }
+      if (!n) continue;
+      const p = right / n, z = 1.96, d = 1 + z * z / n, m = (p + z * z / (2 * n)) / d, h = z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d;
+      Object.assign(o, {[k + ':acc']: p, [k + ':n']: n, [k + ':lo']: Math.max(0, m - h), [k + ':hi']: Math.min(1, m + h)});
+    }
+    lr.push(o);
+  }
   $('#lang').innerHTML = `<tr><th>language</th>${SYS.map(([, l]) => `<th>${l}</th>`).join('')}</tr>` +
     lr.map(r => `<tr><td class="g">${esc(LANG[r.lang] || r.lang)}</td>${SYS.map(([k, , , c]) => cell(cellv(r, k), c)).join('')}</tr>`).join('');
   $('#cost').innerHTML = `<tr><th>system</th><th class="money">accuracy</th><th class="money">API $ / 1k</th><th class="money">compute $ / 1k</th><th class="money">seconds / question</th></tr>` +
     SYS.map(([k, l]) => { const r = ov[k]; if (!r) return ''; return `<tr><td class="g">${l}</td><td class="money">${pct(r.accuracy)}</td>
-      <td class="money">${usd(r.api_usd_per_1k)}</td><td class="money">${usd(r.compute_usd_per_1k)}</td><td class="money">${(+r.mean_latency_s).toFixed(2)} s</td></tr>`; }).join('');
+      <td class="money">${usd3(r.api_usd_per_1k)}</td><td class="money">${usd3(r.compute_usd_per_1k)}</td><td class="money">${(+r.mean_latency_s).toFixed(2)} s</td></tr>`; }).join('');
 
   const C = await (await fetch('/api/calibration')).json();
   const fams = Object.entries(C.families || {}).sort((a, b) => b[1].n - a[1].n);

@@ -865,6 +865,9 @@ def _short(v: float) -> str:
     return f"{v:.0f}" if abs(v - round(v)) < 1e-9 else f"{v:.2f}"
 
 
+_READ_AS = re.compile(r"^(read as: [^|]*\| ?)+")
+
+
 def trace_for(res: dict, q: dict) -> dict:
     """The "why this answer" panel: route and why, what was read, the arithmetic, cost and time."""
     ev = res.get("evidence") or []
@@ -877,12 +880,26 @@ def trace_for(res: dict, q: dict) -> dict:
         if i > 0:
             w = "the first solver passed, so " + w.split(", so ", 1)[-1]
         why.append({"solver": r, "why": w})
+    nz = res.get("normalize") or {}
+    if nz:  # the solver did not follow the wording, so a small LLM tried to rephrase it (bp/normalize.py)
+        paid_nz = float(nz.get("cost_usd") or 0) > 0
+        if paid_nz:  # then "no model call" on the solver step would contradict the cost line
+            for x in why:
+                x["why"] = re.sub(r"(,| \(runs locally,)? no model call\)?",
+                                  lambda mm: " (runs locally)" if "(" in mm.group(0) else "", x["why"])
+        why.append({"solver": "normalize", "why": (
+            f"the solver did not follow the wording, so a small LLM rephrased it as \"{nz['question']}\" and the "
+            "solver ran again on that" if nz.get("question") else
+            "the solver did not follow the wording, so a small LLM tried to rephrase it into one the solver handles; "
+            "it found none" + (f" ({str(nz['why'])[:160]})" if nz.get("why") else ""))
+            + ("" if paid_nz else "; reused from an earlier identical question, so no new call")})
+    expl = _READ_AS.sub("", res.get("explanation") or "")  # the rewrite is shown as "read as" under the question
     read: list[str] = []
     m = str(res.get("method") or "")
     files = collections.Counter(Path(e["file"]).name for e in ev if e.get("file"))
     kinds = collections.Counter(e.get("kind") for e in ev)
     if m.startswith("swiss"):
-        read.append(f"CAD twin of {Path(q.get('path', '')).name}: " + (res.get("explanation") or ""))
+        read.append(f"CAD twin of {Path(q.get('path', '')).name}: " + expl)
     elif m.startswith("ifc") and not m.startswith("ifctext"):
         ifc = next((e["file"] for e in ev if e.get("kind") == "ifc"), None)
         if ifc:
@@ -905,7 +922,7 @@ def trace_for(res: dict, q: dict) -> dict:
                                            if re.match(r"\[(f\d+)\]", e.get("label") or "")]
         if cited:
             read.append("cited facts: " + ", ".join(dict.fromkeys(cited)))
-        read.append(res.get("explanation") or "")
+        read.append(expl)
     elif m.startswith("cubicasa"):
         try:
             from bp.cubicasa.classes import COUNTS
@@ -994,6 +1011,11 @@ def rule_for(res: dict, q: dict) -> str | None:
             if "apartment" in expl.lower() or "apartments" in ql:
                 return "One per labelled apartment (residential unit) on the floor."
             return "Rooms whose label matches the question, read from the CAD room polygons."
+        ex = _READ_AS.sub("", expl)
+        if re.match(r"room \S+ ", ex):  # one room, even when the question names its apartment ("Küche in Wohnung A")
+            return "Net floor area of the room polygon in the CAD file."
+        if re.match(r"\d+ rooms labelled ", ex):
+            return "Sum of the net floor areas of the room polygons with that label in the CAD file."
         if re.search(r"apartment|wohnung|appartement|appartamento|lejlighed|asunto", ql) or "apartment" in expl.lower():
             return ("Sum of the apartment's room polygons (net area); balconies, loggias, terraces and other outdoor "
                     "spaces are excluded.")

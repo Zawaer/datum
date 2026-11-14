@@ -4,7 +4,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 const SRC = {swiss_dwellings: 'Swiss apartments', cubicasa5k: 'Finnish plans', ifc_models: 'IFC / BIM models', ifc_bench: 'IFC text Q&A',
              opening_design: 'US drawing sets', upload: 'Your uploads'};
-const ROUTE = {swiss: 'CAD layers (DXF twin)', ifc: 'IFC model query', cubicasa: 'plan symbol detector', generic: 'generic drawing reader', ifctext: 'IFC fact sheet'};
+const ROUTE = {swiss: 'CAD layers (DXF twin)', ifc: 'IFC model query', cubicasa: 'plan symbol detector', generic: 'generic drawing reader', ifctext: 'IFC fact sheet', normalize: 'question normaliser (small LLM)'};
 const NS = 'http://www.w3.org/2000/svg';
 
 let tab = 'swiss_dwellings', cur = null, res = null, items = [], marks = [], adding = false, primary = '2d';
@@ -189,6 +189,16 @@ async function loadList(append = false) {
   $('#more').hidden = listOffset >= r.total;
   $('#more').textContent = `show more (${r.total - listOffset} left)`;
   if (!cur && r.items[0]) select(r.items[0], 'replace');
+  if (!append) revealSelected();
+}
+// a drawing opened by the tour or a shared link: scroll the file list (only the list, never the page) to it
+function revealSelected() {
+  const el = $('#items .item.on'); if (!el) return;
+  let box = el.parentElement;
+  while (box && box !== document.body && !(box.scrollHeight > box.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
+  if (!box || box === document.body) return;
+  const top = el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
+  if (top < box.scrollTop || top + el.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = Math.max(0, top - box.clientHeight / 3);
 }
 function renderTabs(counts) {
   const tabs = $('#tabs'); tabs.innerHTML = '';
@@ -217,6 +227,7 @@ async function select(d, how = 'push') {
   $('#answer').hidden = true; $('#evwrap').hidden = true; hint(''); $('#empty').hidden = true; $('#intro').hidden = false;
   syncURL(how);
   document.querySelectorAll('.item').forEach(e => e.classList.toggle('on', e.dataset.path === d.path));
+  revealSelected();
   const r = await fetch('/api/questions?path=' + encodeURIComponent(d.path));
   if (!r.ok) {
     if (cur.path !== d.path) return;
@@ -514,7 +525,8 @@ function traceHTML(r) {
   const a = t.arith;
   const arith = a ? `<div class="mono">${esc(a.expr)} = <b>${fmt(a.total, r.type)}${u ? ' ' + u : ''}</b></div>
     <div class="${a.matches ? 'okt' : 'mut'}">${a.matches ? `✓ the ${a.n} items listed under Evidence add up to the answer exactly` : 'the answer is not a plain sum of the listed items (it also weighs how likely each count is)'}</div>` : '';
-  const note = r.explanation ? `<div>${esc(r.explanation)}</div>` : '';
+  const ex = String(r.explanation || '').replace(/^(read as: [^|]*\| ?)+/, '').trim();  // "read as" is shown under the question
+  const note = ex && !(t.read || []).some(x => String(x).includes(ex)) ? `<div>${esc(ex)}</div>` : '';
   const cost = `<div>${money(r.cost_usd || 0)} · ${latency(r.latency_s)} · ${esc(t.model_call)}${t.method ? ` · <code>${esc(t.method)}</code>` : ''}</div>`;
   return `<details class="trace" ${traceOpen ? 'open' : ''}><summary>Why this answer</summary>
     ${sec('1 · Route', route)}${sec('2 · What it read', read ? `<ul>${read}</ul>${r.answer == null ? note : ''}` : note)}${sec('3 · Arithmetic', arith)}${sec('4 · Cost and time', cost)}</details>`;
@@ -553,7 +565,10 @@ function renderAnswer(shownSoFar) {
   if (res.gold != null && res.answer != null && typeof res.gold === 'number') {
     const g = +res.gold, p = +res.answer;
     oursOk = t === 'count' ? Math.round(p) === Math.round(g) : Math.abs(p - g) <= 0.02 * Math.abs(g);
-    if (!counting) gold = `<span class="pill ${oursOk ? 'ok' : 'bad'}">${oursOk ? '✓ matches' : '✗ differs from'} the dataset answer ${fmt(g, t)}</span>`;
+    // after a correction the headline is the user's number, not the solver's: say plainly what the badge compares
+    const corrected = items.some(e => !e.on || e.added);
+    if (!counting) gold = corrected ? `<span class="pill">dataset answer: ${fmt(g, t)} (${oursOk ? 'matches' : 'differs from'} the solver's answer)</span>`
+      : `<span class="pill ${oursOk ? 'ok' : 'bad'}">${oursOk ? '✓ matches' : '✗ differs from'} the dataset answer ${fmt(g, t)}</span>`;
   }
   const hasVs = (res.frontier || []).length && res.answer != null;
   const abst = res.answer == null;
@@ -561,7 +576,6 @@ function renderAnswer(shownSoFar) {
   const baseS = res.baseline_latency_s || 8;
   a.innerHTML = `
     <div class="qecho">${esc(res.question)}</div>
-    ${res.normalized_question && res.normalized_question !== res.question ? `<div class="readas" style="order:1;font-size:12px;color:var(--mut);margin:-2px 0 6px">read as: <i>${esc(res.normalized_question)}</i></div>` : ''}
     ${res.normalized_question && res.normalized_question !== res.question ? `<div class="readas" style="order:1;font-size:12px;color:var(--mut);margin:-2px 0 6px">read as: <i>${esc(res.normalized_question)}</i></div>` : ''}
     ${typeof res.answer === 'string' ? '' : `<div class="big ${abst ? 'abstain' : ''} ${counting ? 'counting' : ''}">${abst ? 'Not sure, so no guess' : num ? fmt(val, t) : ''} <small>${abst ? '' : unitOf(t)}</small></div>`}
     ${typeof res.answer === 'string' ? `<div class="textans">${esc(res.answer.trim().split('\n').map(l => l.replace(/^\s{1,4}(?=\S)/, '')).join('\n'))}</div>` : ''}
@@ -685,7 +699,8 @@ function updateMeter() {
   $('#bar-ours').style.width = (100 * session.ours / mx) + '%'; $('#bar-base').style.width = (100 * session.base / mx) + '%';
   const saved = session.base > 0 ? 100 * (1 - session.ours / session.base) : 0;
   $('#m-sum').innerHTML = `<span class="only-desk">${session.n} question${session.n === 1 ? '' : 's'} · </span>` + (saved >= 0
-    ? `<b>${saved >= 99.95 ? '100' : saved.toFixed(1)}% cheaper</b>` + (session.ours > 0 ? ` (${(session.base / session.ours).toFixed(0)}×)` : '<span class="only-desk"> · no model calls</span>')
+    ? (session.ours > 0 ? `<b>${saved >= 99.95 ? '>99.9' : saved.toFixed(1)}% cheaper</b> (${(session.base / session.ours).toFixed(0)}×)`
+      : '<b>no model cost</b>')
     : `${(-saved).toFixed(0)}% dearer`);
   $('#meter').dataset.n = session.n;
   $('#meter').dataset.short = `this session: ours ${money(session.ours)} vs frontier ${money(session.base)}`;
@@ -931,6 +946,8 @@ async function doAction(act) {
   if (k === 'wait') await sleep(+arg);
   else if (k === 'toggle') {
     const i = +arg; if (!items[i]) return;
+    // on a phone the evidence list sits below the drawing: bring the row up so the change is seen
+    if (PHONE.matches) { const row = $(`#ev div[data-i="${i}"]`); if (row) { row.scrollIntoView({behavior: 'smooth', block: 'center'}); await sleep(600); } }
     hotItem(i, true); await sleep(700); items[i].on = !items[i].on; redraw(); hotItem(i, false); flashRow(i); await sleep(900);
   } else if (k === 'add') {
     const [u, v] = arg.split(',').map(Number); const r = img.getBoundingClientRect();
@@ -940,7 +957,8 @@ async function doAction(act) {
   else if (k === 'trace') {
     traceOpen = arg !== 'close'; const d = $('#answer details.trace'); if (!d) return;
     d.open = traceOpen;
-    if (!PHONE.matches) {  // bring the trace up, but never past the top of the answer card (the big number stays visible)
+    if (PHONE.matches) d.scrollIntoView({behavior: 'smooth', block: 'start'});
+    else {  // bring the trace up, but never past the top of the answer card (the big number stays visible)
       const side = $('#side'), a = $('#answer'), top = el => el.getBoundingClientRect().top - side.getBoundingClientRect().top + side.scrollTop;
       const card = top(a) - $('.ask').offsetHeight - 16, want = top(d) + d.offsetHeight - side.clientHeight + 16;
       side.scrollTo({top: Math.max(0, Math.min(card, Math.max(side.scrollTop, want))), behavior: 'smooth'});
