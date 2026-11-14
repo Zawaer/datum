@@ -31,7 +31,9 @@ UPLOAD_ROUTES = {
     "raster": "generic",
 }
 # when the upload route abstains, a second reader gets the question (route shown as "ifc -> ifctext")
-UPLOAD_FALLBACK = {"ifc": "ifctext", "cubicasa": "generic"}
+UPLOAD_FALLBACK = {"ifc": "ifctext", "cubicasa": "generic", "sheets": "generic"}
+# sheet types with a specialist module (bp/sheets): the upload's one-off classification picks it
+SHEET_KINDS = {"arch", "slab", "piping"}
 # symbols the CubiCasa detector was trained on: raster uploads that look like residential plans go to it first
 CUBICASA_SYMBOLS = {"window", "door", "toilet", "sink", "shower_bath", "sauna"}
 
@@ -95,6 +97,9 @@ class Router:
 
                 if target(q["question"]) in CUBICASA_SYMBOLS:
                     return "cubicasa"
+            if q.get("sheet_kind") in SHEET_KINDS and q.get("kind") in ("raster", "pdf-vector", "pdf-raster") \
+                    and os.environ.get("BP_SHEETS", "1") == "1":
+                return "sheets"  # a sheet-type specialist first (bp/sheets); it hands abstentions to generic
             return UPLOAD_ROUTES.get(q.get("kind"))
         return ROUTES.get(q["source"])
 
@@ -202,7 +207,7 @@ class Router:
             fb_name = UPLOAD_FALLBACK.get(name) if q["source"] == "upload" else None
             # an unsure specialist (an IFC rule that did not fit, the CubiCasa detector on a plan unlike its
             # training data) hands over to the general reader; the more confident of the two answers is kept
-            weak = res.get("answer") is None or (name in ("ifc", "cubicasa") and (res.get("confidence") or 0) < 0.3)
+            weak = res.get("answer") is None or (name in ("ifc", "cubicasa", "sheets") and (res.get("confidence") or 0) < 0.3)
             if weak and fb_name and (fb := self._get(fb_name)):
                 res2 = self._run(fb, q, fb_name)
                 res2["cost_usd"] = res2.get("cost_usd", 0.0) + res.get("cost_usd", 0.0)

@@ -13,6 +13,7 @@ SOLVERS = {
     "generic": "bp.solvers.generic:GenericSolver",
     "vlm": "bp.solvers.vlm:VlmSolver",
     "ifctext": "bp.solvers.ifctext:IfcTextSolver",
+    "sheets": "bp.solvers.sheets:SheetsSolver",
 }
 
 

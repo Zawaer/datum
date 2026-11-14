@@ -526,7 +526,8 @@ def _pil_limits():
 
 
 _pil_limits()
-PREP_VERSION = 3             # bump to re-run the upload preparation on files already in cache/uploads
+SHEET_TYPES = os.environ.get("BP_SHEETS", "1") == "1"  # sheet-type specialists for uploads (bp/sheets)
+PREP_VERSION = 4             # bump to re-run the upload preparation on files already in cache/uploads
 SHEET_CHECK = os.environ.get("BP_SHEET_CHECK", "1") == "1"
 
 
@@ -779,6 +780,19 @@ def _prepare(d: Path, p: Path, m: dict) -> tuple[Path, str]:
             _turn_pages(p, "raster" if kind == "raster" else "pdf", sh, m)
         if sheets.not_a_drawing(sh):
             m["not_drawing"] = sheets.not_a_drawing(sh)
+    if SHEET_TYPES and kind in ("raster", "pdf-vector", "pdf-raster") and not m.get("not_drawing") \
+            and not (DAILY_CAP and spent_today() >= DAILY_CAP):
+        # what kind of sheet page 0 is (architectural / slab / piping plan: bp/sheets), one cheap Haiku call; the
+        # router offers questions on it to that specialist first
+        try:
+            from bp import sheets as sheet_types
+
+            sm = sheet_types.build_meta(str(p.resolve()), 0, cache_dir=d)
+            m["sheet_kind"] = sm.get("kind")
+            m["sheet_title"] = sm.get("title")
+            m["sheet_cost_usd"] = m.get("sheet_cost_usd", 0.0) + (sm.get("cost_usd") or 0.0)
+        except Exception as e:  # noqa: BLE001
+            print(f"sheet type check failed for {p}: {e!r}", flush=True)
     if not keep_orig:
         pass
     elif (d / ("original" + ext)).read_bytes() == p.read_bytes() if p.exists() and p.stat().st_size < 50e6 else False:
@@ -967,6 +981,7 @@ def _upload_question(req: Ask) -> dict:
             "split": "upload", "answer": None, "view": str(resolve(view)) if view else "",
             "dxf_extents": meta.get("dxf_extents"), "page": page, "sheets": sh, "n_pages": n_pages,
             "residential_plan": bool(info.get("residential_plan")) and n_pages == 1,
+            "sheet_kind": meta.get("sheet_kind") if (n_pages == 1 or page == 0) else None,
             "typo_fixed": question if question != req.question else None}
 
 
