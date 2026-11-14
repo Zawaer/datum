@@ -73,7 +73,7 @@ main { position: relative; flex: 1; display: grid; grid-template-columns: minmax
 .upload b { font-weight: 600; }
 .upload small { margin-left: auto; color: var(--mut); font-size: 12px; }
 .upload:hover { border-color: var(--ev); border-style: solid; background: var(--ev-tint); }
-.tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; }
 .tabs::-webkit-scrollbar { display: none; }
 .tab { flex: none; border: 1px solid var(--line); background: var(--panel); color: var(--mut); border-radius: 999px; padding: 3px 10px; cursor: pointer; font-size: 12px; font-weight: 500; white-space: nowrap; }
 .tab:hover { color: var(--text); border-color: var(--line2); }

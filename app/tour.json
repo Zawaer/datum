@@ -1,7 +1,7 @@
 [
   {
     "title": "Count it out, symbol by symbol",
-    "caption": "Swiss apartment floor: 20 doors, each read from the CAD layers and numbered on the drawing and in the list, so you can check the count in seconds. On the right: how far to trust it, in words, and a second, independent method that agrees. No AI model call: $0.",
+    "caption": "20 doors, each read from the CAD layers and numbered on the plan. A second method agrees, and it cost $0.",
     "source": "swiss_dwellings",
     "path": "data/swiss_dwellings/site3387_bldg5238_floor23498.pdf",
     "question": "How many doors (interior doors and entrance doors together) are drawn on this floor plan?",
@@ -11,8 +11,8 @@
     ]
   },
   {
-    "title": "Ask in German, compare with frontier models",
-    "caption": "Net living area of apartment A: each room is outlined with its own m², and the list adds up to 62.74 m², the dataset's answer. Below the answer, the same question put to five frontier baselines given the same drawing: all five missed it (59 to 75 m²).",
+    "title": "Ask in German, check against frontier models",
+    "caption": "Each room is outlined with its m², adding up to 62.74 m². Five frontier models, given the same drawing, all missed.",
     "source": "swiss_dwellings",
     "path": "data/swiss_dwellings/site11487_bldg17991_floor47889.pdf",
     "question": "Wie gross ist die Nettowohnfläche von Wohnung A in m² (Summe aller Räume ohne Balkone, Loggien, Terrassen und andere Aussenräume)?",
@@ -26,7 +26,7 @@
   },
   {
     "title": "Disagree? Correct it with a click",
-    "caption": "The evidence is the answer. Untick an item (here window #4) or click the drawing to add one the solver missed: the total updates on the spot, and the correction is saved as feedback for the next training run.",
+    "caption": "Untick an item (here window #4) or click the plan to add one: the total updates on the spot.",
     "source": "swiss_dwellings",
     "path": "data/swiss_dwellings/site3387_bldg5238_floor23498.pdf",
     "question": "How many windows are drawn on this floor plan?",
@@ -38,7 +38,7 @@
   },
   {
     "title": "A Finnish plan, asked in Finnish",
-    "caption": "A raster plan with no CAD file: a small detector we trained boxes each door it counted (5). Our fine-tuned vision model says 4, so the app flags the conflict and says in words to check. The five boxes make that a five-second check; 5 is right.",
+    "caption": "A detector we trained boxes 5 doors; our vision model says 4, so the app flags it. The boxes make it a five-second check.",
     "source": "cubicasa5k",
     "path": "data/cubicasa5k/colorful-10052.png",
     "question": "Kuinka monta ovea pohjapiirustuksessa on? Laske oviaukot, joissa on ovi; pelkkiä oviaukkoja ilman ovilehteä ei lasketa.",
@@ -47,8 +47,8 @@
     ]
   },
   {
-    "title": "A plan rendered from a BIM model",
-    "caption": "The doors are numbered on the plan PDF, and each one is an IFC element: switch to 3D and the same doors light up in the model.",
+    "title": "A plan made from a BIM model",
+    "caption": "Each numbered door is an IFC element: switch to 3D and the same doors light up in the model.",
     "source": "ifc_models",
     "path": "data/ifc_models/bsc-molio_molio-with-uris_plan-03-grundplan.pdf",
     "question": "How many doors are shown on the floor plan of 'Grundplan'?",
@@ -61,7 +61,7 @@
   },
   {
     "title": "Wall lengths, asked in Danish, in 3D",
-    "caption": "Every wall that adds to the total lights up on its storey, with its own length in the list. “Why this answer” shows the arithmetic: 21 walls, summed exactly from the model.",
+    "caption": "Every wall in the total lights up on its storey. “How it was worked out” shows the sum: 21 walls.",
     "source": "ifc_models",
     "path": "data/ifc_models/bsc-molio_molio-with-uris_plan-03-grundplan.pdf",
     "question": "Hvad er den samlede længde af alle vægge på 'Grundplan' i meter?",
@@ -73,8 +73,8 @@
     ]
   },
   {
-    "title": "Rooms inside the building",
-    "caption": "Click any element in 3D, or untick its row, to drop it from the answer; mark it as checked and download the session as a takeoff CSV. Your turn: type a question, or pick another drawing on the left.",
+    "title": "Your turn",
+    "caption": "Click any element to drop it from the answer. Now type a question, or pick another drawing top left.",
     "source": "ifc_models",
     "path": "data/ifc_models/bsc-molio_molio-with-uris_plan-03-grundplan.pdf",
     "question": "How many rooms (spaces) are shown on the floor plan of 'Grundplan'?",
