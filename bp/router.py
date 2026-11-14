@@ -26,6 +26,10 @@ UPLOAD_ROUTES = {
     "pdf-raster": "generic",
     "raster": "generic",
 }
+# when the upload route abstains, a second reader gets the question (route shown as "ifc -> ifctext")
+UPLOAD_FALLBACK = {"ifc": "ifctext", "cubicasa": "generic"}
+# symbols the CubiCasa detector was trained on: raster uploads that look like residential plans go to it first
+CUBICASA_SYMBOLS = {"window", "door", "toilet", "sink", "shower_bath", "sauna"}
 
 TYPE_PATTERNS = [
     ("count", r"how many|kuinka monta|montako|wie viele|combien|quant[ie]|hvor mange|mitu|hur många|hoeveel|ile"),
@@ -64,6 +68,11 @@ class Router:
 
     def route_for(self, q) -> str | None:
         if q["source"] == "upload":
+            if q.get("kind") == "raster" and q.get("residential_plan") and q.get("type") == "count":
+                from bp.cubicasa.questions import target
+
+                if target(q["question"]) in CUBICASA_SYMBOLS:
+                    return "cubicasa"
             return UPLOAD_ROUTES.get(q.get("kind"))
         return ROUTES.get(q["source"])
 
@@ -106,6 +115,18 @@ class Router:
             res = self._run(s, q, name)
             if res.get("answer") is None and self.normalize:
                 res, q = self._normalized(s, q, name, res)  # q: the rewrite, if one was used
+            fb_name = UPLOAD_FALLBACK.get(name) if q["source"] == "upload" else None
+            # an unsure specialist (an IFC rule that did not fit, the CubiCasa detector on a plan unlike its
+            # training data) hands over to the general reader; the more confident of the two answers is kept
+            weak = res.get("answer") is None or (name in ("ifc", "cubicasa") and (res.get("confidence") or 0) < 0.3)
+            if weak and fb_name and (fb := self._get(fb_name)):
+                res2 = self._run(fb, q, fb_name)
+                res2["cost_usd"] = res2.get("cost_usd", 0.0) + res.get("cost_usd", 0.0)
+                res2["route"] = f"{name} -> {fb_name}"
+                if (res2.get("answer") is not None and (res.get("answer") is None or (res2.get("confidence") or 0)
+                                                         >= (res.get("confidence") or 0))) \
+                        or str(res.get("method", "")).endswith("error"):
+                    res = res2
         if (res is None or res.get("answer") is None or (res.get("confidence") or 0) < self.min_conf) \
                 and self.fallback_name and (fb := self._get(self.fallback_name)):
             prev_cost = (res or {}).get("cost_usd", 0.0)

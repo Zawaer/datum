@@ -221,7 +221,8 @@ def questions(path: str):
         meta = _upload_meta(path)
         return {"path": path, "view": view_path(path), "credit": credit_for(path), "has3d": ifc_for(path) is not None,
                 "kind": meta.get("kind"), "questions": [{"question": s, "type": guess_type(s), "answer": None}
-                                                         for s in _upload_suggestions(meta.get("kind"))]}
+                                                         for s in _upload_suggestions(meta.get("kind"))],
+                **_upload_info(meta, path.split("/")[1])}
     qs = BY_PATH.get(path)
     if not qs:
         raise HTTPException(404)
@@ -295,7 +296,29 @@ def raw_file(path: str):
 # ---------------------------------------------------------------- uploads
 
 UPLOAD_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".dxf", ".ifc"}
+# converted on upload (to PNG; multi-page TIFF and SVG to PDF), so every solver sees one of UPLOAD_EXT
+CONVERT_EXT = {".webp", ".tif", ".tiff", ".bmp", ".gif", ".svg"}
+REFUSE_EXT = {
+    ".dwg": "DWG is a closed AutoCAD format: export the sheet to PDF or DXF (File > Export / Plot to PDF) and upload that",
+    ".rvt": "Revit models can't be read directly: export to IFC (File > Export > IFC) or print the sheets to PDF",
+    ".skp": "SketchUp models can't be read directly: export to IFC or a PDF of the plan",
+    ".heic": "HEIC photos can't be read here yet: share or save the photo as JPG and upload that",
+    ".heif": "HEIF photos can't be read here yet: share or save the photo as JPG and upload that",
+    ".zip": "please upload one drawing file (PDF, image, DXF or IFC), not an archive",
+    ".docx": "this looks like a text document, not a drawing: upload the drawing as PDF or an image",
+    ".xlsx": "this looks like a spreadsheet, not a drawing: upload the drawing as PDF or an image",
+}
 MAX_UPLOAD = 200 * 1024 * 1024
+MAX_PIXELS = 40_000_000      # bigger rasters are downscaled on upload (a 30 MB phone panorama renders in seconds)
+REFUSE_PIXELS = 400_000_000  # decompression bombs
+PREP_VERSION = 3             # bump to re-run the upload preparation on files already in cache/uploads
+SHEET_CHECK = os.environ.get("BP_SHEET_CHECK", "1") == "1"
+
+
+class UploadError(Exception):
+    def __init__(self, status: int, msg: str):
+        super().__init__(msg)
+        self.status, self.msg = status, msg
 
 
 def _upload_meta(path: str) -> dict:
@@ -323,10 +346,218 @@ def _classify(p: Path) -> str:
         return "raster"
     import pymupdf
 
-    with pymupdf.open(p) as doc:
-        pg = doc[0]
-        vector = len(pg.get_drawings()) > 200 or len(pg.get_text("words")) > 30
-    return "pdf-vector" if vector else "pdf-raster"
+    with pymupdf.open(p) as doc:  # vector if any of the first pages carries linework or text (a set's cover may not)
+        for pg in list(doc)[:8]:
+            if len(pg.get_drawings()) > 200 or len(pg.get_text("words")) > 30:
+                return "pdf-vector"
+    return "pdf-raster"
+
+
+def _convert(p: Path) -> Path:
+    """webp / tif / bmp / gif / svg -> png or pdf next to it (the original stays as the 'original' copy)."""
+    ext = p.suffix.lower()
+    if ext == ".svg":
+        import pymupdf
+
+        try:
+            with pymupdf.open(p) as doc:
+                out = p.with_suffix(".pdf")
+                out.write_bytes(doc.convert_to_pdf())
+                return out
+        except Exception as e:  # noqa: BLE001
+            raise UploadError(422, f"could not read this SVG ({type(e).__name__}): export it as PDF or PNG") from e
+    from PIL import Image, ImageSequence
+
+    try:
+        with Image.open(p) as im:
+            frames = [f.convert("RGB") for f in ImageSequence.Iterator(im)][:50]
+    except Exception as e:  # noqa: BLE001
+        raise UploadError(422, f"could not read this {ext.lstrip('.').upper()} image: it may be damaged "
+                               f"({type(e).__name__})") from e
+    if len(frames) > 1 and ext in (".tif", ".tiff"):  # a multi-page scan: keep its pages
+        out = p.with_suffix(".pdf")
+        frames[0].save(out, save_all=True, append_images=frames[1:], resolution=200)
+        return out
+    out = p.with_suffix(".png")
+    frames[0].save(out)
+    return out
+
+
+def _prep_raster(p: Path, m: dict):
+    """Validate, honour EXIF rotation, downscale huge images, rectify phone photos of sheets (in place)."""
+    from PIL import Image, ImageOps
+
+    Image.MAX_IMAGE_PIXELS = REFUSE_PIXELS
+    try:
+        with Image.open(p) as im0:
+            if im0.width * im0.height > REFUSE_PIXELS:
+                raise UploadError(413, f"image is {im0.width}x{im0.height} px: too large to process; scale it down")
+            im0.load()
+            changed = im0.getexif().get(0x0112, 1) not in (0, 1)  # EXIF orientation: browsers apply it, PIL not
+            im = ImageOps.exif_transpose(im0) if changed else im0
+            im = im.convert("RGB") if im.mode not in ("RGB", "L") else im.copy()
+    except UploadError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise UploadError(422, f"could not read this image: it may be damaged or not really a "
+                               f"{p.suffix.lstrip('.').upper()} ({type(e).__name__})") from e
+    if changed:
+        m["notes"].append("turned to match the photo's orientation tag")
+    if im.width * im.height > MAX_PIXELS:
+        s = (MAX_PIXELS / (im.width * im.height)) ** 0.5
+        m["notes"].append(f"downscaled from {im.width}x{im.height} px")
+        im = im.resize((round(im.width * s), round(im.height * s)), Image.LANCZOS)
+        changed = True
+    try:
+        from bp.generic.rectify import rectify
+
+        flat, info = rectify(im)
+    except Exception as e:  # noqa: BLE001
+        flat, info = None, {"why": f"rectify failed: {type(e).__name__}"}
+    if flat is not None:
+        im, changed = flat, True
+        m["rectified"] = info
+        m["notes"].append("rectified from your photo: perspective flattened and shadows evened out")
+    if changed:
+        _save_raster(im, p)
+
+
+def _save_raster(im, p: Path):
+    if p.suffix.lower() in (".jpg", ".jpeg"):
+        im.convert("RGB").save(p, "JPEG", quality=92)
+    else:
+        im.save(p)
+
+
+def _prep_pdf(p: Path, m: dict):
+    import pymupdf
+
+    try:
+        doc = pymupdf.open(p)
+    except Exception as e:  # noqa: BLE001
+        raise UploadError(422, f"could not open this PDF: it may be damaged ({type(e).__name__})") from e
+    with doc:
+        if doc.needs_pass:
+            raise UploadError(422, "this PDF is password-protected: remove the password and upload it again")
+        if doc.page_count == 0:
+            raise UploadError(422, "this PDF has no pages")
+        try:
+            doc[0].get_pixmap(matrix=pymupdf.Matrix(0.2, 0.2))
+        except Exception as e:  # noqa: BLE001
+            raise UploadError(422, f"could not render this PDF's first page: it may be damaged "
+                                   f"({type(e).__name__})") from e
+        m["n_pages"] = doc.page_count
+        if doc.is_repaired:
+            m["notes"].append("the PDF was damaged and has been repaired; some content may be missing")
+
+
+def _prep_dxf(p: Path, m: dict):
+    import ezdxf
+
+    try:
+        doc = ezdxf.readfile(p)
+    except Exception:  # noqa: BLE001
+        try:
+            from ezdxf import recover
+
+            doc, auditor = recover.readfile(p)
+            doc.saveas(p)  # the solvers read it with readfile()
+            m["notes"].append("the DXF had errors and was repaired on upload")
+        except Exception as e:  # noqa: BLE001
+            raise UploadError(422, f"could not read this DXF: it may be damaged or a binary/newer variant; try "
+                                   f"exporting it again as ASCII DXF ({type(e).__name__})") from e
+    if not len(doc.modelspace()):
+        raise UploadError(422, "this DXF has no drawing entities in model space (is the drawing in a paper-space "
+                               "layout only? export the layout to PDF and upload that)")
+
+
+def _prep_ifc(p: Path, m: dict):
+    head = p.open("rb").read(4096).decode("latin-1", "replace")
+    if "ISO-10303-21" not in head or "IFC" not in head.upper().split("FILE_SCHEMA", 1)[-1][:200]:
+        raise UploadError(422, "this is not an IFC (STEP) file: export the model as IFC 2x3 or IFC4 and upload that")
+    try:
+        import ifcopenshell
+
+        f = ifcopenshell.open(str(p))
+        m["ifc_schema"] = f.schema
+    except Exception as e:  # noqa: BLE001
+        raise UploadError(422, f"could not read this IFC file: it may be damaged ({type(e).__name__})") from e
+
+
+def _turn_pages(p: Path, kind: str, sheets: dict, m: dict):
+    """Pages the sheet check found sideways are turned upright in the stored file (rasters and PDFs)."""
+    turns = {x["page"]: x["turn"] for x in sheets.get("pages") or [] if x.get("turn")}
+    if not turns:
+        return
+    if kind == "raster":
+        from PIL import Image
+
+        with Image.open(p) as im:
+            im.load()
+            _save_raster(im.rotate(-turns.get(0, 0), expand=True), p)
+    elif kind.startswith("pdf"):
+        import pymupdf
+
+        with pymupdf.open(p) as doc:
+            for i, t in turns.items():
+                doc[i].set_rotation((doc[i].rotation + t) % 360)
+            tmp = p.with_name(p.name + ".tmp")
+            doc.save(tmp, garbage=1)
+        tmp.replace(p)
+    else:
+        return
+    m["notes"].append("turned " + ", ".join(f"page {i + 1} by {t}°" if len(turns) > 1 or kind != "raster"
+                                           else f"{t}° clockwise" for i, t in turns.items())
+                      + " so its text reads upright")
+
+
+def _prepare(d: Path, p: Path, m: dict) -> tuple[Path, str]:
+    """Validate and normalise one uploaded file (runs once per distinct file). Returns (working file, kind)."""
+    import shutil
+
+    m["notes"] = []
+    ext = p.suffix.lower()
+    orig = d / ("original" + ext)
+    if not orig.exists():
+        shutil.copyfile(p, orig)
+    if ext in CONVERT_EXT:
+        p2 = _convert(p)
+        m["notes"].append(f"converted from {ext.lstrip('.').upper()} to {p2.suffix.lstrip('.').upper()}")
+        p.unlink()
+        p = p2
+    kind = {".ifc": "ifc", ".dxf": "dxf"}.get(p.suffix.lower(), "raster" if p.suffix.lower() != ".pdf" else "pdf")
+    if kind == "raster":
+        _prep_raster(p, m)
+    elif kind == "pdf":
+        _prep_pdf(p, m)
+    elif kind == "dxf":
+        _prep_dxf(p, m)
+    else:
+        _prep_ifc(p, m)
+    kind = _classify(p)
+    if kind == "dxf" and not (d / (p.name + ".png")).exists():
+        try:
+            _render_dxf(p, d / (p.name + ".png"))
+            m["dxf_extents"] = json.loads((d / "meta.json").read_text()).get("dxf_extents") \
+                if (d / "meta.json").exists() else None
+        except Exception as e:  # noqa: BLE001
+            m["render_error"] = repr(e)[:200]
+    check_file = d / (p.name + ".png") if kind == "dxf" else p
+    if SHEET_CHECK and kind != "ifc" and check_file.exists() and not (DAILY_CAP and spent_today() >= DAILY_CAP):
+        from bp.generic import sheets
+
+        sh = sheets.check(str(check_file.resolve()))
+        m["sheets"] = sh
+        m["sheet_cost_usd"] = sh.get("cost_usd", 0.0)
+        if kind != "dxf":
+            _turn_pages(p, "raster" if kind == "raster" else "pdf", sh, m)
+        if sheets.not_a_drawing(sh):
+            m["not_drawing"] = sheets.not_a_drawing(sh)
+    if (d / ("original" + ext)).read_bytes() == p.read_bytes() if p.exists() and p.stat().st_size < 50e6 else False:
+        (d / ("original" + ext)).unlink()  # nothing changed: no second copy
+    else:
+        m["original"] = "original" + ext
+    return p, kind
 
 
 def _render_dxf(src: Path, out: Path):
@@ -364,12 +595,21 @@ def _render_dxf(src: Path, out: Path):
 
 @app.post("/api/upload")
 async def upload(request: Request, name: str):
-    """Raw-body upload (no multipart dependency): POST /api/upload?name=plan.pdf with the file as body."""
+    """Raw-body upload (no multipart dependency): POST /api/upload?name=plan.pdf with the file as body.
+    The file is validated and normalised once (see _prepare): damaged files get a clear 4xx, phone photos are
+    rectified, sideways scans turned, huge images downscaled, and every page gets a one-line description."""
+    from starlette.concurrency import run_in_threadpool
+
     _rate_limit(request)
     safe = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(name).name)[-80:] or "drawing"
+    if safe.startswith("original."):
+        safe = "file_" + safe
     ext = Path(safe).suffix.lower()
-    if ext not in UPLOAD_EXT:
-        raise HTTPException(415, f"unsupported file type {ext or '?'}: use PDF, PNG, JPG, DXF or IFC")
+    if ext in REFUSE_EXT:
+        raise HTTPException(415, REFUSE_EXT[ext])
+    if ext not in UPLOAD_EXT | CONVERT_EXT:
+        raise HTTPException(415, f"unsupported file type {ext or '?'}: use PDF, PNG, JPG, DXF or IFC "
+                                 "(WEBP, TIFF, BMP, GIF and SVG are converted)")
     body = await request.body()
     if not body:
         raise HTTPException(400, "empty file")
@@ -378,27 +618,40 @@ async def upload(request: Request, name: str):
     key = hashlib.sha1(body).hexdigest()[:12]
     d = UPLOADS / key
     d.mkdir(parents=True, exist_ok=True)
-    p = d / safe
-    if not p.exists():
-        p.write_bytes(body)
-    try:
-        kind = _classify(p)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(422, f"could not read this file as {ext.lstrip('.').upper()}: it may be damaged or "
-                                 f"not really a {ext.lstrip('.').upper()} ({type(e).__name__})") from e
     meta = d / "meta.json"
     m = json.loads(meta.read_text()) if meta.exists() else {}
-    m.update({"name": safe, "kind": kind, "bytes": len(body), "uploaded": time.time()})
-    meta.write_text(json.dumps(m))
-    if kind == "dxf" and not (d / (safe + ".png")).exists():
+    if m.get("prep") == PREP_VERSION and m.get("name") and (d / m["name"]).exists():
+        safe, kind = m["name"], m["kind"]  # the same file again: prepared already
+    else:
+        p = d / safe
+        p.write_bytes(body)
         try:
-            _render_dxf(p, d / (safe + ".png"))
+            p, kind = await run_in_threadpool(_prepare, d, p, m)
+        except UploadError as e:
+            raise HTTPException(e.status, e.msg) from e
+        except HTTPException:
+            raise
         except Exception as e:  # noqa: BLE001
-            m["render_error"] = repr(e)[:200]
-            meta.write_text(json.dumps(m))
+            traceback.print_exc()
+            raise HTTPException(422, f"could not read this file as {ext.lstrip('.').upper()}: it may be damaged or "
+                                     f"not really a {ext.lstrip('.').upper()} ({type(e).__name__})") from e
+        safe = p.name
+        m.update({"name": safe, "kind": kind, "bytes": len(body), "uploaded": time.time(), "prep": PREP_VERSION})
+        meta.write_text(json.dumps(m))
     path = f"uploads/{key}/{safe}"
-    return {"path": path, "source": "upload", "ext": ext.lstrip("."), "kind": kind, "n": 0, "split": "upload",
-            "view": view_path(path)}
+    return {"path": path, "source": "upload", "ext": Path(safe).suffix.lstrip("."), "kind": kind, "n": 0,
+            "split": "upload", "view": view_path(path), **_upload_info(m, key)}
+
+
+def _upload_info(m: dict, key: str) -> dict:
+    """What the UI shows about an upload: notes, pages (with what each one is), not-a-drawing warning."""
+    sh = m.get("sheets") or {}
+    return {"notes": m.get("notes") or [], "pages": m.get("n_pages") or sh.get("n_pages") or 1,
+            "page_titles": {str(x["page"]): f"{x.get('kind', '')}: {x.get('title', '')}".strip(": ")
+                            for x in sh.get("pages") or []},
+            "drawing_pages": [x["page"] for x in sh.get("pages") or [] if x.get("drawing")],
+            "not_drawing": m.get("not_drawing"),
+            "original": f"uploads/{key}/{m['original']}" if m.get("original") else None}
 
 
 # ---------------------------------------------------------------- ask
@@ -406,6 +659,34 @@ async def upload(request: Request, name: str):
 class Ask(BaseModel):
     path: str
     question: str
+    page: int | None = None  # uploads: the page the user picked (0-based); None = let the reader pick
+
+
+UPLOAD_TIMEOUT_S = 75
+# words of typical questions: a typed "how mnay windws" is read as "how many windows" (shown as "read as: ...")
+_VOCAB = set("""how many much what which where who is are the this that there on in of shown drawn plan floor
+drawing sheet page number total area height width length ceiling dimensions scale architect title date revision
+window windows door doors toilet toilets room rooms bedroom bedrooms bathroom bathrooms kitchen kitchens sauna saunas
+sink sinks shower showers bathtub bathtubs stair stairs staircase staircases storey storeys floors level levels
+balcony balconies wall walls column columns parking spaces space elevator lift corridor living dining garage
+closet closets office offices show shows does have has with and for from all each any can see find list name
+names labelled labeled marked count give tell please whats into than then them they their these those""".split())
+
+
+def _fix_typos(question: str) -> str:
+    import difflib
+
+    def fix(m):
+        w = m.group(0)
+        lw = w.lower()
+        if len(lw) < 3 or lw in _VOCAB or lw.rstrip("s") in _VOCAB or lw + "s" in _VOCAB or not lw.isalpha():
+            return w
+        c = difflib.get_close_matches(lw, _VOCAB, n=1, cutoff=0.75)
+        if not c or abs(len(c[0]) - len(lw)) > 1 or c[0][0] != lw[0]:
+            return w
+        return c[0].capitalize() if w[0].isupper() else c[0]
+
+    return re.sub(r"[A-Za-z]+", fix, question)
 
 
 def _upload_question(req: Ask) -> dict:
@@ -414,10 +695,19 @@ def _upload_question(req: Ask) -> dict:
         raise HTTPException(404, "upload not found (uploads are cleared when the server is rebuilt)")
     meta = _upload_meta(req.path)
     view = view_path(req.path)
-    return {"path": str(p), "question": req.question, "type": guess_type(req.question), "unit": None,
+    question = _fix_typos(req.question)
+    sh = meta.get("sheets") or {}
+    n_pages = meta.get("n_pages") or sh.get("n_pages") or 1
+    page = req.page if req.page is not None and 0 <= req.page < n_pages else None
+    from bp.generic.sheets import page_info
+
+    info = page_info(sh, page or 0) or {}
+    return {"path": str(p), "question": question, "type": guess_type(question), "unit": None,
             "source": "upload", "ext": p.suffix.lower().lstrip("."), "kind": meta.get("kind"), "id": None,
             "split": "upload", "answer": None, "view": str(resolve(view)) if view else "",
-            "dxf_extents": meta.get("dxf_extents")}
+            "dxf_extents": meta.get("dxf_extents"), "page": page, "sheets": sh, "n_pages": n_pages,
+            "residential_plan": bool(info.get("residential_plan")) and n_pages == 1,
+            "typo_fixed": question if question != req.question else None}
 
 
 def _run_router(q: dict, timeout: float = SOLVER_TIMEOUT_S) -> dict:
@@ -440,6 +730,23 @@ def _run_router(q: dict, timeout: float = SOLVER_TIMEOUT_S) -> dict:
         res["explanation"] = ("the solver hit an internal error on this question (a model may be updating), "
                               "so it abstains rather than guess; try again in a minute")
     return res
+
+
+def _upload_honesty(res: dict, q: dict):
+    """Uploads have no track record: a very unsure answer becomes an abstention (its candidate marks stay
+    visible), the page that was read is reported, and a typo fix is shown as the question we read."""
+    if q.get("typo_fixed") and not res.get("normalized_question"):
+        res["normalized_question"] = q["typo_fixed"]
+        res["explanation"] = f"read as: {q['typo_fixed']} | " + (res.get("explanation") or "")
+    if res.get("answer") is not None and (res.get("confidence") or 0) < 0.3:
+        res["explanation"] = (f"best guess {res['answer']!s:.60}, but the evidence was too weak to give it as an answer "
+                              f"(confidence {100 * (res.get('confidence') or 0):.0f} %); the marks show what was found | "
+                              + (res.get("explanation") or ""))
+        res["tentative_answer"], res["answer"] = res["answer"], None
+    res["pages"] = q.get("n_pages") or 1
+    if res.get("page") is None:
+        pg = [e.get("page", 0) for e in res.get("evidence") or [] if e.get("bbox")]
+        res["page"] = max(set(pg), key=pg.count) if pg else (q.get("page") or 0)
 
 
 def _fix_upload_evidence(res: dict, q: dict, client_path: str):
@@ -702,10 +1009,11 @@ def ask(req: Ask, request: Request):
         q = dict(known) if known else {**qs[0], "question": req.question, "type": guess_type(req.question),
                                         "answer": None, "id": None}
     t0 = time.time()
-    res = _run_router(q)
+    res = _run_router(q, UPLOAD_TIMEOUT_S if q["source"] == "upload" else SOLVER_TIMEOUT_S)
     if q.get("kind") == "dxf" and res.get("method") == "generic-none" and q.get("view", "").endswith(".png"):
         # the vision pass cannot render a DXF itself: give it the PNG we rendered from the same extents
-        res2 = _run_router({**q, "path": q["view"], "ext": "png", "kind": "raster"})
+        res2 = _run_router({**q, "path": q["view"], "ext": "png", "kind": "raster"},
+                           max(20.0, UPLOAD_TIMEOUT_S - (time.time() - t0)))
         if res2.get("answer") is not None:
             res = res2
     if known is None and q["source"] != "upload" and res.get("answer") is None and q["ext"] in ("pdf", "png", "jpg") \
@@ -744,6 +1052,7 @@ def ask(req: Ask, request: Request):
     res["baseline_latency_s"] = BASELINE_LATENCY.get(q["source"], BASELINE_LATENCY.get("_all", 0.0))
     if q["source"] == "upload":
         _fix_upload_evidence(res, q, req.path)
+        _upload_honesty(res, q)
     res.pop("raw", None)
     try:
         res["question_id"] = known["id"] if known else None

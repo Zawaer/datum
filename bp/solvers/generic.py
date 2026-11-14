@@ -154,7 +154,7 @@ class GenericSolver:
         return hit_ids >= 2 or (hit_ids >= 1 and hit_w >= 2) or (words and hit_w / len(set(words)) >= 0.6)
 
     def _text(self, q, path):
-        pages = T.pick_pages(path, q["question"])
+        pages = [q["page"]] if q.get("page") is not None else T.pick_pages(path, q["question"])
         segs, nid = [], 0
         for p in pages:
             ss, _ = T.layout(path, p)
@@ -306,11 +306,15 @@ class GenericSolver:
             img = T.render(path, page, max_side=2900 if region is None else 4800)
             if img is None:
                 return None
-            a = V.count(img, target, self.vision_backend, tile=1280, label=label, region=region)
             whole = img if region is None else img.crop(tuple(round(v * s) for v, s in zip(region, img.size * 2)))
             whole = whole.copy()
             whole.thumbnail((1568, 1568))
-            b = V.count(whole, target, self.vision_backend, tile=1600, min_side=0, label=label)
+            import concurrent.futures as cf
+
+            with cf.ThreadPoolExecutor(2) as ex:  # both passes at once: latency of one
+                fa = ex.submit(V.count, img, target, self.vision_backend, tile=1280, label=label, region=region)
+                fb = ex.submit(V.count, whole, target, self.vision_backend, tile=1600, min_side=0, label=label)
+                a, b = fa.result(), fb.result()
             if region is not None:
                 rw, rh = region[2] - region[0], region[3] - region[1]
                 b["boxes"] = [[region[0] + x0 * rw, region[1] + y0 * rh, region[0] + x1 * rw, region[1] + y1 * rh]
@@ -359,6 +363,8 @@ class GenericSolver:
         if ans is not None and q.get("type") in ("count", "area", "length", "volume"):
             n = _num(ans)
             ans = _fmt(n) if n is not None else None
+        if ans is None or (isinstance(ans, str) and ans.strip().lower() in ("", "null", "none", "unknown", "n/a")):
+            ans, conf = None, 0.0  # "I can't see it" is not a confident answer
         return {"answer": ans, "confidence": conf if ev else conf * 0.5, "evidence": ev, "cost_usd": cost,
                 "gpu_s": gs, "raw": raw[-800:], "explanation": f"read by {self.vision_backend}"}
 
@@ -390,6 +396,24 @@ class GenericSolver:
                 page = d["_segs"][ids[0]].page if ids else 0
                 if ids:
                     region = self._view_region(d["_segs"], ids, page)
+        upload = q.get("source") == "upload"
+        page_why = ""
+        if out is None and upload:
+            from bp.generic import sheets as S
+
+            if q.get("page") is not None:
+                page = int(q["page"])
+                page_why = f"page {page + 1} (the page you picked)"
+            elif region is None:  # no view chosen from the text layer: pick the page
+                page, page_why = S.pick_page(path, q["question"], q.get("sheets"), qtype)
+            info = S.page_info(q.get("sheets"), page)
+            if info is not None and not info.get("drawing"):
+                return {"answer": None, "confidence": 0.0, "evidence": [], "cost_usd": cost, "method": "generic-none",
+                        "page": page,
+                        "explanation": f"page {page + 1} does not look like a construction drawing (it looks like: "
+                                       f"{info.get('kind') or 'something else'}, '{info.get('title', '')}'), so "
+                                       "nothing was counted or read off it" +
+                                       ("; pick a drawing page above" if T.n_pages(path) > 1 else "")}
         if out is None:
             if qtype == "count":
                 if target is None:
@@ -408,4 +432,18 @@ class GenericSolver:
         out["cost_usd"] = round(cost + out.get("cost_usd", 0.0), 6)
         out["gpu_s"] = round(gpu + out.get("gpu_s", 0.0), 2)
         out["method"] = method
+        if upload:
+            ev_pages = [e.get("page", 0) for e in out.get("evidence") or []]
+            out.setdefault("page", max(set(ev_pages), key=ev_pages.count) if ev_pages else page)
+            if page_why and T.n_pages(path) > 1:
+                out["explanation"] = f"looked at {page_why} | " + (out.get("explanation") or "")
+            if qtype == "count" and out.get("answer") == 0 and not out.get("evidence"):
+                # finding nothing is weak evidence on an unknown drawing (the target may be drawn in a way the
+                # model does not recognise): never present "0" as a confident count
+                out["confidence"] = min(out.get("confidence") or 0.0, 0.4)
+                out["explanation"] = (out.get("explanation") or "") + " | nothing found, which on an unfamiliar " \
+                    "drawing may also mean the symbol is drawn in a way the model does not recognise"
+            elif method and "ground" in method:
+                # two passes agreeing is not a track record: keep self-reported confidence on uploads below "high"
+                out["confidence"] = min(out.get("confidence") or 0.0, 0.75)
         return out

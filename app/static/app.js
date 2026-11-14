@@ -234,6 +234,7 @@ async function select(d, how = 'push') {
   }
   Object.assign(cur, info); has3d = info.has3d; loaded3d = null; loading(''); if (window.V3) V3.clear();
   cur.page = 0; cur.pin = null; uploadPanel(info);
+  cur.page = 0; cur.pin = null; uploadPanel(info);
   $('#modes').classList.toggle('show', has3d);  // a model without a plan sheet still shows "3D model", with Plan disabled
   $('#m2d').disabled = !info.view; $('#m2d').title = info.view ? '' : 'no plan sheet for this model';
   $('#credit').textContent = info.credit ? '© ' + info.credit : '';
@@ -257,6 +258,41 @@ function showImage(view, page = 0) {
 }
 
 // ------------------------------------------------------------ upload
+$('#file').accept = '.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.bmp,.gif,.svg,.dxf,.ifc';
+// what the server did to an upload (rectified photo, turned scan, ...), a not-a-drawing warning, and a page picker
+function uploadPanel(info) {
+  let box = $('#upnote');
+  if (!box) { box = document.createElement('div'); box.id = 'upnote'; box.style.cssText = 'font-size:12px;color:var(--mut);margin:0 0 10px;line-height:1.45'; $('#chips').parentElement.before(box); }
+  const up = cur.path.startsWith('uploads/');
+  const notes = (up ? info.notes || [] : []).map(n => `<div>· ${esc(n)}</div>`).join('');
+  const orig = up && info.original ? `<div><a href="/api/file?path=${encodeURIComponent(info.original)}" target="_blank" rel="noopener">see your original file</a></div>` : '';
+  const warn = up && info.not_drawing ? `<div style="color:#b45309"><b>This doesn't look like a construction drawing</b> (it looks like: ${esc(info.not_drawing)}). You can still ask about its text, but nothing will be counted on it.</div>` : '';
+  box.innerHTML = `${warn}${notes ? '<b>We prepared your file:</b>' + notes : ''}${orig}`;
+  box.hidden = !box.innerHTML;
+  let bar = $('#pagebar');
+  if (!bar) {
+    bar = document.createElement('div'); bar.id = 'pagebar';
+    bar.style.cssText = 'position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:6;display:flex;gap:4px;align-items:center;background:var(--panel);border:1px solid var(--line2);border-radius:var(--r1);padding:3px 6px;font-size:12px;max-width:70%';
+    bar.innerHTML = '<button id="pgprev" aria-label="Previous page">‹</button><select id="pgsel" aria-label="Page to ask about" style="max-width:340px"></select><button id="pgnext" aria-label="Next page">›</button>';
+    $('#viewer').appendChild(bar);
+    const go = p => { if (!cur || p < 0 || p >= (cur.pages || 1)) return; cur.pin = p; showImage(cur.view, p); };
+    $('#pgsel').onchange = e => { const v = e.target.value; if (v === 'auto') { cur.pin = null; syncPageBar(); } else go(+v); };
+    $('#pgprev').onclick = () => go((cur.page || 0) - 1); $('#pgnext').onclick = () => go((cur.page || 0) + 1);
+  }
+  const n = info.pages || 1, titles = info.page_titles || {};
+  bar.hidden = !(cur.path.startsWith('uploads/') && n > 1 && info.view);
+  if (!bar.hidden) {
+    $('#pgsel').innerHTML = '<option value="auto">Any page: find the right one</option>' +
+      Array.from({length: n}, (_, i) => `<option value="${i}">Page ${i + 1} of ${n}${titles[i] ? ' · ' + esc(titles[i]).slice(0, 60) : ''}</option>`).join('');
+  }
+  syncPageBar();
+}
+function syncPageBar() {
+  const sel = $('#pgsel'); if (!sel || !cur || $('#pagebar').hidden) return;
+  sel.value = cur.pin != null ? String(cur.pin) : 'auto';
+  const o = sel.querySelector('option[value="auto"]');
+  if (o) o.textContent = cur.pin != null ? 'Any page: find the right one' : `Any page (showing ${(cur.page || 0) + 1} of ${cur.pages || 1})`;
+}
 $('#file').accept = '.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.bmp,.gif,.svg,.dxf,.ifc';
 // what the server did to an upload (rectified photo, turned scan, ...), a not-a-drawing warning, and a page picker
 function uploadPanel(info) {
@@ -525,6 +561,7 @@ function renderAnswer(shownSoFar) {
   const baseS = res.baseline_latency_s || 8;
   a.innerHTML = `
     <div class="qecho">${esc(res.question)}</div>
+    ${res.normalized_question && res.normalized_question !== res.question ? `<div class="readas" style="order:1;font-size:12px;color:var(--mut);margin:-2px 0 6px">read as: <i>${esc(res.normalized_question)}</i></div>` : ''}
     ${res.normalized_question && res.normalized_question !== res.question ? `<div class="readas" style="order:1;font-size:12px;color:var(--mut);margin:-2px 0 6px">read as: <i>${esc(res.normalized_question)}</i></div>` : ''}
     ${typeof res.answer === 'string' ? '' : `<div class="big ${abst ? 'abstain' : ''} ${counting ? 'counting' : ''}">${abst ? 'Not sure, so no guess' : num ? fmt(val, t) : ''} <small>${abst ? '' : unitOf(t)}</small></div>`}
     ${typeof res.answer === 'string' ? `<div class="textans">${esc(res.answer.trim().split('\n').map(l => l.replace(/^\s{1,4}(?=\S)/, '')).join('\n'))}</div>` : ''}

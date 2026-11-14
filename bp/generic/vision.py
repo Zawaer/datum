@@ -163,9 +163,16 @@ def count(img, target, backend="qwen", tile=1280, min_side=896, label=None, regi
         img = img.resize((round(W * scale), round(H * scale)), Image.LANCZOS)
         W, H = img.size
     boxes, cost, gpu, raws, per_tile = [], 0.0, 0.0, [], []
-    for (x0, y0, x1, y1), (cx0, cy0, cx1, cy1) in tiles(W, H, tile):
-        crop = img.crop((x0, y0, x1, y1))
-        bs, c, g, raw = ground(crop, target, backend, label)
+    tl = tiles(W, H, tile)
+    crops = [img.crop(r) for r, _ in tl]
+    if backend == "qwen" or len(tl) == 1:
+        results = [ground(c, target, backend, label) for c in crops]
+    else:  # paid API calls are independent: run the tiles at once (a 6-tile sheet in ~1 call's latency)
+        import concurrent.futures as cf
+
+        with cf.ThreadPoolExecutor(min(6, len(tl))) as ex:
+            results = list(ex.map(lambda c: ground(c, target, backend, label), crops))
+    for ((x0, y0, x1, y1), (cx0, cy0, cx1, cy1)), (bs, c, g, raw) in zip(tl, results):
         cost += c
         gpu += g
         raws.append(raw[:400])
