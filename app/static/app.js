@@ -110,6 +110,7 @@ async function setMode(m) {
   if (m === '3d') { const fresh = loaded3d !== cur.path; if (await ensure3d() && !fresh) highlight3d(false); }
   else if (img.naturalWidth && res) draw(false);
   if (res) renderEvidence();
+  plantools();
 }
 async function ensure3d() {
   if (!window.V3) await new Promise(r => window.addEventListener('v3ready', r, {once: true}));
@@ -223,7 +224,7 @@ $('#drawerbtn').onclick = () => document.body.classList.toggle('drawer');
 
 let pendingDraw = null;
 async function select(d, how = 'push') {
-  cur = {...d}; res = null; items = []; marks = []; ov.innerHTML = ''; setAdding(false); askSeq++;
+  cur = {...d}; res = null; items = []; marks = []; ov.innerHTML = ''; setAdding(false); askSeq++; setHeat(false); closeSheet(); ptools.hidden = true;
   $('#answer').hidden = true; $('#evwrap').hidden = true; hint(''); $('#empty').hidden = true; $('#intro').hidden = false;
   syncURL(how);
   document.querySelectorAll('.item').forEach(e => e.classList.toggle('on', e.dataset.path === d.path));
@@ -334,7 +335,7 @@ const THINK = {swiss_dwellings: ['reading the CAD layers of the DXF twin', 'meas
 async function ask() {
   const question = $('#q').value.trim(); if (!question || !cur) return;
   const seq = ++askSeq;
-  setAdding(false);
+  setAdding(false); if (heat.on) setHeat(false);
   const a = $('#answer'); a.hidden = false; a.classList.remove('pop'); $('#intro').hidden = true;
   if (PHONE.matches) $('#q').blur();  // drop the phone keyboard so the answer is visible
   const steps = THINK[cur.source || cur.split] || THINK[cur.path.startsWith('uploads/') ? 'upload' : ''] || ['reading the drawing'];
@@ -716,15 +717,18 @@ function currentCorrection() {
 function exportTakeoff() {
   const cols = ['drawing', 'question', 'answer', 'unit', 'corrected', 'method', 'confidence', 'track_record', 'rule', 'cost_usd', 'signed_by', 'signed_at', 'asked_at', 'credit'];
   const head = ['drawing', 'question', 'answer', 'unit', 'corrected value', 'method', 'confidence %', 'track record % (held-out test)', 'counting rule', 'cost USD', 'checked by', 'checked at', 'asked at', 'drawing credit'];
-  const cell = v => { const t = String(v ?? ''); return /[",\n;]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
   const show = (r, c) => {  // an upload is named by its file name, not its server folder; confidence as % like the track record
     if (c === 'drawing' && String(r.drawing || '').startsWith('uploads/')) return String(r.drawing).split('/').pop();
     if (c === 'confidence' && typeof r.confidence === 'number') return +(100 * r.confidence).toFixed(1);
     return typeof r[c] === 'string' ? r[c].replace(/\s+/g, ' ') : r[c];
   };
-  const csv = [head.join(','), ...takeoff.map(r => cols.map(c => cell(show(r, c))).join(','))].join('\r\n');
+  downloadCSV([head, ...takeoff.map(r => cols.map(c => show(r, c)))], `takeoff-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '')}.csv`);
+}
+function downloadCSV(rows, filename) {  // UTF-8 with a BOM, so Excel opens the m² and umlauts right
+  const cell = v => { const t = String(v ?? ''); return /[",\n;]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+  const csv = rows.map(r => r.map(cell).join(',')).join('\r\n');
   const url = URL.createObjectURL(new Blob(['\ufeff' + csv], {type: 'text/csv;charset=utf-8'}));
-  const link = document.createElement('a'); link.href = url; link.download = `takeoff-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '')}.csv`;
+  const link = document.createElement('a'); link.href = url; link.download = filename;
   document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
@@ -841,7 +845,7 @@ function sharpen() {
   reraster = setTimeout(() => { stage.style.willChange = 'auto'; requestAnimationFrame(() => requestAnimationFrame(() => { stage.style.willChange = ''; })); }, 160);
 }
 function rescaleLabels() {
-  sharpen();
+  sharpen(); if (typeof rescaleHeat === 'function') rescaleHeat();
   if (mode === '3d' || !img.naturalWidth || !items.length) return;
   const fs = labelSize(); lay = layoutLabels(img.naturalWidth, img.naturalHeight, fs);
   ov.querySelectorAll('g[data-i]').forEach(g => { if (+g.dataset.i >= 0) placeLabels(g, lay.get(+g.dataset.i), fs); });
@@ -1062,6 +1066,157 @@ function queueFeedback(changed, v) {
   }, 1200);
 }
 
+// ------------------------------------------------------------ room heat-map and takeoff sheet (Swiss CAD plans)
+// /api/rooms reads every numbered room off the plan's CAD twin (apartment, net m², outline): the heat-map shades each
+// room by its net area on one sequential blue (light = small), and the takeoff sheet lists them by apartment, with
+// the door / window / fixture counts and the drawing credit, ready to print or save as CSV. No model call: $0.
+const HEAT = ['#e3eef7', '#bcd7ec', '#8bbadc', '#4f95c6', '#1a6fa6'];  // one hue, light to dark (sequential)
+const SYM = [['door', 'Doors'], ['window', 'Windows'], ['toilet', 'Toilets (WC)'], ['washbasin', 'Washbasins'], ['bathtub', 'Bathtubs'],
+             ['shower', 'Showers'], ['stove', 'Stoves'], ['stairs', 'Stair flights']];
+const heat = {on: false, data: null, path: null};
+const isSwiss = () => !!cur && !cur.path.startsWith('uploads/') && /swiss_dwellings\//.test(cur.path) && !!cur.shown;
+const ptools = document.createElement('div'); ptools.className = 'ptools'; ptools.hidden = true;
+ptools.innerHTML = `<button id="heatbtn" aria-pressed="false" title="Shade every room by its net area (from the CAD layers)">Heat-map</button><button id="sheetbtn" title="A printable room schedule with areas per apartment and symbol counts">Takeoff sheet</button>`;
+viewer.appendChild(ptools);
+const heatSvg = document.createElementNS(NS, 'svg'); heatSvg.id = 'heat'; heatSvg.setAttribute('viewBox', '0 0 1 1'); stage.insertBefore(heatSvg, ov);
+const legend = document.createElement('div'); legend.className = 'hlegend'; legend.hidden = true; viewer.appendChild(legend);
+async function roomData() {
+  if (heat.path === cur.path && heat.data) return heat.data;
+  const path = cur.path, r = await fetch('/api/rooms?path=' + encodeURIComponent(path));
+  if (!r.ok || cur.path !== path) return null;
+  heat.data = await r.json(); heat.path = path; return heat.data;
+}
+function plantools() {  // after a drawing is shown / the mode changes
+  ptools.hidden = !(isSwiss() && mode === '2d');
+  if (ptools.hidden && heat.on) setHeat(false);
+}
+const inLiving = r => !r.outdoor && !r.shaft && !r.common;  // the dataset's "net living area" of an apartment
+function heatBreaks(rooms) {
+  const mx = Math.max(...rooms.filter(r => !r.outdoor).map(r => r.area), 1);
+  const nice = [2, 2.5, 4, 5, 6, 8, 10, 15, 20, 25].find(s => s * 5 >= mx) || Math.ceil(mx / 5);
+  return [1, 2, 3, 4].map(k => k * nice);
+}
+const heatClass = (a, br) => br.findIndex(b => a < b) < 0 ? 4 : br.findIndex(b => a < b);
+async function setHeat(on) {
+  heat.on = on; $('#heatbtn').classList.toggle('on', on); $('#heatbtn').setAttribute('aria-pressed', on);
+  viewer.classList.toggle('heaton', on); heatSvg.innerHTML = ''; legend.hidden = true;
+  if (!on) return;
+  const d = await roomData();
+  if (!heat.on) return;
+  if (!d || !d.rooms.length) { hint('No room outlines on this plan'); setHeat(false); return; }
+  drawHeat(d);
+  zoomToEvidence(d.rooms.map(r => ({kind: 'polygon', points: r.points})), 3);
+  setTimeout(rescaleHeat, 650);
+}
+function drawHeat(d) {
+  const W = img.naturalWidth, H = img.naturalHeight; if (!W) return;
+  heatSvg.setAttribute('viewBox', `0 0 ${W} ${H}`); heatSvg.innerHTML = '';
+  const br = heatBreaks(d.rooms), fs = labelSize();
+  const defs = document.createElementNS(NS, 'defs');
+  defs.innerHTML = `<pattern id="hatch" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)"><rect width="8" height="8" fill="#f3f4f6"/><line x1="0" y1="0" x2="0" y2="8" stroke="#a7aeb8" stroke-width="2"/></pattern>`;
+  heatSvg.appendChild(defs);
+  const labels = [];
+  d.rooms.forEach((r, k) => {
+    const p = document.createElementNS(NS, 'polygon');
+    p.setAttribute('points', r.points.map(q => q[0] * W + ',' + q[1] * H).join(' '));
+    const cls = r.outdoor ? 'out' : r.shaft || r.common ? 'common' : 'c' + heatClass(r.area, br);
+    p.setAttribute('class', 'hr ' + cls);
+    if (!r.outdoor && !r.shaft && !r.common) p.style.fill = HEAT[heatClass(r.area, br)];
+    p.style.animationDelay = RMOTION.matches ? '0s' : (k * 0.03).toFixed(2) + 's';
+    const tip = document.createElementNS(NS, 'title');
+    tip.textContent = `${r.number} ${r.name}${r.unit ? ' · apartment ' + r.unit : ''}: ${round2(r.area)} m²${r.outdoor ? ' (outdoor, not in the net living area)' : r.common ? ' (common area)' : ''}`;
+    p.appendChild(tip); heatSvg.appendChild(p);
+    labels.push(r);
+  });
+  for (const r of labels) {  // the room's m², just under its printed name and number (area-weighted centre)
+    let A = 0, cx = 0, cy = 0; const P = r.points.map(q => [q[0] * W, q[1] * H]);
+    for (let i = 0; i < P.length - 1; i++) { const c = P[i][0] * P[i + 1][1] - P[i + 1][0] * P[i][1]; A += c; cx += (P[i][0] + P[i + 1][0]) * c; cy += (P[i][1] + P[i + 1][1]) * c; }
+    if (Math.abs(A) < 1e-6) continue; cx /= 3 * A; cy /= 3 * A;
+    const t = document.createElementNS(NS, 'text'); t.setAttribute('class', 'hlab' + (heatClass(r.area, br) >= 3 && inLiving(r) ? ' dark' : ''));
+    const xs = P.map(q => q[0]), ys = P.map(q => q[1]);
+    t.setAttribute('x', cx); t.setAttribute('y', cy); t.dataset.dy = 2.1;
+    t.dataset.w = Math.max(...xs) - Math.min(...xs); t.dataset.h = Math.max(...ys) - Math.min(...ys);
+    t.textContent = round2(r.area) + ' m²'; heatSvg.appendChild(t);
+  }
+  rescaleHeat();
+  const units = [...new Set(d.rooms.map(r => r.unit).filter(Boolean))].sort();
+  legend.innerHTML = `<div class="lt">Net area per room</div><div class="lscale">${HEAT.map((c, i) => `<i style="background:${c}"></i>`).join('')}</div>
+    <div class="lticks">${[0, ...br].map((b, k) => `<span style="left:${k * 20}%">${b}</span>`).join('')}<span class="u">m²</span></div>
+    <div class="lkeys"><span class="sw"><i class="hatch"></i>outdoor</span><span class="sw"><i class="com"></i>common / stairs</span></div>
+    <div class="ltot">${units.map(u => `<span>Apt ${esc(u)} <b>${round2(d.rooms.filter(r => r.unit === u && inLiving(r)).reduce((s, r) => s + r.area, 0))} m²</b></span>`).join('')}</div>`;
+  legend.hidden = false;
+}
+function rescaleHeat() {
+  if (!heat.on) return;
+  const fs = labelSize();
+  const f = fs * 0.85;  // a label that would not fit inside its room is left out (hover the room for its tooltip)
+  heatSvg.querySelectorAll('text.hlab').forEach(t => {
+    t.style.fontSize = f + 'px'; t.setAttribute('dy', f * +t.dataset.dy);
+    t.style.display = +t.dataset.w > t.textContent.length * f * 0.62 && +t.dataset.h > f * 5 ? '' : 'none';
+  });
+}
+$('#heatbtn').onclick = () => setHeat(!heat.on);
+$('#sheetbtn').onclick = () => openSheet();
+
+// the takeoff sheet: a white A4 page over the app (print: only the page is printed)
+const sheetWrap = document.createElement('div'); sheetWrap.id = 'sheetwrap'; sheetWrap.hidden = true; document.body.appendChild(sheetWrap);
+async function openSheet() {
+  const d = await roomData(); if (!d) { hint('No room schedule for this drawing'); return; }
+  const W = img.naturalWidth, H = img.naturalHeight, name = cur.path.split('/').pop().replace(/\.\w+$/, '');
+  const br = heatBreaks(d.rooms);
+  let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
+  for (const r of d.rooms) for (const [u, v] of r.points) { x0 = Math.min(x0, u); y0 = Math.min(y0, v); x1 = Math.max(x1, u); y1 = Math.max(y1, v); }
+  const pd = 0.02; x0 = Math.max(0, x0 - pd); y0 = Math.max(0, y0 - pd); x1 = Math.min(1, x1 + pd); y1 = Math.min(1, y1 + pd);
+  const fs = Math.max((x1 - x0) * W, (y1 - y0) * H) / 70;
+  const polys = d.rooms.map(r => {
+    const fill = r.outdoor ? 'url(#shatch)' : r.shaft || r.common ? '#eceef1' : HEAT[heatClass(r.area, br)];
+    const P = r.points.map(q => [q[0] * W, q[1] * H]); let A = 0, cx = 0, cy = 0;
+    for (let i = 0; i < P.length - 1; i++) { const c = P[i][0] * P[i + 1][1] - P[i + 1][0] * P[i][1]; A += c; cx += (P[i][0] + P[i + 1][0]) * c; cy += (P[i][1] + P[i + 1][1]) * c; }
+    const lab = Math.abs(A) > 1e-6 ? `<text x="${cx / (3 * A)}" y="${cy / (3 * A)}" font-size="${fs}" dominant-baseline="central" class="snum">${esc(r.number)}</text>` : '';
+    return `<polygon points="${P.map(p => p.join(',')).join(' ')}" fill="${fill}" fill-opacity=".72" stroke="#16191d" stroke-width="${fs / 8}"/>${lab}`;
+  }).join('');
+  const groups = [...new Set(d.rooms.map(r => r.unit || ''))].sort((a, b) => (a === '') - (b === '') || a.localeCompare(b));
+  const tbl = groups.map(u => {
+    const rs = d.rooms.filter(r => (r.unit || '') === u), liv = rs.filter(inLiving), net = liv.reduce((s, r) => s + r.area, 0);
+    const rows = rs.map(r => `<tr class="${r.outdoor || r.shaft ? 'ex' : r.common ? 'cm' : ''}"><td class="no">${esc(r.number)}</td><td>${esc(r.name || 'unnamed')}${r.outdoor ? ' <small>outdoor</small>' : r.shaft ? ' <small>shaft / void</small>' : r.common ? ' <small>common</small>' : ''}</td><td class="q">${round2(r.area)} m²</td></tr>`).join('');
+    const foot = u ? `<tr class="sub"><td></td><td>Net living area, apartment ${esc(u)} <small>(${liv.length} rooms, outdoor excluded)</small></td><td class="q">${round2(net)} m²</td></tr>` : '';
+    return `<tbody><tr class="gh"><th colspan="3">${u ? 'Apartment ' + esc(u) : 'Common areas and unassigned rooms'}</th></tr>${rows}${foot}</tbody>`;
+  }).join('');
+  const indoor = d.rooms.filter(r => !r.outdoor && !r.shaft), outdoor = d.rooms.filter(r => r.outdoor);
+  const sum = rs => round2(rs.reduce((s, r) => s + r.area, 0));
+  const counts = SYM.filter(([k]) => d.counts[k]).map(([k, n]) => `<tr><td>${n}</td><td class="q">${d.counts[k]}</td></tr>`).join('');
+  sheetWrap.innerHTML = `<div class="sheettools"><span>Takeoff sheet · ${esc(name)}</span><span class="grow"></span>
+      <button class="btn ghost" id="sheetcsv">⬇ CSV</button><button class="btn" id="sheetprint">Print / PDF</button><button class="btn ghost" id="sheetclose" aria-label="Close">Close</button></div>
+    <article class="sheet">
+      <header class="sh"><div><div class="sk">Room schedule and symbol takeoff</div><h1>${esc(name)}</h1></div>
+        <div class="sm">Measured from the CAD layers of the drawing (DXF twin)<br>no AI model involved · $0 · ${new Date().toLocaleDateString('en-GB', {day: 'numeric', month: 'short', year: 'numeric'})}</div></header>
+      <div class="splan"><svg viewBox="${x0 * W} ${y0 * H} ${(x1 - x0) * W} ${(y1 - y0) * H}"><defs><pattern id="shatch" patternUnits="userSpaceOnUse" width="${fs * .8}" height="${fs * .8}" patternTransform="rotate(45)"><rect width="${fs * .8}" height="${fs * .8}" fill="#f3f4f6"/><line x1="0" y1="0" x2="0" y2="${fs * .8}" stroke="#a7aeb8" stroke-width="${fs / 5}"/></pattern></defs>
+        <image href="${img.src}" x="0" y="0" width="${W}" height="${H}"/>${polys}</svg>
+        <div class="slegend"><span>Net area per room</span>${HEAT.map((c, i) => `<span class="sw"><i style="background:${c}"></i>${i ? (i < 4 ? br[i - 1] + '–' + br[i] : '≥ ' + br[3]) : '< ' + br[0]} m²</span>`).join('')}<span class="sw"><i class="hatch"></i>outdoor</span></div></div>
+      <div class="scols">
+        <table class="st"><thead><tr><th>No.</th><th>Room</th><th class="q">Net area</th></tr></thead>${tbl}
+          <tbody class="tot"><tr><td></td><td>All numbered indoor rooms <small>(${indoor.length})</small></td><td class="q">${sum(indoor)} m²</td></tr>
+          <tr><td></td><td>Outdoor spaces <small>(${outdoor.length}, not in net area)</small></td><td class="q">${sum(outdoor)} m²</td></tr></tbody></table>
+        <div><table class="st cnt"><thead><tr><th>Symbol counts</th><th class="q">Count</th></tr></thead><tbody>${counts}</tbody></table>
+          <p class="snote">Each count is one symbol on its CAD layer (DOOR, WINDOW, sanitary fixtures). Areas are net: the printed room area where the plan has one, else the outline less any shafts inside it.</p></div>
+      </div>
+      <footer class="scredit">© ${esc(d.credit || '')}</footer>
+    </article>`;
+  sheetWrap.hidden = false; document.body.classList.add('sheeton');
+  $('#sheetclose').onclick = closeSheet; $('#sheetprint').onclick = () => window.print();
+  $('#sheetcsv').onclick = () => {
+    const rows = [['section', 'apartment', 'room no.', 'room', 'net area m²', 'in net living area'],
+      ...d.rooms.map(r => ['room', r.unit || '', r.number, r.name, round2(r.area), inLiving(r) ? 'yes' : 'no']),
+      ...groups.filter(Boolean).map(u => ['apartment total', u, '', 'net living area', round2(d.rooms.filter(r => r.unit === u && inLiving(r)).reduce((s, r) => s + r.area, 0)), '']),
+      ['floor total', '', '', 'all numbered indoor rooms', sum(indoor), ''],
+      ...SYM.filter(([k]) => d.counts[k]).map(([k, n]) => ['count', '', '', n, d.counts[k], '']),
+      ['credit', '', '', d.credit || '', '', '']];
+    downloadCSV(rows, `rooms-${name}.csv`);
+  };
+  sheetWrap.scrollTop = 0; $('#sheetprint').focus();
+}
+function closeSheet() { sheetWrap.hidden = true; document.body.classList.remove('sheeton'); }
+
 // ------------------------------------------------------------ demo tour
 let tour = null, tourI = 0, tourAuto = false;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -1191,7 +1346,8 @@ document.addEventListener('keydown', e => {
   const typing = e.target.matches('input, textarea, select');
   if (xr && !typing && !['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) xraySkip();
   if (e.key === 'Escape') {
-    if (tour) endTour();
+    if (!sheetWrap.hidden) closeSheet();
+    else if (tour) endTour();
     else if (adding) setAdding(false);
     else if (document.body.classList.contains('drawer')) document.body.classList.remove('drawer');
     else if (typing) e.target.blur();

@@ -1339,6 +1339,33 @@ def signoff(so: Signoff, request: Request):
     return {"ok": True}
 
 
+# ---------------------------------------------------------------- room schedule (heat-map + takeoff sheet)
+
+@app.get("/api/rooms")
+def rooms(path: str):
+    """Every numbered room of a Swiss plan (apartment, net area, outline on the page) and the symbol counts, read
+    from the CAD twin the solver uses: the heat-map and the printable takeoff sheet. $0, no model call."""
+    if path.startswith("uploads/") or "swiss_dwellings/" not in path:
+        raise HTTPException(404, "room schedules exist for the Swiss CAD plans only")
+    from bp.solvers.swiss import FILL_COMMON, SwissSolver
+    try:
+        fl = SwissSolver().floor_for({"path": path})
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"could not read the CAD twin: {type(e).__name__}")
+    if fl is None or not fl.to_page:
+        raise HTTPException(404, "no CAD twin for this drawing")
+    out = []
+    for r in fl.rooms:
+        if not r.number or r.poly.area <= 0:
+            continue
+        out.append({"number": r.number, "name": r.name or "", "unit": r.unit, "area": round(r.area, 2),
+                    "outdoor": bool(r.outdoor), "shaft": bool(r.shaft_void), "common": r.fill == FILL_COMMON,
+                    "points": fl.norm_poly(r.poly)})
+    out.sort(key=lambda r: (r["unit"] or "~", r["number"]))
+    counts = collections.Counter(s.kind for s in fl.symbols if s.kind != "other")
+    return {"path": path, "rooms": out, "units": sorted(fl.unit_labels), "counts": dict(counts), "credit": credit_for(path)}
+
+
 # ---------------------------------------------------------------- tour
 
 @app.get("/api/tour")

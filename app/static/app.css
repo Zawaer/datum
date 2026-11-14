@@ -411,3 +411,87 @@ svg .ping.model { stroke: var(--chk); }
   .tools3d { top: 50px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+
+/* ------------------------------------------------------------ room heat-map (Swiss CAD plans) and the takeoff sheet */
+.ptools { position: absolute; top: 12px; left: 12px; display: flex; z-index: 5; }
+.ptools button { border: 1px solid var(--line2); background: var(--panel); color: var(--text); padding: 5px 12px; cursor: pointer; font-size: 13px; font-weight: 500; }
+.ptools button + button { border-left: 0; border-radius: 0 var(--r1) var(--r1) 0; }
+.ptools button:first-child { border-radius: var(--r1) 0 0 var(--r1); }
+.ptools button:hover { background: var(--panel2); }
+.ptools button.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+#heat { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+#viewer.heaton #heat { pointer-events: auto; }
+#viewer.heaton #ov { display: none; }
+#viewer:has(.ptools:not([hidden])) .xhud, #viewer:has(.ptools:not([hidden])) .hint { top: 52px; }
+#heat .hr { fill-opacity: .78; stroke: var(--ink); stroke-width: calc(1 * var(--u, 1px)); mix-blend-mode: multiply; animation: hin .35s ease-out both; }
+#heat .hr.out { fill: url(#hatch); fill-opacity: .7; }
+#heat .hr.common { fill: #dfe2e6; }
+#heat .hr:hover { stroke-width: calc(3 * var(--u, 1px)); }
+@keyframes hin { from { fill-opacity: 0; } }
+#heat .hlab { font: 600 12px var(--font); fill: var(--ink); text-anchor: middle; dominant-baseline: central; paint-order: stroke; stroke: rgba(255,255,255,.9); stroke-width: calc(3 * var(--u, 1px)); pointer-events: none; }
+.hlegend { position: absolute; left: 12px; bottom: 34px; z-index: 5; background: var(--panel); border: 1px solid var(--line2); border-radius: var(--r2); padding: 8px 12px; font-size: 11px; color: var(--mut); box-shadow: 0 2px 8px rgba(0,0,0,.12); min-width: 220px; }
+.hlegend .lt { font-weight: 600; text-transform: uppercase; letter-spacing: .6px; margin-bottom: 4px; }
+.hlegend .lscale { display: grid; grid-template-columns: repeat(5, 1fr); height: 10px; gap: 2px; }
+.hlegend .lticks { position: relative; height: 14px; margin-top: 2px; }
+.hlegend .lticks span { position: absolute; transform: translateX(-50%); }
+.hlegend .lticks span:first-child { transform: none; }
+.hlegend .lticks .u { right: 0; transform: none; }
+.hlegend .lkeys { display: flex; gap: 12px; margin-top: 6px; }
+.sw { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.sw i { display: inline-block; width: 12px; height: 12px; border: 1px solid var(--line2); }
+.sw i.hatch { background: repeating-linear-gradient(45deg, #f3f4f6 0 3px, #a7aeb8 3px 4px); }
+.sw i.com { background: #dfe2e6; }
+.hlegend .ltot { display: flex; gap: 12px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
+.hlegend .ltot b { color: var(--text); font-weight: 600; }
+
+#sheetwrap { position: fixed; inset: 0; z-index: 40; background: rgba(22,25,29,.55); overflow: auto; padding: 0 16px 32px; }
+.sheettools { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; margin: 0 -16px 24px; padding: 10px max(16px, calc((100% - 820px) / 2 + 16px)); color: #fff; font-weight: 600; font-size: 14px; background: var(--ink); }
+.sheettools .grow { flex: 1; }
+.sheettools .btn { padding: 6px 14px; font-size: 13px; }
+.sheettools .btn:not(.ghost) { background: #fff; color: var(--ink); border-color: #fff; }
+.sheet { max-width: 820px; margin: 0 auto; background: #fff; color: var(--text); padding: 40px 48px; border-radius: 2px; box-shadow: 0 4px 24px rgba(0,0,0,.3); font-size: 12px; }
+.sheet .sh { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; border-bottom: 2px solid var(--ink); padding-bottom: 8px; }
+.sheet .sk { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--mut); font-weight: 600; }
+.sheet h1 { margin: 2px 0 0; font-size: 20px; font-weight: 600; font-family: var(--mono); letter-spacing: -.3px; }
+.sheet .sm { text-align: right; color: var(--mut); font-size: 11px; line-height: 1.5; }
+.splan { margin: 16px 0; border: 1px solid var(--line); }
+.splan svg { display: block; width: 100%; max-height: 380px; }
+.splan .snum { font-family: var(--font); font-weight: 600; fill: var(--ink); text-anchor: middle; paint-order: stroke; stroke: #fff; stroke-width: .25em; }
+.slegend { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 6px 10px; border-top: 1px solid var(--line); background: var(--panel2); color: var(--mut); font-size: 11px; }
+.slegend > span:first-child { font-weight: 600; color: var(--text); }
+.scols { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.st { width: 100%; border-collapse: collapse; }
+.st th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--mut); font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--ink); }
+.st td { padding: 3px 6px; border-bottom: 1px solid var(--line); }
+.st .q { text-align: right; white-space: nowrap; }
+.st .no { font-family: var(--mono); color: var(--ev-ink); width: 52px; }
+.st small { color: var(--mut); font-size: 11px; }
+.st tr.ex td { color: var(--mut); }
+.st tr.ex td.q { text-decoration: line-through; text-decoration-color: var(--faint); }
+.st tr.gh th { background: var(--panel2); color: var(--text); border-bottom: 1px solid var(--line2); padding-top: 8px; }
+.st tr.sub td { font-weight: 600; border-top: 3px double var(--ink); border-bottom: 0; padding-bottom: 8px; }
+.st tr.cm td { color: var(--mut); }
+.st tbody.tot td { font-weight: 600; border-top: 2px solid var(--ink); border-bottom: 0; }
+.st tbody.tot tr + tr td { border-top: 0; font-weight: 400; color: var(--mut); }
+.st.cnt td.q { font-weight: 600; }
+.snote { color: var(--mut); font-size: 11px; line-height: 1.45; }
+.scredit { margin-top: 20px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--mut); font-size: 10px; line-height: 1.4; }
+@media (max-width: 860px) {
+  .ptools button { padding: 6px 10px; }
+  .hlegend { left: 8px; bottom: 30px; min-width: 0; padding: 6px 8px; }
+  .hlegend .ltot, .hlegend .lkeys { display: none; }
+  .hlegend { width: 150px; font-size: 10px; } .hlegend .lt { font-size: 10px; margin-bottom: 2px; } .hlegend .lscale { height: 8px; }
+  .sheet { padding: 20px 16px; }
+  .sheet .sh { flex-direction: column; align-items: flex-start; } .sheet .sm { text-align: left; }
+  .scols { grid-template-columns: 1fr; }
+}
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body.sheeton { display: block; height: auto; background: #fff; }
+  body.sheeton > *:not(#sheetwrap) { display: none !important; }
+  body.sheeton #sheetwrap { position: static; background: none; padding: 0; overflow: visible; }
+  body.sheeton .sheettools { display: none; }
+  body.sheeton .sheet { box-shadow: none; padding: 0; max-width: none; }
+  .splan, .st tbody { break-inside: avoid; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
