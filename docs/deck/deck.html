@@ -229,19 +229,20 @@
   baseboard metres, schedule tables and colour zones, slab area by type (thickness + bars), pipe tags, sizes and run
   lengths. The answer shows table cells, measured lines and zones, and replays how it was worked out in 2-4 s.
   41 questions on Stoa's four example sheets, uploaded through the real API: vector PDF 40, full-res PNG 37,
-  2,000 px JPG 33, 2,500 px PNG 32, simulated scan 32. Sibling sheets never used in development: 9 of 11.
-  Weak: low-res school plans (1-2 of 8 below full resolution; coarse sheets answer totals only and say why); slab
-  areas on an unseen slab plan come out 23-41 % low,
-  flagged low confidence. API cost: $0.003 for all 41 on PDFs. -->
+  2,500 px PNG 38, simulated scan 37, rough hand-marked scan 33, 2,000 px JPG 31 (runs/stoa_examples_v9c_forms).
+  Door counts follow Stoa's rule (closet doors not counted). Sibling sheets never used in development: 9 of 11.
+  Weak: small JPGs where room names are unreadable (it asks which room instead of guessing); window counts on the
+  school plan; the dorm module's doors. API cost: $0.003 for all 41 on PDFs. -->
 <section class="slide">
-  <h2>Stoa’s example sheets: 40 of 41 from a PDF, fewer from a scan.</h2>
+  <h2>Stoa’s example sheets: 40 of 41 from a PDF, 37 from a scan.</h2>
   <p>Floor, slab and piping plans, read from their own text and lines. Right answers by upload form:</p>
   <div class="hbar" style="margin-top:72px; row-gap:28px; grid-template-columns:520px 1fr">
     <div class="lab o">Vector PDF</div><div class="track o" style="height:64px"><i style="width:calc(40 / 41 * 960px)"></i><em>40 / 41</em></div>
     <div class="lab">Full-resolution PNG</div><div class="track o" style="height:64px"><i style="width:calc(37 / 41 * 960px)"></i><em>37</em></div>
-    <div class="lab">2,000 px JPG</div><div class="track o" style="height:64px"><i style="width:calc(33 / 41 * 960px)"></i><em>33</em></div>
-    <div class="lab">2,500 px PNG</div><div class="track o" style="height:64px"><i style="width:calc(32 / 41 * 960px)"></i><em>32</em></div>
-    <div class="lab">Scanned PDF</div><div class="track o" style="height:64px"><i style="width:calc(32 / 41 * 960px)"></i><em>32</em></div>
+    <div class="lab">2,500 px PNG</div><div class="track o" style="height:64px"><i style="width:calc(38 / 41 * 960px)"></i><em>38</em></div>
+    <div class="lab">Scanned PDF</div><div class="track o" style="height:64px"><i style="width:calc(37 / 41 * 960px)"></i><em>37</em></div>
+    <div class="lab">Rough hand-marked scan</div><div class="track o" style="height:64px"><i style="width:calc(33 / 41 * 960px)"></i><em>33</em></div>
+    <div class="lab">2,000 px JPG</div><div class="track o" style="height:64px"><i style="width:calc(31 / 41 * 960px)"></i><em>31</em></div>
   </div>
   <div class="foot"><span>Stoa’s four example sheets, 41 questions, uploaded through the app’s API. Method: slide 12</span><span>9</span></div>
 </section>
@@ -288,7 +289,7 @@
       </table>
       <div class="s"><b>Split.</b> 20 % of drawings held out as test by a SHA-1 hash of the drawing id, so every format and language twin of a drawing stays on one side. Nothing tuned on test.</div>
       <div class="s"><b>Scoring.</b> Counts exact, areas, lengths and volumes within 2 %. “Not sure” counts as wrong. Free text: LLM judge, same rubric for every system.</div>
-      <div class="s"><b>Sheets.</b> 41 questions on Stoa’s four example sheets; gold printed on the sheet or measured by hand (wider tolerance). Sibling sheets never used in development: 9 / 11. Weak: low-res school plans (1–2 / 8 below full resolution); slab areas on an unseen slab plan 23–41 % low, flagged. <code>runs/stoa_examples_v8_*</code>.</div>
+      <div class="s"><b>Sheets.</b> 41 questions on Stoa’s four example sheets; gold printed on the sheet or measured by hand (wider tolerance). Sibling sheets never used in development: 9 / 11. Closet doors not counted (Stoa’s rule). Weak: small JPGs with unreadable room names (it asks which room), school window counts, dorm-module doors. <code>runs/stoa_examples_v9c_*</code>.</div>
     </div>
     <div>
       <div class="s"><b>Ours.</b> All 25,420 test questions, 90.7 % [95 % CI 90.4–91.1]; declines 11.7 %. <code>runs/router_full_test_v8</code>.</div>

@@ -104,10 +104,10 @@ one and the total ticks up to 18,472 SF.]*
 > Your final round uses sheets nobody has seen. Floor plans, slab plans, piping plans
 > go to specialists that read the sheet's own text and lines.
 > **Eighteen thousand four hundred and seventy-two square feet**, added up from the cells it outlined.
-> On your four example sheets: **forty of forty-one** from the PDF, thirty-three from the small screenshots.
-> Scans and low-res school plans are the weak spot, and it says so.
+> On your four example sheets: **forty of forty-one** from the PDF, thirty-seven from a scan.
+> Where a small screenshot leaves a room name unreadable, it asks which room instead of guessing.
 
-(Checked: this question on the dormitory PDF answers 18,472 from the sheet's schedule, `runs/stoa_examples_v8_pdf.summary.md`, dorm5.)
+(Checked: this question on the dormitory PDF answers 18,472 from the sheet's schedule, `runs/stoa_examples_v9_pdf.summary.md`, dorm5.)
 
 ### 2:45–3:00 · Close (slide 10, then 11)
 
@@ -145,7 +145,7 @@ About 250 words. Same order, fewer switches: one demo moment at the start, then 
 | 0:30–0:45 | slide 4 | "So we route every question to the cheapest method that's exact: the CAD layers, the BIM model, or a small detector we trained. Only zero point four percent of questions ever touch a language model." |
 | 0:45–1:00 | slide 6 | "On all twenty-five thousand, four hundred and twenty held-out questions, we're right **ninety point seven percent**. Sonnet, given the same files: sixty-nine point eight. Twenty-one points better, at **one nineteen-hundredth of the cost**." |
 | 1:00–1:10 | slide 3 | "And you can check every answer. The evidence adds up to the number. The confidence means what it says. A second method re-checks it." |
-| 1:10–1:22 | slide 9 | "Uploaded sheets go to specialists that read their own text and lines. On Stoa's example sheets, forty of forty-one right from the PDF; scans are harder, and it says so." |
+| 1:10–1:22 | slide 9 | "Uploaded sheets go to specialists that read their own text and lines. On Stoa's example sheets, forty of forty-one right from the PDF, thirty-seven from a scan; where it can't read a room name, it asks." |
 | 1:22–1:30 | slide 10 | "For Stoa: a takeoff engine **a professional can sign off on**. Datum: blueprints that talk." |
 
 ---
@@ -231,15 +231,16 @@ from the PDF alone (it even caught one of our own area errors).
 
 **"Will it work on the unseen sheets in the final round?"**
 That is what the sheet specialists are for, and we measured them the way the final round works: Stoa's four
-example sheets uploaded through the app's API in five forms. 41 questions: 40 right from the vector PDF, 37 from
-the full-resolution PNG, 33 from the 2,000 px screenshots, 32 from a 2,500 px PNG and 32 from a simulated scan.
+example sheets uploaded through the app's API in six forms. 41 questions: 40 right from the vector PDF, 37 from
+the full-resolution PNG, 38 from a 2,500 px PNG, 37 from a simulated scan, 33 from a rough hand-marked scan and 31
+from the 2,000 px screenshots. (Door counts follow your rule: closet doors are not counted.)
 On sibling sheets from the same public sets, never used while building, 9 of 11. Before the specialists, the
 generic reader got 22 of the original 34 on the PDFs.
 
 **"What's weak on sheets?"**
-Two things. Low-resolution school plans: below full resolution only 1 or 2 of the school sheet's 8 questions are
-right, so coarse sheets now answer only totals and the footprint and say why. And slab areas on a sheet we never tuned on:
-on the held-out imperial slab plan the areas come out 23 to 41 % low, and the answer says it is unsure. On a
+Three things. Small screenshots where room names are unreadable: on the 2,000 px school plan it asks which room
+you mean instead of guessing, so only 1 of its 8 questions is right. Window counts on the school plan. And door
+counts on the dorm module. On a
 harder set of 40 questions worded like a site engineer would (four languages, 5 that must be declined), a run at
 midday got 91 of 160 across four upload forms; per-room door counts and slab volumes were the misses.
 

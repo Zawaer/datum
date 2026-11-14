@@ -2,7 +2,7 @@
 
 Every number below comes from a run log (`runs/*.jsonl`, rebuilt into `docs/RESULTS.md` by
 `BP_OURS_RUN=router_full_test_v8 bash analysis/run_all.sh`), from `docs/COSTS.md`, or from the verification
-reports (`runs/stoa_examples_v8_*.summary.md` for the construction sheets, `runs/crosscheck_test.summary.md`, `runs/crosscheck_vlm_test_v7.summary.md`, `runs/cubicasa_test_vlmarb.summary.md`, `docs/EVIDENCE_QUALITY.md`, `docs/ROBUSTNESS.md`, `docs/PROVENANCE.md`).
+reports (`runs/stoa_examples_v9c_forms.summary.md` for the construction sheets, `runs/crosscheck_test.summary.md`, `runs/crosscheck_vlm_test_v7.summary.md`, `runs/cubicasa_test_vlmarb.summary.md`, `docs/EVIDENCE_QUALITY.md`, `docs/ROBUSTNESS.md`, `docs/PROVENANCE.md`).
 TODO markers remain only for the demo / video links.
 
 ## Project name (≤ 30 chars)
@@ -19,13 +19,13 @@ _(187 characters)_
 
 ## Short version (~600 chars, for quick paste)
 
-Datum answers questions about construction drawings and BIM models, typed or spoken, and shows the proof on the drawing: counted doors numbered, rooms outlined with their m², table cells and pipe runs marked, and a short replay of how the answer was worked out. Uploaded floor, slab and piping sheets go to specialists that read the sheet's own text and lines: 40/41 right on Stoa's example sheets as vector PDFs, weaker on low-res scans. On 25,420 held-out test questions: 90.7 % at $0.013 per 1,000, vs 69.8 % for Claude Sonnet 5.5 with the same files at $25.76. 493 automated tests.
+Datum answers questions about construction drawings and BIM models, typed or spoken, and shows the proof on the drawing: counted doors numbered, rooms outlined with their m², table cells and pipe runs marked, and a short replay of how the answer was worked out. Uploaded floor, slab and piping sheets go to specialists that read the sheet's own text and lines: 40/41 right on Stoa's example sheets as vector PDFs, 37/41 from a scan. On 25,420 held-out test questions: 90.7 % at $0.013 per 1,000, vs 69.8 % for Claude Sonnet 5.5 with the same files at $25.76. 493 automated tests.
 
-_(585 characters)_
+_(579 characters)_
 
 ## Description (≤ 5000 chars, markdown)
 
-_Character count of the block between the rules below: 4,612 (limit 5,000)._
+_Character count of the block between the rules below: 4,545 (limit 5,000)._
 
 ---
 
@@ -58,7 +58,7 @@ For final judging, Stoa uploads unseen complex sheets. Each upload is classified
 - **Slab plans:** area by type (thickness + bars), reinforcement, trenches, sumps, joint panels.
 - **Piping plans:** tag counts, pipe sizes, notes, referenced sheets, run lengths.
 
-On Stoa's four example sheets (41 questions): vector PDF 40/41, full-res PNG 37/41, 2,000 px JPG 33/41, 2,500 px PNG 32/41, scanned PDF 32/41. Before the specialists, the generic reader got 22 of the original 34 on the PDFs (now 33). On sibling sheets we never tuned on: 9/11. Weak: low-res school plans (1–2 of 8 below full resolution; coarse sheets give totals only and say why) and small slabs from low-res images (on the held-out S-100A/B slab plans the PDF areas land within 1–4 % of hand measurements; from 2,000 px JPGs the 6" slabs come out ~40 % low, flagged low confidence).
+On Stoa's four example sheets (41 questions): vector PDF 40/41, full-res PNG 37, 2,500 px PNG 38, scanned PDF 37, a rough hand-marked scan 33, 2,000 px JPG 31. Door counts follow Stoa's rule: closet doors are not counted. Before the specialists, the generic reader got 22 of the original 34 on the PDFs (now 33). On sibling sheets we never tuned on: 9/11. Weak: small JPGs where room names are unreadable (it asks which room instead of guessing), window counts on the school plan, and the dorm module's doors.
 
 ### 3. Visualising reasoning
 
@@ -74,7 +74,7 @@ A router sends each question to the cheapest method that answers it **exactly**:
 
 ### 5. Low inference cost
 
-**$0.013 per 1,000 questions** on the test set: numeric answers make no paid calls. On the example sheets, $0.003 for all 41 questions on vector PDFs, $0.09–0.18 on images (OCR is local; Claude Haiku reads only what OCR cannot).
+**$0.013 per 1,000 questions** on the test set: numeric answers make no paid calls. On the example sheets, $0.003 for all 41 questions on vector PDFs, $0.09–0.20 on images and scans (OCR is local; Claude Haiku reads only what OCR cannot).
 
 ### Architecture
 
