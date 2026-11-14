@@ -1178,7 +1178,9 @@ RECHECK_PROMPT = """This is a zoomed crop of a piping plan, {w}x{h} pixels. List
 (e.g. {ex}) printed in it. One line per label: its box as four integer pixel coordinates in this image
 (left,top,right,bottom), a bar, then the label, e.g.
 212,40,268,58|{ex}
-Write the numbers themselves, never the letters x0,y0,x1,y1. Only labels you can actually read. No other output."""
+Write the numbers themselves, never the letters x0,y0,x1,y1. Only labels you can actually read, and only whole
+labels: a longer label that merely contains the pattern (FSCV-2 contains CV-2) is not one; write each label exactly as
+printed. No other output."""
 
 
 def _family_scan(sheet: dict, fams: list[str], cost: list, bare: bool = False,
@@ -1193,7 +1195,7 @@ def _family_scan(sheet: dict, fams: list[str], cost: list, bare: bool = False,
     if not img:
         return []
     max_tiles = max_tiles or FAMSCAN_TILES
-    key = hashlib.sha1(f"{img}|{os.path.getsize(img)}|{','.join(sorted(fams))}|v3|{bare}|{max_tiles}"
+    key = hashlib.sha1(f"{img}|{os.path.getsize(img)}|{','.join(sorted(fams))}|v4|{bare}|{max_tiles}"
                        .encode()).hexdigest()[:16]
     cf = CACHE / "famscan" / f"{key}.json"
     Image.MAX_IMAGE_PIXELS = None
@@ -1239,7 +1241,12 @@ def _family_scan(sheet: dict, fams: list[str], cost: list, bare: bool = False,
         bb = [(x0 + min(a_, c_)) / W, (y0 + min(b_, d_)) / H, (x0 + max(a_, c_)) / W, (y0 + max(b_, d_)) / H]
         items.append({"text": m.group(5), "bbox": [min(max(v, 0.0), 1.0) for v in bb], "src": "vision-famscan",
                       "conf": 70.0})
-    return [t for t in tag_instances(items, img) if t["family"] in fams]
+    out = [t for t in tag_instances(items, img) if t["family"] in fams]
+    # a famscan label at the place of a longer tag the first reading has (CV-2 inside FSCV-2) is that tag's tail
+    longer = [t for t in tag_instances(sheet.get("items") or [], img) if t["family"] not in fams]
+    return [t for t in out if not any(o["tag"].endswith(t["tag"]) and (_near(t["bbox"], o["bbox"], 2.5)
+                                                                       or _overlap(t["bbox"], o["bbox"]) > 0.2)
+                                      for o in longer)]
 
 
 def _recheck(sheet: dict, fam: str, found: list[dict], cost: list, avoid: list[dict] = ()) -> list[dict] | None:
@@ -1270,7 +1277,7 @@ def _recheck(sheet: dict, fam: str, found: list[dict], cost: list, avoid: list[d
     pieces = [[r[0] + (r[2] - r[0]) * i / n - (0.01 if i else 0), r[1],
                r[0] + (r[2] - r[0]) * (i + 1) / n + (0.01 if i < n - 1 else 0), r[3]] for i in range(n)]
     def piece(pc):
-        key = hashlib.sha1(f"{sheet['image']}|{os.path.getsize(sheet['image'])}|{fam}|{[round(x, 4) for x in pc]}|v3"
+        key = hashlib.sha1(f"{sheet['image']}|{os.path.getsize(sheet['image'])}|{fam}|{[round(x, 4) for x in pc]}|v4"
                            .encode()).hexdigest()[:16]
         cf = CACHE / "recheck" / f"{key}.json"
         if cf.exists():
@@ -1367,7 +1374,7 @@ def _count(q: str, sheet: dict, insts: list[dict], base: dict, cost: list) -> di
     missing = [f for f in fams if not any(t["family"] == f for t in sel)]
     if missing and sheet.get("image") and "pdf text layer" not in sheet["readers"] and (not sel or len(fams) > 1):
         # an asked family read nowhere: one more, closer look at the whole sheet for just these labels
-        famscan = _family_scan(sheet, missing, cost)
+        famscan = _family_scan(sheet, missing, cost, max_tiles=48)
         sel = sel + famscan
     if not sel:
         if not present:  # no tag of any family read: the reading failed, a 0 would be a guess
