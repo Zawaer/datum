@@ -149,3 +149,31 @@ def test_tag_chips_and_valve_families(sheet):
     tagged = [e for e in r["evidence"] if e.get("tag")]
     assert tagged and all(e["group"] == "FSCV" and e["tag"].startswith("FSCV-") for e in tagged)
     assert "CV (check valves, 5)" in r["explanation"]  # says which valve families were not counted
+
+
+def test_unread_sheet_never_a_confident_zero(monkeypatch):
+    """A scan on which no tag could be read must not answer '0 check valves' (it abstains); a sheet whose other
+    tag families read fine may say 'not found', with low confidence."""
+    d = _load("M-101A_pdf_read.json")
+    blank = dict(d, items=[it for it in d["items"] if not P.tags_in(it)], readers=["tesseract (3 variants)"])
+    monkeypatch.setattr(P, "read_sheet", lambda path, meta=None, vision=None: copy.deepcopy(blank))
+    r = P.answer("scan.jpg", "How many check valves?", {})
+    assert r["answer"] is None and r["confidence"] == 0.0
+    no_cv = dict(d, items=[it for it in d["items"] if not any(t["family"] == "CV" for t in P.tags_in(it))],
+                 readers=["tesseract (3 variants)"])
+    monkeypatch.setattr(P, "read_sheet", lambda path, meta=None, vision=None: copy.deepcopy(no_cv))
+    r = P.answer("scan.jpg", "How many check valves?", {})
+    assert r["answer"] == 0 and r["confidence"] <= 0.3 and "Not found" in r["explanation"]
+
+
+def test_ink_on_yellowed_paper(tmp_path):
+    import numpy as np
+    from PIL import Image
+
+    g = np.full((200, 400), 235, np.uint8)  # yellowed / grey paper
+    g[90:110, 100:200] = 165  # faded text: lighter than 128
+    f = tmp_path / "faded.png"
+    Image.fromarray(g).save(f)
+    ink = P._inked(str(f))
+    assert ink([100 / 400, 90 / 200, 200 / 400, 110 / 200]) > 0.9
+    assert ink([300 / 400, 20 / 200, 380 / 400, 60 / 200]) < 0.03

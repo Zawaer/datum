@@ -33,6 +33,7 @@ METHOD = "sheets-piping"
 CACHE = Path(os.environ.get("BP_PIPING_CACHE", "cache/sheets/piping"))
 VISION = os.environ.get("BP_PIPING_VISION", "1") != "0"  # the Haiku tile transcription (~$0.03-0.1 per sheet)
 MAX_TILES = 40
+FAMSCAN_TILES = 24
 _lock = threading.Lock()
 _mem: dict = {}
 
@@ -439,6 +440,60 @@ def _image_of(path: str, meta: dict) -> str | None:
         return None
 
 
+def _skew_deg(g) -> float:
+    """Skew of a scanned sheet in degrees (median angle of long near-horizontal strokes), 0 when unsure."""
+    import cv2
+    import numpy as np
+
+    sm = cv2.resize(g, None, fx=1500 / max(g.shape), fy=1500 / max(g.shape), interpolation=cv2.INTER_AREA)
+    edges = cv2.Canny(sm, 50, 150)
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 1800, threshold=120, minLineLength=sm.shape[1] // 8, maxLineGap=4)
+    if lines is None:
+        return 0.0
+    ang = [math.degrees(math.atan2(y2 - y1, x2 - x1)) for x1, y1, x2, y2 in lines.reshape(-1, 4).tolist()]
+    ang = [a for a in ang if abs(a) < 5]
+    if len(ang) < 5:
+        return 0.0
+    return float(np.median(ang))
+
+
+def _clean_scan(image_path: str):
+    """A poor scan (yellowed / grey paper, low contrast, skew): contrast-stretched to black on white and deskewed,
+    saved next to the cache. Returns (clean image path, inverse map for normalised boxes) or (None, None) when the
+    sheet is already clean, straight paper."""
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return None, None
+    g = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    if g is None:
+        return None, None
+    paper, dark = np.percentile(g[::4, ::4], [50, 0.5])
+    ang = _skew_deg(g)
+    if paper > 235 and dark < 60 and abs(ang) < 0.3:
+        return None, None
+    st = np.clip((g.astype(np.float32) - dark) * 255.0 / max(paper - dark - 10, 30), 0, 255).astype(np.uint8)
+    H, W = g.shape
+    M = None
+    if abs(ang) >= 0.3:
+        M = cv2.getRotationMatrix2D((W / 2, H / 2), ang, 1.0)
+        st = cv2.warpAffine(st, M, (W, H), flags=cv2.INTER_CUBIC, borderValue=255)
+    CACHE.mkdir(parents=True, exist_ok=True)
+    out = CACHE / f"{_sha(image_path)}_clean.png"
+    cv2.imwrite(str(out), st)
+    if M is None:
+        return str(out), None
+    Minv = cv2.invertAffineTransform(M)
+
+    def back(b):
+        pts = np.array([[b[0] * W, b[1] * H], [b[2] * W, b[1] * H], [b[0] * W, b[3] * H], [b[2] * W, b[3] * H]])
+        q = pts @ Minv[:, :2].T + Minv[:, 2]
+        return [max(0.0, q[:, 0].min() / W), max(0.0, q[:, 1].min() / H), min(1.0, q[:, 0].max() / W),
+                min(1.0, q[:, 1].max() / H)]
+    return str(out), back
+
+
 def read_sheet(path: str, meta: dict | None = None, vision: bool | None = None) -> dict:
     """{"items": [{"text", "bbox", "src", "conf"}], "readers": [...], "cost_usd": first-read cost} (cached)."""
     meta = meta or {}
@@ -476,6 +531,12 @@ def read_sheet(path: str, meta: dict | None = None, vision: bool | None = None) 
         readers.append("pdf text layer")
     if not items:
         img = _image_of(path, meta)
+        src_img, back = img, None
+        if img:
+            clean, back = _clean_scan(img)
+            if clean:  # both readers see the cleaned scan; their boxes are mapped back to the uploaded image
+                img = clean
+                readers.append("scan cleaned (contrast" + (", deskew)" if back else ")"))
         if img:
             # the Haiku tile read waits on the network, tesseract on the CPU: run them side by side (on a 4-core VM
             # one after the other took ~80 s, too long for a first question)
@@ -491,6 +552,13 @@ def read_sheet(path: str, meta: dict | None = None, vision: bool | None = None) 
                 if v:
                     readers.append(f"Claude Haiku tile transcription (${c:.3f})")
                 items += _calibrate(v, t)
+        if back:
+            for it in items:
+                it["bbox"] = back(it["bbox"])
+                if it.get("spans"):
+                    it["spans"] = [(a, b_, back(bb)) for a, b_, bb in it["spans"]]
+                it.pop("tile", None)
+        img = src_img
     d = {"items": items, "readers": readers, "cost_usd": round(cost, 5)}
     if items:
         CACHE.mkdir(parents=True, exist_ok=True)
@@ -613,7 +681,11 @@ def _inked(image: str | None):
 
         Image.MAX_IMAGE_PIXELS = None
         _ink_cache.clear()
-        _ink_cache[image] = np.asarray(Image.open(image).convert("L")) < 128
+        g = np.asarray(Image.open(image).convert("L"))
+        # ink = darker than halfway between the paper and the darkest strokes: a fixed 128 saw no ink at all on a
+        # faded scan on yellowed paper (every box was then dropped as blank)
+        paper, dark = np.percentile(g[::4, ::4], [50, 0.5])
+        _ink_cache[image] = g < (paper + dark) / 2 if paper - dark > 20 else g < 128
     g = _ink_cache[image]
     H, W = g.shape
 
@@ -661,7 +733,7 @@ def tag_instances(items: list[dict], image: str | None = None) -> list[dict]:
         nums = sorted({k["num"] for k in ks})
         for k in ks:
             others = [n for n in nums if n != k["num"]]
-            if others and k["num"] > 1.4 * max(others) + 2 and len(k["seen_by"]) < 2 \
+            if others and k["num"] > 1.25 * max(others) + 2 and len(k["seen_by"]) < 2 \
                     and sum(1 for x in ks if x["num"] == k["num"]) == 1:
                 kept.remove(k)
     kept.sort(key=lambda c: (c["bbox"][1], c["bbox"][0]))
@@ -968,7 +1040,7 @@ def _ev(bbox, label, value=None, page=0, kind="box", tag=None):
 def _families_asked(q: str, present: set) -> list[str] | None:
     ql = q.lower()
     # a family code typed directly ("How many PIT?", "count the FSCV tags")
-    codes = [c for c in sorted(present, key=len, reverse=True) if c not in ("IF", "P", "V")
+    codes = [c for c in sorted(set(present) | set(FAMILIES), key=len, reverse=True) if c not in ("IF", "P", "V", "FS")
              and re.search(r"(?<![a-z0-9])" + re.escape(c.lower()) + r"(?:s|'s)?(?![a-z0-9])", ql)]
     if codes:
         return codes
@@ -1020,7 +1092,64 @@ x0,y0,x1,y1|LABEL
 pixel coordinates in this image. Only labels you can actually read. No other output."""
 
 
-def _recheck(sheet: dict, fam: str, found: list[dict], cost: list) -> list[dict] | None:
+def _family_scan(sheet: dict, fams: list[str], cost: list) -> list[dict]:
+    """The asked family read nowhere (a faded / blurred scan): the whole sheet once more in small tiles upscaled ~x3,
+    asking Haiku only for labels of these families. Cached per image + families. Returns tag instances."""
+    from PIL import Image
+
+    from bp.generic import llm
+
+    img = sheet.get("image")
+    if not img:
+        return []
+    key = hashlib.sha1(f"{img}|{os.path.getsize(img)}|{','.join(sorted(fams))}".encode()).hexdigest()[:16]
+    cf = CACHE / "famscan" / f"{key}.json"
+    Image.MAX_IMAGE_PIXELS = None
+    im = Image.open(img).convert("RGB")
+    W, H = im.size
+    if cf.exists():
+        got = json.loads(cf.read_text())["lines"]
+    else:
+        t = SEND_PX // 3
+        while True:  # ~x3 zoom on small scans; at most FAMSCAN_TILES calls
+            nx, ny = math.ceil((W - t * 0.12) / (t * 0.88)), math.ceil((H - t * 0.12) / (t * 0.88))
+            if nx * ny <= FAMSCAN_TILES:
+                break
+            t = int(t * 1.15)
+        t = min(t, W, H)
+        tiles = [(round(i * (W - t) / max(1, nx - 1)), round(j * (H - t) / max(1, ny - 1))) for j in range(ny)
+                 for i in range(nx)]
+        f = SEND_PX / t
+        ex = ", ".join(f"{fm}-1" for fm in fams)
+        fam_txt = " or ".join(f"{fm}-<number>" for fm in fams)
+
+        def one(xy):
+            crop = im.crop((xy[0], xy[1], xy[0] + t, xy[1] + t)).resize((SEND_PX, SEND_PX), Image.LANCZOS)
+            r = llm.ask(RECHECK_PROMPT.format(w=SEND_PX, h=SEND_PX, fam=fam_txt, ex=ex), [crop], model="haiku",
+                        think="low", system="You read drawings exactly. Output only the requested lines.",
+                        timeout=120, tag="sheets-piping-famscan")
+            return xy, (r.get("text") or "").splitlines(), float(r.get("cost_usd") or 0.0)
+
+        with ThreadPoolExecutor(min(16, len(tiles))) as exr:
+            res = list(exr.map(one, tiles))
+        cost.append(sum(c for _, _, c in res))
+        got = [[xy[0], xy[1], f, ln] for xy, lines, _ in res for ln in lines]
+        cf.parent.mkdir(parents=True, exist_ok=True)
+        cf.write_text(json.dumps({"fams": fams, "lines": got}))
+    items = []
+    for x0, y0, f, line in got:
+        m = re.match(r"\s*(-?\d+(?:\.\d+)?)[\s,]+(-?\d+(?:\.\d+)?)[\s,]+(-?\d+(?:\.\d+)?)[\s,]+(-?\d+(?:\.\d+)?)"
+                     r"\s*[|:]\s*(.+?)\s*$", line)
+        if not m:
+            continue
+        a_, b_, c_, d_ = (float(m.group(k)) / f for k in range(1, 5))
+        bb = [(x0 + min(a_, c_)) / W, (y0 + min(b_, d_)) / H, (x0 + max(a_, c_)) / W, (y0 + max(b_, d_)) / H]
+        items.append({"text": m.group(5), "bbox": [min(max(v, 0.0), 1.0) for v in bb], "src": "vision-famscan",
+                      "conf": 70.0})
+    return [t for t in tag_instances(items, img) if t["family"] in fams]
+
+
+def _recheck(sheet: dict, fam: str, found: list[dict], cost: list, avoid: list[dict] = ()) -> list[dict] | None:
     """A family's numbering has a gap (FSCV-1..5, 7): one Haiku look at a zoomed crop around the labels found,
     asking only for that family. Returns the new labels (maybe []), or None when the crop would not be a zoom."""
     from PIL import Image
@@ -1042,25 +1171,27 @@ def _recheck(sheet: dict, fam: str, found: list[dict], cost: list) -> list[dict]
         return None
     pieces = [[r[0] + (r[2] - r[0]) * i / n - (0.01 if i else 0), r[1],
                r[0] + (r[2] - r[0]) * (i + 1) / n + (0.01 if i < n - 1 else 0), r[3]] for i in range(n)]
-    found_lines = []
-    for pc in pieces:
+    def piece(pc):
         key = hashlib.sha1(f"{sheet['image']}|{os.path.getsize(sheet['image'])}|{fam}|{[round(x, 4) for x in pc]}"
                            .encode()).hexdigest()[:16]
         cf = CACHE / "recheck" / f"{key}.json"
         if cf.exists():
-            lines = json.loads(cf.read_text())["lines"]
-        else:
-            crop = im.crop((round(pc[0] * W), round(pc[1] * H), round(pc[2] * W), round(pc[3] * H)))
-            crop = crop.resize((round(crop.width * f), round(crop.height * f)), Image.LANCZOS)
-            res = llm.ask(RECHECK_PROMPT.format(w=crop.width, h=crop.height, fam=fam, ex=found[0]["tag"]), [crop],
-                          model="haiku", system="You read drawings exactly. Output only the requested lines.",
-                          timeout=120, tag="sheets-piping-recheck")
-            cost.append(float(res.get("cost_usd") or 0.0))
-            lines = (res.get("text") or "").splitlines()
-            if res.get("text"):
-                cf.parent.mkdir(parents=True, exist_ok=True)
-                cf.write_text(json.dumps({"fam": fam, "lines": lines}))
-        found_lines += [(pc, ln) for ln in lines]
+            return pc, json.loads(cf.read_text())["lines"], 0.0
+        crop = im.crop((round(pc[0] * W), round(pc[1] * H), round(pc[2] * W), round(pc[3] * H)))
+        crop = crop.resize((round(crop.width * f), round(crop.height * f)), Image.LANCZOS)
+        res = llm.ask(RECHECK_PROMPT.format(w=crop.width, h=crop.height, fam=fam, ex=found[0]["tag"]), [crop],
+                      model="haiku", system="You read drawings exactly. Output only the requested lines.",
+                      timeout=120, tag="sheets-piping-recheck")
+        lines = (res.get("text") or "").splitlines()
+        if res.get("text"):
+            cf.parent.mkdir(parents=True, exist_ok=True)
+            cf.write_text(json.dumps({"fam": fam, "lines": lines}))
+        return pc, lines, float(res.get("cost_usd") or 0.0)
+
+    with ThreadPoolExecutor(len(pieces)) as ex:  # the pieces side by side: one round trip of latency
+        got = list(ex.map(piece, pieces))
+    cost.append(sum(c for _, _, c in got))
+    found_lines = [(pc, ln) for pc, lines, _ in got for ln in lines]
     ink = _inked(sheet["image"])
     have = {t["tag"] for t in found}
     new = []
@@ -1074,6 +1205,8 @@ def _recheck(sheet: dict, fam: str, found: list[dict], cost: list) -> list[dict]
         for t in tags_in({"text": m.group(5), "bbox": bb}):
             if t["family"] != fam or t["tag"] in have or (ink and ink(bb) < 0.03):
                 continue
+            if any(_near(bb, o["bbox"]) or _overlap(bb, o["bbox"]) > 0.2 for o in list(found) + list(avoid)):
+                continue  # read where a label of this family already is: a misreading of it (FSCV-6 as FSCV-8)
             t.update(src="vision-recheck", seen_by=["vision-recheck"], conf=70.0)
             have.add(t["tag"])
             new.append(t)
@@ -1106,16 +1239,33 @@ def _count(q: str, sheet: dict, insts: list[dict], base: dict, cost: list) -> di
                                r"printed|tags? on the)\b", ql))
     sel = [t for t in insts if t["family"] in fams]
     names = " + ".join(f"{f} ({FAMILIES.get(f, (f.lower(), f.lower() + 's'))[1]})" for f in fams)
+    famscan = None
+    missing = [f for f in fams if not any(t["family"] == f for t in sel)]
+    if missing and sheet.get("image") and "pdf text layer" not in sheet["readers"] and (not sel or len(fams) > 1):
+        # an asked family read nowhere: one more, closer look at the whole sheet for just these labels
+        famscan = _family_scan(sheet, missing, cost)
+        sel = sel + famscan
     if not sel:
-        res = dict(base, answer=0, confidence=0.35,
-                   explanation=f"No {names} tag found on this sheet by {', '.join(sheet['readers']) or 'the readers'}"
-                               f". Tag families found: {', '.join(sorted(present)) or 'none'}.")
-        return res
+        if not present:  # no tag of any family read: the reading failed, a 0 would be a guess
+            return dict(base, answer=None, confidence=0.0,
+                        explanation=f"No tags could be read on this sheet ({', '.join(sheet['readers']) or 'no reader'}"
+                                    f"), so {names} are not counted here.")
+        return dict(base, answer=0, confidence=0.3, unit="count",
+                    explanation=f"No {names} tag found on this sheet by {', '.join(sheet['readers'])}"
+                                + (" nor by a closer whole-sheet look for these labels" if famscan is not None else "")
+                                + f". Tag families read here: {', '.join(sorted(present))}. Not found, which may mean "
+                                  "absent or unreadable.")
+    n_ocr = len({_src_kind(it["src"]) for it in sheet["items"]})
     rechecked = []
     for f in fams:
         nums = sorted({t["num"] for t in sel if t["family"] == f and t["num"] is not None})
-        if nums and [k for k in range(1, nums[-1] + 1) if k not in nums] and sheet.get("image"):
-            new = _recheck(sheet, f, [t for t in sel if t["family"] == f], cost)
+        unconfirmed = n_ocr > 1 and nums and len(nums) <= 12 and not any(
+            len(t.get("seen_by", [])) > 1 for t in sel if t["family"] == f)
+        # a gap, an unconfirmed reading, or a short run (a missed last tag leaves no gap: FP-1..4 of 5) gets one
+        # zoomed look along its row (cached; skipped on exact PDF text)
+        if nums and ([k for k in range(1, nums[-1] + 1) if k not in nums] or unconfirmed or len(nums) <= 12) \
+                and sheet.get("image") and f not in missing:
+            new = _recheck(sheet, f, [t for t in sel if t["family"] == f], cost, avoid=sel)
             if new is not None:
                 rechecked.append((f, new))
                 sel += new
@@ -1161,13 +1311,20 @@ def _count(q: str, sheet: dict, insts: list[dict], base: dict, cost: list) -> di
         if others:
             parts.append("other valve tags on the sheet, not counted here: " + ", ".join(
                 f"{f} ({FAMILIES[f][1]}, {len({t['tag'] for t in insts if t['family'] == f})})" for f in others))
+    if famscan:
+        parts.append(f"found only by a closer whole-sheet look for these labels (the first reading had none)")
     for f, new in rechecked:
-        parts.append(f"numbering gap in {f} re-checked on a zoomed crop: " +
+        parts.append(f"{f} re-checked on a zoomed crop: " +
                      (f"found {', '.join(t['tag'] for t in new)}" if new else "nothing more found"))
     agreed = sum(1 for t in sel if len(t.get("seen_by", [])) > 1)
     expl = f"{'; '.join(parts)}. Counted {names} tags read from the sheet text"
-    if len(sheet["readers"]) > 1:
+    if n_ocr > 1:
         expl += f" ({agreed} of {len(sel)} labels read by two independent readers)"
+        if agreed < 0.3 * len(sel):  # one reader alone (tesseract fails on blurred / faded scans)
+            conf = min(conf, 0.6)
+            expl += "; on this sheet only the vision reader could read the tags, so the count is less certain"
+    if famscan:
+        conf = min(conf, 0.5)
     expl += "."
     if unnum:
         expl += f" {', '.join(sorted({t['family'] for t in unnum}))} carry no number, so each printed label counts" \
@@ -1422,7 +1579,8 @@ def detect(meta) -> float:
     return max(0.0, min(1.0, s))
 
 
-_RX_COUNT = re.compile(r"\b(how many|number of|count|total)\b", re.I)
+_RX_COUNT = re.compile(r"\b(how many|number of|count|total|montako|kuinka monta|hur många|antal|wie viele|anzahl|"
+                       r"combien|cuántos|cuantas|quanti|hoeveel|mitu)\b", re.I)
 _RX_SIZES = re.compile(r"\b(what|which|list)\b.*\bsizes?\b|\bsizes? of pipe|pipe sizes", re.I)
 _RX_REFS = re.compile(r"\b(other|which|what|list)\b.*\b(sheets?|drawings?|details?|sections?)\b.*\b(referenc|refer|"
                       r"call|point|mention|cite|link)|\breferenced (sheets|drawings)", re.I)
