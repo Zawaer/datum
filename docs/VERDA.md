@@ -1,4 +1,4 @@
-# Verda tech track: Blueprints That Talk
+# Verda tech track: Datum (blueprints that talk)
 
 Texts for the Verda Compute Track entry (Junction 2026, Stoa challenge "Make Blueprints Talk"); the same texts are in
 [SIDE-CHALLENGES.md](SIDE-CHALLENGES.md). Every number is in the facts table below with its source. Placeholders:
@@ -7,7 +7,7 @@ the machines to `analysis/infra.json` and re-run `analysis/costs.py`).
 
 ## 1. Track summary (submission form, ≤ 300 words)
 
-Blueprints That Talk answers questions about construction drawings and BIM models, with the proof drawn on
+Datum answers questions about construction drawings and BIM models, with the proof drawn on
 the plan. On all 25,420 held-out test questions it is right 90.0 % of the time at $0.013 per 1,000 questions in
 API fees; Claude Sonnet 5.5 given the same CAD/IFC files gets 69.8 % at $25.76 per 1,000.
 
@@ -35,7 +35,7 @@ Demo: `<DEMO_URL>` · Code: `<REPO_URL>`
 
 ## 2. Discord post (≤ 120 words)
 
-Blueprints That Talk (Stoa "Make Blueprints Talk") on Verda. Two H100s overnight (14.9 GPU-h, $77.33):
+Datum (Stoa "Make Blueprints Talk") on Verda. Two H100s overnight (14.9 GPU-h, $77.33):
 we LoRA-tuned Qwen3-VL-8B to count symbols on floor plans with one box per item, 42.6 % zero-shot to 76 % on
 dev. It ships as a second opinion to our detector: when both agree, answers are 94.9 % right. Today 2× H100
 swept a bigger detector plus VLM arbitration: <RESULT>. An RTX PRO 6000 serves the model live on users'

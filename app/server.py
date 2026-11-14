@@ -35,7 +35,7 @@ APP = Path(__file__).parent
 STATIC = APP / "static"
 RUNS = Path("runs")
 UPLOADS = Path("cache/uploads")
-app = FastAPI(title="Blueprints that talk", docs_url=None, redoc_url=None, openapi_url=None)  # public: no API browser
+app = FastAPI(title="Datum", docs_url=None, redoc_url=None, openapi_url=None)  # public: no API browser
 router = Router()
 
 QUESTIONS = load_questions()

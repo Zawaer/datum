@@ -40,7 +40,7 @@ lines += ["## What one answer costs", "",
 ours = run_cost(OURS)
 if ours:
     n, c = ours
-    lines.append(f"| **Blueprints That Talk** (router) | {n:,} | ${c:.2f} | **${c / n * 1000:.3f}** |")
+    lines.append(f"| **Datum** (router) | {n:,} | ${c:.2f} | **${c / n * 1000:.3f}** |")
 for name, label in [("baseline_sonnetfair_full400", "Claude Sonnet 5.5 + sibling CAD/IFC files"),
                     ("baseline_sonnet_full400", "Claude Sonnet 5.5, drawing only"),
                     ("baseline_haiku_full400", "Claude Haiku 5.5, drawing only"),

@@ -1,4 +1,4 @@
-// Blueprints that talk: pick or upload a drawing, ask, watch the answer get counted out on the drawing.
+// Datum (blueprints that talk): pick or upload a drawing, ask, watch the answer get counted out on the drawing.
 'use strict';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
@@ -719,7 +719,7 @@ function frontierHTML(r, oursOk) {
   const ansCell = f => text ? '' : `<td class="num">${predTxt(f, r.type)}</td>`;
   const sub = f => text ? `<small class="said">${f.pred == null || f.pred === '' ? '<i>no answer</i>' : '“' + esc(String(f.pred).replace(/\s+/g, ' ').slice(0, 90)) + (String(f.pred).length > 90 ? '…' : '') + '”'}</small>` : '';
   const rows = fr.map(f => `<tr><td>${esc(f.model)}<small>${esc(f.setting)}</small>${sub(f)}</td>${ansCell(f)}<td>${mark(f.correct)}</td><td class="num">${money(f.cost_usd || 0)}</td><td class="num">${f.latency_s ? f.latency_s.toFixed(1) + ' s' : ''}</td></tr>`).join('');
-  return `<div class="vs"><table><tr class="us"><td>Blueprints that talk<small>${text ? 'answer above, with the facts it cites' : 'evidence on the drawing'}</small></td>${text ? '' : `<td class="num"><b>${ours}</b></td>`}<td>${mark(oursOk)}</td><td class="num"><b>${money(r.cost_usd || 0)}</b></td><td class="num">${latency(r.latency_s)}</td></tr>${rows}</table>
+  return `<div class="vs"><table><tr class="us"><td>Datum<small>${text ? 'answer above, with the facts it cites' : 'evidence on the drawing'}</small></td>${text ? '' : `<td class="num"><b>${ours}</b></td>`}<td>${mark(oursOk)}</td><td class="num"><b>${money(r.cost_usd || 0)}</b></td><td class="num">${latency(r.latency_s)}</td></tr>${rows}</table>
     </div>`;
 }
 
@@ -745,7 +745,7 @@ function ghostHTML(r, val, counting) {
       + (ok ? `<i class="gl ${v < ref ? 'short' : 'over'}" style="left:${x(a)};width:calc(${x(b)} - ${x(a)})"></i><i class="gd" style="left:${x(v)}"></i>` : '')
       + `</span><span class="gv">${ok ? `<b>${fmt(v, t)}</b> ${cls === 'us' && counting ? '' : delta(v)}` : '<i>no answer</i>'}</span></div>`;
   };
-  const us = row('Ours', val, 'us', 'Blueprints that talk: counted out on the drawing');
+  const us = row('Ours', val, 'us', 'Datum: counted out on the drawing');
   const rows = fr.map(f => row(shortModel(f), f.v, 'ghost', `${f.model} · ${f.setting}: answered ${f.pred ?? 'nothing'}`)).join('');
   return `<div class="ghostcmp" data-lo="${lo}" data-hi="${hi}" data-ref="${ref}">
     <div class="gh"><span>Frontier models, same drawing</span><span class="gref">${typeof r.gold === 'number' ? 'dataset answer' : 'our answer'} <b>${fmt(ref, t)}${t === 'count' ? '' : ' ' + unitOf(t)}</b></span></div>

@@ -7,29 +7,29 @@ TODO markers remain only for the demo / video links.
 
 ## Project name (≤ 30 chars)
 
-Blueprints That Talk
+Datum
 
-_(20 characters)_
+_(5 characters. On a drawing, the datum is the fixed reference every measurement is taken from; every Datum answer traces back to the drawing. Tagline where there is room: "blueprints that talk".)_
 
 ## Punchline (≤ 200 chars)
 
-Ask a drawing or BIM model anything, in any language. 90.0 % right on 25k held-out questions vs 69.8 % for a frontier model given the same files, every answer shown on the drawing.
+Datum: ask a drawing or BIM model anything, in any language. 90.0 % right on 25k held-out questions vs 69.8 % for a frontier model given the same files, every answer shown on the drawing.
 
-_(181 characters)_
+_(187 characters)_
 
 ## Short version (~600 chars, for quick paste)
 
-Blueprints That Talk answers questions about construction drawings and BIM models, typed or spoken in six tested languages, and shows the proof: the plan rises into 3D with the counted doors lit and numbered, items light up one by one as the count ticks up, rooms are outlined with their m². A router picks the cheapest exact method: CAD geometry, IfcOpenShell, a small detector, our fine-tuned vision model as a second opinion. On all 25,420 held-out test questions: 90.0 % at $0.013 per 1,000, vs 69.8 % for Claude Sonnet 5.5 given the same files at $25.76. Calibrated confidence, an independent cross-check, an audited evaluation and 278 automated tests.
+Datum answers questions about construction drawings and BIM models, typed or spoken in six tested languages, and shows the proof: the plan rises into 3D with the counted doors lit and numbered, items light up one by one as the count ticks up, rooms are outlined with their m². A router picks the cheapest exact method: CAD geometry, IfcOpenShell, a small detector, our fine-tuned vision model as a second opinion. On all 25,420 held-out test questions: 90.0 % at $0.013 per 1,000, vs 69.8 % for Claude Sonnet 5.5 given the same files at $25.76. Calibrated confidence, an independent cross-check, an audited evaluation and 278 automated tests.
 
-_(657 characters)_
+_(642 characters)_
 
 ## Description (≤ 5000 chars, markdown)
 
-_Character count of the block between the rules below: 4,648 (limit 5,000)._
+_Character count of the block between the rules below: 4,633 (limit 5,000)._
 
 ---
 
-**Quantity takeoff is slow by hand, and AI is not trusted with it.** A general model that gets a room area wrong looks exactly as confident as when it is right. **Blueprints That Talk** answers questions about drawings and BIM models (six languages tested, typed or spoken) and shows the proof: ask "how many doors?" and the 2D CAD plan rises into a 3D building with the counted doors lit and numbered.
+**Quantity takeoff is slow by hand, and AI is not trusted with it.** A general model that gets a room area wrong looks exactly as confident as when it is right. **Datum** answers questions about drawings and BIM models (six languages tested, typed or spoken) and shows the proof: ask "how many doors?" and the 2D CAD plan rises into a 3D building with the counted doors lit and numbered.
 
 **Outcome:** 90.0 % [89.7–90.4] on all 25,420 held-out test questions at **$0.013 per 1,000**, vs 69.8 % for Claude Sonnet 5.5 given the same files at $25.76.
 

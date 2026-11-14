@@ -1,9 +1,11 @@
-# Blueprints That Talk
+# Datum: blueprints that talk
 
 <!-- CI badge (enable once the repo is public): [![CI](https://github.com/Zawaer/datum/actions/workflows/ci.yml/badge.svg)](https://github.com/Zawaer/datum/actions/workflows/ci.yml) -->
 
 **Ask a construction drawing or a BIM model a question (tested in English, Finnish, German, French, Italian and
 Dutch) and get the answer with its proof drawn on the drawing.** Our Junction 2026 entry for Stoa's *Make Blueprints Talk* challenge.
+On a drawing, the *datum* is the fixed reference point every measurement is taken from; every Datum answer
+traces back to the drawing.
 
 On **all 25,420 questions of a held-out test split** (every question in every language, not a sample) we are right **90.0 %** of the time
 [95 % CI 89.7–90.4], for **$0.013 per 1,000 questions** in API fees (+ ~$0.006 local compute) and 0.04 s per question.
@@ -60,7 +62,7 @@ tolerance: counts exact, areas / lengths / volumes within 2 %. An abstention cou
 
 | system | accuracy [95 % CI] | API $ / 1,000 questions | s / question |
 |---|---:|---:|---:|
-| **Blueprints That Talk** (all 25,420 questions) | **90.0 %** [89.7–90.4] | **$0.013** | **0.04** |
+| **Datum** (all 25,420 questions) | **90.0 %** [89.7–90.4] | **$0.013** | **0.04** |
 | Claude Sonnet 5.5 + sibling CAD / IFC files¹ (fair comparison) | 69.8 % [60.9–78.4] | $25.76 | 15.7 |
 | Claude Sonnet 5.5, drawing only¹ | 63.2 % [54.4–71.8] | $13.06 | 12.9 |
 | Claude Haiku 5.5, drawing only¹ | 60.6 % [51.5–69.3] | $1.21 | 28.6 |

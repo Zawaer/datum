@@ -1,4 +1,4 @@
-# Side-challenge submission texts: Blueprints That Talk
+# Side-challenge submission texts: Datum (blueprints that talk)
 
 Ready-to-paste texts for the tech challenges we entered (locked list in [TRACKS.md](TRACKS.md)). Main challenge:
 Stoa, "Make Blueprints Talk". Numbers come from `README.md`, `docs/COSTS.md` and `analysis/infra.json`; sources are
@@ -14,7 +14,7 @@ Required: summary + Discord post. Same texts as [VERDA.md](VERDA.md).
 
 ### Summary (≤ 300 words)
 
-Blueprints That Talk answers questions about construction drawings and BIM models, with the proof drawn on
+Datum answers questions about construction drawings and BIM models, with the proof drawn on
 the plan. On all 25,420 held-out test questions it is right 90.0 % of the time at $0.013 per 1,000 questions in
 API fees; Claude Sonnet 5.5 given the same CAD/IFC files gets 69.8 % at $25.76 per 1,000.
 
@@ -42,7 +42,7 @@ Demo: `<DEMO_URL>` · Code: `<REPO_URL>`
 
 ### Discord post (≤ 120 words)
 
-Blueprints That Talk (Stoa "Make Blueprints Talk") on Verda. Two H100s overnight (14.9 GPU-h, $77.33):
+Datum (Stoa "Make Blueprints Talk") on Verda. Two H100s overnight (14.9 GPU-h, $77.33):
 we LoRA-tuned Qwen3-VL-8B to count symbols on floor plans with one box per item, 42.6 % zero-shot to 76 % on
 dev. It ships as a second opinion to our detector: when both agree, answers are 94.9 % right. Today 2× H100
 swept a bigger detector plus VLM arbitration: <RESULT>. An RTX PRO 6000 serves the model live on users'
@@ -56,7 +56,7 @@ Demo: `<DEMO_URL>` · Code: `<REPO_URL>`
 
 ### Text (≤ 200 words)
 
-On site, hands are busy, gloves are on and crews speak many languages. In Blueprints That Talk you tap the
+On site, hands are busy, gloves are on and crews speak many languages. In Datum you tap the
 mic in any browser and ask a drawing a question. ElevenLabs Scribe (scribe_v2) transcribes it and
 detects the language; we answer from the drawing and show the counted items on the plan. The answer is
 spoken back with Flash v2.5 in the question's language: English, Finnish, German, French,

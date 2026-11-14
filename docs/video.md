@@ -1,6 +1,6 @@
 # Video: storyboard for the 2:00 cut and the 60 s cut
 
-"Blueprints That Talk", Junction 2026, Stoa *Make Blueprints Talk*. Everything on screen is the real app (or an
+"Datum" (tagline: blueprints that talk), Junction 2026, Stoa *Make Blueprints Talk*. Everything on screen is the real app (or an
 animated results card) recorded live. Nothing is a static slide. The narration states what the picture is
 showing at that moment.
 
@@ -38,7 +38,7 @@ Durations are planned. The real ones follow the voice (table below, regenerated 
 
 | # | shot (`id`) | ~s | on screen (exact action) | narration | on-screen text |
 |---|---|---|---|---|---|
-| 1 | **Hook** (`hook`) | 0–8.5 (min 8.5 s) | Full-bleed 3D (picker and answer panel hidden). `swiss_dwellings/site3387_bldg5238_floor23498.pdf`, Q: *How many doors (interior doors and entrance doors together) are drawn on this floor plan?* already answered. `window.__p3.open()` with `__p3riseMs = 2600`: the drawing lies flat and tilts up into a low cut-away model. The 20 counted doors light up blue and are pinned 1…20 one after another. | "Ask a floor plan how many doors it has. Twenty. And here is every single one." | top-left chip: **20 doors, every one numbered** / *Read from the CAD layers. No AI model call.*, then **Blueprints That Talk** / *Junction 2026, Stoa: Make Blueprints Talk* |
+| 1 | **Hook** (`hook`) | 0–8.5 (min 8.5 s) | Full-bleed 3D (picker and answer panel hidden). `swiss_dwellings/site3387_bldg5238_floor23498.pdf`, Q: *How many doors (interior doors and entrance doors together) are drawn on this floor plan?* already answered. `window.__p3.open()` with `__p3riseMs = 2600`: the drawing lies flat and tilts up into a low cut-away model. The 20 counted doors light up blue and are pinned 1…20 one after another. | "Ask a floor plan how many doors it has. Twenty. And here is every single one." | top-left chip: **20 doors, every one numbered** / *Read from the CAD layers. No AI model call.*, then **Datum: blueprints that talk** / *Junction 2026, Stoa: Make Blueprints Talk* |
 | 2 | **Problem** (`problem`, card) | 8.5–19.5 | Light card with one chart. Three grey bars grow in turn: Sonnet 5.5 with its CAD/IFC files 69.8 %, Gemini 3.1 Pro 64.2 %, Sonnet drawing-only 63.2 %. | "Quantity takeoff is still done by hand. Frontier AI, given the very same files, gets seven answers in ten right, and sounds just as sure when it's wrong." | **Frontier models get 7 answers in 10 right, and sound just as sure when they are wrong.** |
 | 3 | **How it works** (`how`) | 17–25 | `/how`: glide down to the routing chapter, where a question flies to its solver. Two further smooth scrolls through "proof on the drawing". | "So we don't guess. Every question goes to an exact method: the CAD geometry, the BIM model, or a small detector we trained." | (the page's own headings) |
 | 4 | **X-ray count** (`xray`) | 25–35 | Same Swiss plan in 2D. The door question types itself. **X-ray**: the drawing greys back, each door lights up in turn and the HUD counts 1/20 … 20/20. Punch-in on the drawing during the count, then on the answer card: **20**, "Verified by geometry", "Very likely right · 99.95 %", "Two independent methods agree". | "Ask in plain words, and the X-ray counts every door on the drawing. A second, independent method agrees. No model call, zero cost." | (app HUD: *X-ray · counting 20 / 20*) |
@@ -49,7 +49,7 @@ Durations are planned. The real ones follow the voice (table below, regenerated 
 | 9 | **BIM in 3D** (`ifc`) | 66.5–75 | `ifc_models/bsc-molio_molio-with-uris_plan-03-grundplan.pdf`, Q: *How many doors are shown on the floor plan of 'Grundplan'?* The 3D model loads off camera. Then: *Show whole building*, punch-in, **Explode storeys** (seven storeys lift apart, the Grundplan storey tagged "evidence" with its 12 pinned doors), **X-ray**, slow orbit drag. Recorded at 2.5x more slow-motion (`SHOT_SLOW`). | "BIM models are answered from the model itself. Explode the storeys, X-ray the rest, and the evidence glows." | |
 | 10 | **Numbers** (`results`, card) | 75–85 | One chart: our bar grows in the accent blue to **90.0 %**, grey bars follow (69.8 % Sonnet with the same files, 64.2 % Gemini). | "Ninety percent right, on all twenty-five thousand held-out test questions. Claude Sonnet, given the same files: seventy." | **90 % right on all 25,420 held-out test questions.** |
 | 11 | **Cost** (`cost`, card) | 85–91 | One number against another, at 200 px: **$0.013** (accent) vs **$25.76** (grey) per 1,000 questions. | "One point three cents per thousand questions. Sonnet: twenty-five dollars seventy-six." | **Cost per 1,000 questions** |
-| 12 | **Close** (`end`, card) | 91–~97 | White end card: *Blueprints That Talk*, *Exact, verifiable, cheap.*, repo URL. The footer band holds the dataset licences and the voice credit. | "Exact. Verifiable. Cheap. Blueprints That Talk." | repo URL + credits |
+| 12 | **Close** (`end`, card) | 91–~97 | White end card: *Datum* with the tagline *blueprints that talk*, *Exact, verifiable, cheap.*, repo URL. The footer band holds the dataset licences and the voice credit. | "Exact. Verifiable. Cheap. Datum: blueprints that talk." | repo URL + credits |
 
 With the ElevenLabs voice the 2:00 cut runs about 1:37, which leaves room for one more line. Kokoro is slower; check with `--voice-only`.
 
@@ -67,7 +67,7 @@ Shots 1, 2, 4, 5, 6, 8, 10, 11, 12 with shorter lines. *How it works*, the heat-
 | 6 | voice | "Or ask out loud, in Finnish." |
 | 7 | results | "Ninety percent right, on all twenty-five thousand held-out test questions. Claude Sonnet, given the same files: seventy." |
 | 8 | cost | "One point three cents per thousand questions. Sonnet: twenty-five dollars seventy-six." |
-| 9 | end | "Exact. Verifiable. Cheap. Blueprints That Talk." |
+| 9 | end | "Exact. Verifiable. Cheap. Datum: blueprints that talk." |
 
 Shots that are longer than their narration are sped up to at most 1.6x and then trimmed. A shot that is shorter holds its last frame.
 
@@ -106,7 +106,7 @@ Shots that are longer than their narration are sped up to at most 1.6x and then 
 | 9 | 1:06.53–1:14.83 | shot `ifc` | BIM models are answered from the model itself. Explode the storeys, X-ray the rest, and the evidence glows. |
 | 10 | 1:14.83–1:24.83 | card `results` | 90.0 % right on all 25,420 held-out test questions. Claude Sonnet 5.5, given the same files: 69.8 %. |
 | 11 | 1:24.83–1:31.13 | card `cost` | $0.013 per 1,000 questions. Sonnet: $25.76. |
-| 12 | 1:31.13–1:37.07 | card `end` | Exact. Verifiable. Cheap. Blueprints That Talk. |
+| 12 | 1:31.13–1:37.07 | card `end` | Exact. Verifiable. Cheap. Datum: blueprints that talk. |
 
 Total 97.07 s; 209 words; voice elevenlabs `21m00Tcm4TlvDq8ikWAM`. Generated by `make_video.py`.
 <!-- /TIMING -->
@@ -124,7 +124,7 @@ Total 97.07 s; 209 words; voice elevenlabs `21m00Tcm4TlvDq8ikWAM`. Generated by 
 | 6 | 0:32.33–0:34.77 | shot `voice` | Or ask out loud, in Finnish. |
 | 7 | 0:34.77–0:44.77 | card `results` | 90.0 % right on all 25,420 held-out test questions. Claude Sonnet 5.5, given the same files: 69.8 %. |
 | 8 | 0:44.77–0:51.07 | card `cost` | $0.013 per 1,000 questions. Sonnet: $25.76. |
-| 9 | 0:51.07–0:57.00 | card `end` | Exact. Verifiable. Cheap. Blueprints That Talk. |
+| 9 | 0:51.07–0:57.00 | card `end` | Exact. Verifiable. Cheap. Datum: blueprints that talk. |
 
 Total 57.00 s; 111 words; voice elevenlabs `21m00Tcm4TlvDq8ikWAM`. Generated by `make_video.py`.
 <!-- /TIMING60 -->

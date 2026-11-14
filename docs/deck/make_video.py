@@ -136,7 +136,7 @@ SCENES = [
          "One point three cents per thousand questions. Sonnet: twenty-five dollars seventy-six."),
     ]},
     {"id": "end", "kind": "card", "cuts": "full short", "min": 3.5, "lines": [
-        "Exact. Verifiable. Cheap. Blueprints That Talk.",
+        "Exact. Verifiable. Cheap. Datum: blueprints that talk.",
     ]},
 ]
 
@@ -478,7 +478,7 @@ async def shot_hook(rec, base):
     await rec.sleep(1.3)                           # doors pop in (~0.9 s on the page clock)
     await rec.say("<em>20</em> doors, every one numbered", "Read from the CAD layers. No AI model call.")
     await rec.sleep(2.2)
-    await rec.say("Blueprints That Talk", "Junction 2026, Stoa: Make Blueprints Talk")
+    await rec.say("Datum: blueprints that talk", "Junction 2026, Stoa: Make Blueprints Talk")
     await rec.sleep(2.0)
     await rec.stop()
 
@@ -843,7 +843,7 @@ def cards_html():
 <section class="card" id="results">
   <h2 class="in">90&nbsp;% right on all 25,420 held-out test questions.</h2>
   <div class="bars">
-    {bar("<b>Blueprints That Talk</b>", 90.0, 0, True)}
+    {bar("<b>Datum</b>", 90.0, 0, True)}
     {bar("<b>Claude Sonnet 5.5</b><br>same files", 69.8, 1)}
     {bar("<b>Gemini 3.1 Pro</b>", 64.2, 2)}
   </div>
@@ -851,12 +851,12 @@ def cards_html():
 <section class="card" id="cost">
   <h2 class="in">Cost per 1,000 questions</h2>
   <div class="vs">
-    <div class="ours in" style="animation-delay:.4s"><div class="n">$0.013</div><div class="l">Blueprints That Talk</div></div>
+    <div class="ours in" style="animation-delay:.4s"><div class="n">$0.013</div><div class="l">Datum</div></div>
     <div class="fr in" style="animation-delay:1.1s"><div class="n">$25.76</div><div class="l">Claude Sonnet 5.5, same files</div></div>
   </div>
 </section>
 <section class="card end" id="end">
-  <h1 class="in">Blueprints That Talk</h1>
+  <h1 class="in">Datum <span style="font-weight:400; color:var(--g2)">blueprints that talk</span></h1>
   <p class="in" style="animation-delay:.5s">Exact, verifiable, cheap.<br><code>{REPO_URL}</code></p>
   <div class="foot">{html.escape(CREDITS)}. Voice: {voice}.</div>
 </section>

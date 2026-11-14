@@ -1,6 +1,6 @@
 # Tools used and challenges entered
 
-_The challenge list is locked in (Toivo, Sat 14.11.2026). The tools list is not: it records what we use now, and new tools can still be added if they help. Main challenge: **Stoa, "Make Blueprints Talk"**._
+_Project name: **Datum** (tagline "blueprints that talk"). The challenge list is locked in (Toivo, Sat 14.11.2026). The tools list is not: it records what we use now, and new tools can still be added if they help. Main challenge: **Stoa, "Make Blueprints Talk"**._
 
 ## Challenges we enter with this project
 

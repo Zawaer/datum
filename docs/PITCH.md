@@ -1,4 +1,4 @@
-# Live pitch: Blueprints That Talk
+# Live pitch: Datum (blueprints that talk)
 
 Junction 2026, Stoa challenge *Make Blueprints Talk*. Judged 25 % each on **accuracy**, **visualising reasoning
 for verification**, **creativity** and **low inference cost**. This page has the 3-minute talk, a 90-second cut,
@@ -111,7 +111,8 @@ or what the driver does. Numbers are written the way you say them.
 
 *[Slide 12: team, repo, "Start the 60-second tour".]*
 
-> Blueprints That Talk. Try the tour, then ask it your own question.
+> Datum: on a drawing, the datum is the point every measurement is taken from, and every answer here traces
+> back to the drawing. Try the tour, then ask it your own question.
 
 ### Timing cues
 
@@ -136,7 +137,7 @@ About 220 words. Same order, fewer switches: one demo moment at the start, then 
 | 0:30–0:45 | slide 4 | "So we route every question to the cheapest method that's exact: the CAD layers, the BIM model, or a small detector we trained. Only zero point four percent of questions ever touch a language model." |
 | 0:45–1:05 | slide 8 | "On all twenty-five thousand, four hundred and twenty held-out questions, we're right **ninety point zero percent**. Sonnet, given the same files: sixty-nine point eight. Twenty points better, at **one nineteen-hundredth of the cost**." |
 | 1:05–1:20 | slide 9 | "And you can check every answer. The evidence adds up to the number. The confidence means what it says. A second method re-checks it. Every LLM number is traced." |
-| 1:20–1:30 | slide 11 | "For Stoa: a takeoff engine **a professional can sign off on**. Blueprints That Talk." |
+| 1:20–1:30 | slide 11 | "For Stoa: a takeoff engine **a professional can sign off on**. Datum: blueprints that talk." |
 
 ---
 

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Blueprints That Talk · Junction 2026 · Stoa challenge</title>
+<title>Datum · blueprints that talk · Junction 2026 · Stoa challenge</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400&display=swap" rel="stylesheet">
 <!-- Render: .venv/bin/python docs/deck/render.py  (-> docs/deck/deck.pdf). Single slide: deck.html?slide=3
@@ -90,12 +90,13 @@
 <body>
 
 <!-- 1 · TITLE
-  Notes: We are Toivo and Rene. Blueprints That Talk answers questions about construction drawings and BIM models,
+  Notes: We are Toivo and Rene. Datum answers questions about construction drawings and BIM models,
   tested in English, Finnish, German, French, Italian and Dutch, and draws its proof on the drawing.
   Here: "How many doors?" 20, read from the CAD layers, each painted on the floor in a cut-away 3D model.
-  Headline numbers come later (slides 6-7): 90.0 % on all 25,420 held-out test questions; $0.013 per 1,000. -->
+  The name: on a drawing, the datum is the fixed reference every measurement is taken from; every Datum answer
+  traces back to the drawing. Headline numbers come later (slides 6-7): 90.0 % on all 25,420 held-out test questions; $0.013 per 1,000. -->
 <section class="slide">
-  <h1>Blueprints That Talk</h1>
+  <h1><svg viewBox="0 0 32 32" width="96" height="96" aria-hidden="true" style="vertical-align:-8px; margin-right:28px"><rect width="32" height="32" rx="7" fill="#111418"/><path d="M16 16V7.5A8.5 8.5 0 0 1 24.5 16Z M16 16V24.5A8.5 8.5 0 0 1 7.5 16Z" fill="#fff"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#fff" stroke-width="2"/><path d="M16 4.5V27.5 M4.5 16H27.5" stroke="#fff" stroke-width="2"/></svg>Datum <span style="font-weight:400; color:var(--ink3)">blueprints that talk</span></h1>
   <p style="margin-top:32px; max-width:1600px">Ask a construction drawing a question. Get the answer, with its proof drawn on the drawing.</p>
   <div class="bleed" style="top:376px"><img src="img/feat-3d.jpg" alt="The Swiss plan tilted into a cut-away 3D model, the 20 counted doors painted on the floor with a numbered pin each, next to the answer 20" style="object-position:50% 28%"></div>
   <div class="foot"><span>Drawing: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0</span><span>Toivo and Rene · Junction 2026 · Stoa challenge</span></div>
@@ -183,7 +184,7 @@
 <section class="slide">
   <h2>90.0 % right on 25,420 questions it had never seen.</h2>
   <div class="hbar">
-    <div class="lab o">Blueprints That Talk</div><div class="track o"><i style="width:calc(90.0 / 100 * 960px)"></i><em>90.0 %</em></div>
+    <div class="lab o">Datum</div><div class="track o"><i style="width:calc(90.0 / 100 * 960px)"></i><em>90.0 %</em></div>
     <div class="lab">Claude Sonnet 5.5,<br>given the same CAD / IFC files</div><div class="track"><i style="width:calc(69.8 / 100 * 960px)"></i><em>69.8 %</em></div>
     <div class="lab">Gemini 3.1 Pro,<br>drawing only</div><div class="track"><i style="width:calc(64.2 / 100 * 960px)"></i><em>64.2 %</em></div>
     <div class="lab">Claude Sonnet 5.5,<br>drawing only</div><div class="track"><i style="width:calc(63.2 / 100 * 960px)"></i><em>63.2 %</em></div>
@@ -199,7 +200,7 @@
 <section class="slide">
   <h2>About 1/1,900 of the cost.</h2>
   <div class="pair">
-    <div><div class="n ours">$0.013</div><div class="l">Blueprints That Talk, per 1,000 questions</div></div>
+    <div><div class="n ours">$0.013</div><div class="l">Datum, per 1,000 questions</div></div>
     <div><div class="n" style="color:var(--ink3)">$25.76</div><div class="l">Claude Sonnet 5.5 with the same files</div></div>
   </div>
   <div class="foot"><span>API fees, measured; ours adds about $0.006 of local compute. 0.04 s per question vs 16 s. Method: slide 11</span><span>7</span></div>
@@ -238,7 +239,7 @@
   next, whole drawing sets and revisions (flag what changed); then, checked quantities into estimates, procurement
   and progress tracking. MIT-licensed, reproducible with the dataset and one command, no API keys for numbers. -->
 <section class="slide">
-  <h2>Open it and ask your own question.</h2>
+  <h2>Open Datum and ask your own question.</h2>
   <p>Toivo and Rene · <span style="color:var(--ink)">github.com/Zawaer/datum</span> · MIT</p>
   <div class="frame" style="position:absolute; left:128px; top:328px; width:1232px; height:680px"><img src="img/landing.jpg" alt="The demo's landing page: the drawing, a one-line pitch, the 60-second tour and the ask box" style="width:1711px; height:auto; max-width:none; margin:-137px 0 0 -430px"></div>
   <div class="frame" style="position:absolute; right:128px; top:328px; width:314px; height:680px; border-radius:24px"><img src="img/phone-answer.jpg" alt="The phone quick-ask view: the plan with numbered pins and the answer 20" style="object-position:50% 0%"></div>

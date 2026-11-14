@@ -1,6 +1,6 @@
 {
-  "name": "Blueprints that talk",
-  "short_name": "Blueprints",
+  "name": "Datum · blueprints that talk",
+  "short_name": "Datum",
   "description": "Ask a construction drawing a question; the answer is shown on the drawing so you can check it.",
   "start_url": "../",
   "scope": "../",

@@ -8,7 +8,7 @@ Measured on all 25,420 held-out test questions (`runs/router_full_test_v7`), at 
 
 | | questions | API $ | $ per 1,000 questions |
 |---|---|---|---|
-| **Blueprints That Talk** (router) | 25,420 | $0.34 | **$0.013** |
+| **Datum** (router) | 25,420 | $0.34 | **$0.013** |
 | Claude Sonnet 5.5 + sibling CAD/IFC files | 400 (sample) | $24.52 | $61.31 |
 | Claude Sonnet 5.5, drawing only | 400 (sample) | $11.91 | $29.77 |
 | Claude Haiku 5.5, drawing only | 400 (sample) | $1.01 | $2.52 |
