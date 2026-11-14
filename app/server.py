@@ -339,7 +339,8 @@ def _render(path: str, page: int, dpi: int) -> bytes:
             if w * h > 5000 * 5000:
                 dpi = int(dpi * (5000 * 5000 / (w * h)) ** 0.5)
             return pg.get_pixmap(dpi=dpi).tobytes("png")
-    return p.read_bytes()
+    view = p.with_name(p.name + ".view.png")  # a big upload: its display copy (zoomed-in parts: /api/crop)
+    return (view if view.exists() else p).read_bytes()
 
 
 RENDER_DPI = (72, 100, 130, 160, 200, 220)  # snapped, so the lru cache can't be bypassed with dpi=101, 102, ...
@@ -358,8 +359,137 @@ def render(request: Request, path: str, page: int = 0, dpi: int = 130):
     except Exception as e:  # noqa: BLE001
         print(f"render failed for {path!r} page {page}: {e!r}", flush=True)
         raise HTTPException(422, "could not render this page") from e
-    mt = "image/jpeg" if path.lower().endswith((".jpg", ".jpeg")) else "image/png"
+    mt = "image/jpeg" if data[:3] == b"\xff\xd8\xff" else "image/png"
     return Response(data, media_type=mt, headers={"Cache-Control": "max-age=3600"})
+
+
+# ---- zoomed-in crops of big sheets: the viewer shows the display copy and, past its resolution, asks for the part in
+# view at screen resolution, read from the full-size raster (decoded once, kept for the next crops) or the PDF itself
+CROP_MAX_SIDE = 4096
+CROP_PDF_DPI = 600           # a PDF page is cropped at most at this resolution
+_CROP_SRC_PIXELS = 300_000_000  # decoded full-size rasters kept in memory (one 260 MP sheet, or several smaller)
+_crop_src: collections.OrderedDict = collections.OrderedDict()
+_crop_lock = threading.Lock()
+
+
+def _crop_source(path: str) -> Path:
+    """The file a crop of `path` is read from: an upload's full-size copy if it has one. 404 unless viewable."""
+    if "\x00" in path:
+        raise HTTPException(404)
+    p = resolve(path)
+    if p.suffix.lower() not in VIEWABLE or not p.is_file():
+        raise HTTPException(404)
+    full = p.with_name(p.name + ".full.png")
+    return full if full.is_file() else p
+
+
+def _decoded(src: Path):
+    """The decoded raster (L or RGB), cached by path + mtime; decoding a 139 MP PNG takes ~0.3 s and 139 MB."""
+    from PIL import Image
+
+    key = (str(src), src.stat().st_mtime_ns)
+    with _crop_lock:
+        if key in _crop_src:
+            _crop_src.move_to_end(key)
+            return _crop_src[key]
+        im = Image.open(src)
+        if im.width * im.height > REFUSE_PIXELS:  # a dataset file never prepared: same limit as uploads
+            im.close()
+            raise HTTPException(413, "image too large")
+        im.load()
+        im = im if im.mode in ("L", "RGB") else _flatten(im)
+        _crop_src[key] = im
+        while len(_crop_src) > 1 and sum(x.width * x.height for x in _crop_src.values()) > _CROP_SRC_PIXELS:
+            _crop_src.popitem(last=False)
+        return im
+
+
+def _source_size(path: str, page: int) -> tuple[int, int]:
+    """Pixel size of the most detailed source a crop can read (PDF: the page at CROP_PDF_DPI)."""
+    src = _crop_source(path)
+    if src.suffix.lower() == ".pdf":
+        import pymupdf
+
+        with pymupdf.open(src) as doc:
+            if not 0 <= page < len(doc):
+                raise HTTPException(404, "no such page")
+            r = doc[page].rect  # rotation applied: the page as shown
+            return round(r.width / 72 * CROP_PDF_DPI), round(r.height / 72 * CROP_PDF_DPI)
+    from PIL import Image
+
+    with Image.open(src) as im:
+        return im.size
+
+
+@functools.lru_cache(maxsize=48)
+def _crop(path: str, page: int, box: tuple, w: int) -> bytes:
+    import io
+
+    x0, y0, x1, y1 = (v / 4096 for v in box)
+    src = _crop_source(path)
+    if src.suffix.lower() == ".pdf":
+        import pymupdf
+
+        with pymupdf.open(src) as doc:
+            if not 0 <= page < len(doc):
+                raise HTTPException(404, "no such page")
+            pg = doc[page]
+            r = pg.rect  # the page as shown (rotation applied); get_pixmap's clip is in these coordinates too
+            vis = pymupdf.Rect(r.x0 + x0 * r.width, r.y0 + y0 * r.height, r.x0 + x1 * r.width, r.y0 + y1 * r.height)
+            z = min(w / vis.width, CROP_PDF_DPI / 72, CROP_MAX_SIDE / vis.height)
+            return pg.get_pixmap(matrix=pymupdf.Matrix(z, z), clip=vis, alpha=False).tobytes("png")
+    from PIL import Image
+
+    im = _decoded(src)
+    W, H = im.size
+    b = (round(x0 * W), round(y0 * H), max(round(x0 * W) + 1, round(x1 * W)), max(round(y0 * H) + 1, round(y1 * H)))
+    c = im.crop(b)
+    w = min(w, c.width, CROP_MAX_SIDE * c.width // c.height or 1)  # never upscale: the browser does that as well
+    h = max(1, round(c.height * w / c.width))
+    if (w, h) != c.size:
+        c = c.resize((w, h), Image.LANCZOS, reducing_gap=2.0)
+    buf = io.BytesIO()
+    c.save(buf, "PNG", compress_level=3)
+    return buf.getvalue()
+
+
+@app.get("/api/pageinfo")
+def pageinfo(request: Request, path: str, page: int = 0):
+    """{w, h}: the resolution /api/crop can reach for this page (the viewer asks for crops only past its display)."""
+    _heavy_limit(request)
+    if not 0 <= page < 10_000:
+        raise HTTPException(404, "no such page")
+    try:
+        w, h = _source_size(path, page)
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(422, "could not read this page") from e
+    return {"w": w, "h": h}
+
+
+@app.get("/api/crop")
+def crop(request: Request, path: str, x0: float, y0: float, x1: float, y1: float, w: int = 1024, page: int = 0):
+    """PNG of the part [x0,y0,x1,y1] (normalised to the page as shown) of a drawing, `w` px wide (at most the source's
+    own resolution and CROP_MAX_SIDE). Coordinates snap to a 1/4096 grid and w to 32 px, so crops cache."""
+    _heavy_limit(request)
+    if not 0 <= page < 10_000:
+        raise HTTPException(404, "no such page")
+    vals = (x0, y0, x1, y1)
+    if not all(v == v and -1e-6 <= v <= 1 + 1e-6 for v in vals) or x1 <= x0 or y1 <= y0:
+        raise HTTPException(400, "bad crop box")
+    box = tuple(min(4096, max(0, round(v * 4096))) for v in vals)
+    if box[2] <= box[0] or box[3] <= box[1]:
+        raise HTTPException(400, "crop box too small")
+    w = max(32, min(CROP_MAX_SIDE, round(w / 32) * 32))
+    try:
+        data = _crop(path, page, box, w)
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        print(f"crop failed for {path!r} page {page}: {e!r}", flush=True)
+        raise HTTPException(422, "could not crop this page") from e
+    return Response(data, media_type="image/png", headers={"Cache-Control": "max-age=3600"})
 
 
 @functools.lru_cache(maxsize=128)
@@ -513,8 +643,16 @@ REFUSE_EXT = {
     ".xlsx": "this looks like a spreadsheet, not a drawing: upload the drawing as PDF or an image",
 }
 MAX_UPLOAD = 200 * 1024 * 1024
-MAX_PIXELS = 40_000_000      # bigger rasters are downscaled on upload (a 30 MB phone panorama renders in seconds)
-REFUSE_PIXELS = 400_000_000  # decompression bombs
+MAX_PIXELS = 40_000_000      # phone photos of a sheet are rectified at most at this size (downscaled first)
+REFUSE_PIXELS = 260_000_000  # decompression bombs (checked from the header, before any pixel is decoded)
+# big drawings keep their resolution (a 14000 x 9902 px sheet at 1:100 needs it for its tags): a sheet without
+# colour becomes 8-bit grayscale at full size (<= 260 MB decoded); a colour-coded one keeps RGB up to this many
+# pixels (an ARCH D sheet at 300 dpi, 10200 x 6600, fits) and is downscaled above it, with a full-size grayscale
+# copy kept beside it (<name>.full.png) for reading small text
+WORK_RGB_PIXELS = 72_000_000
+GRAY_ABOVE_PIXELS = 20_000_000  # a colourless RGB raster bigger than this is stored as grayscale (a third the RAM)
+VIEW_SIDE = 6000             # the browser gets <name>.view.png (long side <= this); zoomed-in parts come from /api/crop
+OCR_UPSCALE_BELOW = 4000     # a raster with a shorter long side also gets <name>.ocr.png, 2x Lanczos, for OCR
 MAX_FRAMES = 50              # TIFF pages kept (a multi-page scan); the rest are dropped. GIF / WEBP: first frame only
 FRAME_PIXEL_BUDGET = 100_000_000  # width x height x frames converted, at most (~300 MB of RGB)
 
@@ -523,12 +661,16 @@ def _pil_limits():
     """Set before any Image.open (also in _convert): PIL refuses images over this outright."""
     from PIL import Image
 
+    import warnings
+
     Image.MAX_IMAGE_PIXELS = REFUSE_PIXELS // 2
+    # between half the limit and the limit PIL only warns; uploads are checked against REFUSE_PIXELS explicitly
+    warnings.simplefilter("ignore", Image.DecompressionBombWarning)
 
 
 _pil_limits()
 SHEET_TYPES = os.environ.get("BP_SHEETS", "1") == "1"  # sheet-type specialists for uploads (bp/sheets)
-PREP_VERSION = 4             # bump to re-run the upload preparation on files already in cache/uploads
+PREP_VERSION = 5             # bump to re-run the upload preparation on files already in cache/uploads
 SHEET_CHECK = os.environ.get("BP_SHEET_CHECK", "1") == "1"
 
 
@@ -584,6 +726,51 @@ def _classify(p: Path) -> str:
     return "pdf-raster"
 
 
+def _flatten(im):
+    """Any PIL mode -> 'L' or 'RGB' (transparency onto white, 16-bit scaled to 8, CMYK / palette / 1-bit expanded)."""
+    from PIL import Image
+
+    if im.mode in ("L", "RGB"):
+        return im
+    if im.mode in ("I;16", "I;16B", "I;16L", "I", "F"):
+        import numpy as np
+
+        a = np.asarray(im, dtype=np.float32)
+        hi = float(a.max()) if a.size else 0.0
+        return Image.fromarray(np.clip(a * (255.0 / hi if hi > 255 else 1.0), 0, 255).astype(np.uint8), "L")
+    if im.mode == "1":
+        return im.convert("L")
+    if im.mode == "P" and "transparency" not in im.info:
+        im = im.convert("RGB")
+        return im
+    if im.mode in ("LA", "La", "PA", "P", "RGBA", "RGBa"):
+        gray = im.mode in ("LA", "La")
+        im = im.convert("LA" if gray else "RGBA")
+        bg = Image.new(im.mode, im.size, (255, 255) if gray else (255, 255, 255, 255))
+        bg.alpha_composite(im)  # a drawing exported with a transparent background: white, not black
+        return bg.convert("L" if gray else "RGB")
+    return im.convert("RGB")  # CMYK, YCbCr, LAB, HSV
+
+
+def _open_image(p: Path):
+    """Image.open (lazy: header only), with PIL's own bomb check (when the limit is set) reported like ours."""
+    from PIL import Image
+
+    try:
+        return Image.open(p)
+    except Image.DecompressionBombError as e:
+        m = re.search(r"\((\d+) pixels\)", str(e))
+        n = int(m.group(1)) if m else 0
+        raise UploadError(413, f"image is {n / 1e6:.0f} megapixels: too large to process (at most "
+                               f"{REFUSE_PIXELS // 1_000_000} megapixels); export it at a lower resolution") from e
+
+
+def _too_big(w: int, h: int):
+    if w * h > REFUSE_PIXELS:
+        raise UploadError(413, f"image is {w}x{h} px ({w * h / 1e6:.0f} megapixels): too large to process (at most "
+                               f"{REFUSE_PIXELS // 1_000_000} megapixels); export it at a lower resolution")
+
+
 def _convert(p: Path) -> Path:
     """webp / tif / bmp / gif / svg -> png or pdf next to it (the original stays as the 'original' copy)."""
     ext = p.suffix.lower()
@@ -600,14 +787,16 @@ def _convert(p: Path) -> Path:
     from PIL import Image, ImageSequence
 
     try:
-        with Image.open(p) as im:
+        with _open_image(p) as im:
+            _too_big(im.width, im.height)  # from the header: nothing decoded yet
             n = min(getattr(im, "n_frames", 1) or 1, MAX_FRAMES) if ext in (".tif", ".tiff") else 1
-            if im.width * im.height * n > FRAME_PIXEL_BUDGET:
-                n = FRAME_PIXEL_BUDGET // max(1, im.width * im.height)
-                if n < 1:
-                    raise UploadError(413, f"image is {im.width}x{im.height} px: too large to process; scale it down")
-            # convert frame by frame and stop at n: never decode the frames we would drop
-            frames = [f.convert("RGB") for _, f in zip(range(n), ImageSequence.Iterator(im))]
+            if n > 1 and im.width * im.height * n > FRAME_PIXEL_BUDGET:  # one big frame is fine, many are not
+                n = max(1, FRAME_PIXEL_BUDGET // max(1, im.width * im.height))
+            frames = []
+            # frame by frame, stopping at n: never decode the frames we would drop
+            for _, f in zip(range(n), ImageSequence.Iterator(im)):
+                _too_big(f.width, f.height)  # a TIFF's later pages can be bigger than its first
+                frames.append(_flatten(f.copy() if f.mode in ("L", "RGB") else f))
     except UploadError:
         raise
     except Exception as e:  # noqa: BLE001
@@ -618,53 +807,145 @@ def _convert(p: Path) -> Path:
         frames[0].save(out, save_all=True, append_images=frames[1:], resolution=200)
         return out
     out = p.with_suffix(".png")
-    frames[0].save(out)
+    frames[0].save(out, compress_level=1 if frames[0].width * frames[0].height > GRAY_ABOVE_PIXELS else 6)
     return out
 
 
-def _prep_raster(p: Path, m: dict):
-    """Validate, honour EXIF rotation, downscale huge images, rectify phone photos of sheets (in place)."""
-    from PIL import Image, ImageOps
+def _colourful(im) -> bool:
+    """Does an RGB image carry colour (a colour-coded zone plan) rather than gray linework? Read off a ~1000 px copy."""
+    import numpy as np
 
+    k = max(1, max(im.size) // 1000)
+    a = np.asarray(im.reduce(k) if k > 1 else im, dtype=np.int16)
+    chroma = a.max(axis=2) - a.min(axis=2)
+    return float((chroma > 40).mean()) > 0.001
+
+
+def _shrink(im, pixels: int):
+    """Lanczos downscale to ~`pixels`, in bands of rows (resize's `box`), so a 260 MP sheet needs no full-width
+    intermediate copy (PIL keeps RGB at 4 bytes a pixel: one would be ~600 MB)."""
+    from PIL import Image
+
+    s = (pixels / (im.width * im.height)) ** 0.5
+    ow, oh = max(1, round(im.width * s)), max(1, round(im.height * s))
+    out = Image.new(im.mode, (ow, oh))
+    fy = im.height / oh
+    for y in range(0, oh, 512):
+        y1 = min(oh, y + 512)
+        out.paste(im.resize((ow, y1 - y), Image.LANCZOS, box=(0, y * fy, im.width, y1 * fy)), (0, y))
+    return out
+
+
+def _save_png(im, out: Path):
+    im.save(out, "PNG", compress_level=1 if im.width * im.height > GRAY_ABOVE_PIXELS else 6)
+
+
+def _prep_raster(p: Path, m: dict):
+    """Validate, honour EXIF rotation, rectify phone photos of sheets, normalise the pixel format (in place).
+    Big drawings keep their full resolution. Peak memory is the decoded image plus a quarter (PIL holds RGB at 4 bytes
+    a pixel): ~1.3 GB for a 260 MP colour sheet, ~0.4 GB for 139 MP of grayscale; only one >100 MP decode at a time."""
+    full = p.with_name(p.name + ".full.png")
     try:
-        with Image.open(p) as im0:
-            if im0.width * im0.height > REFUSE_PIXELS:
-                raise UploadError(413, f"image is {im0.width}x{im0.height} px: too large to process; scale it down")
-            im0.load()
-            changed = im0.getexif().get(0x0112, 1) not in (0, 1)  # EXIF orientation: browsers apply it, PIL not
-            im = ImageOps.exif_transpose(im0) if changed else im0
-            im = im.convert("RGB") if im.mode not in ("RGB", "L") else im.copy()
+        im0 = _open_image(p)  # lazy: only the header is read here
     except UploadError:
         raise
     except Exception as e:  # noqa: BLE001
         raise UploadError(422, f"could not read this image: it may be damaged or not really a "
                                f"{p.suffix.lstrip('.').upper()} ({type(e).__name__})") from e
-    if changed:
+    with im0:
+        W0, H0 = im0.size
+        _too_big(W0, H0)
+    if W0 * H0 <= BIG_PIXELS:
+        return _prep_raster_decoded(p, m, full)
+    with _big_sem:  # one huge decode at a time (~1 GB for 260 MP of RGB), whatever the other prep slot is doing
+        return _prep_raster_decoded(p, m, full)
+
+
+BIG_PIXELS = 100_000_000
+_big_sem = threading.BoundedSemaphore(1)
+
+
+def _prep_raster_decoded(p: Path, m: dict, full: Path):
+    from PIL import Image, ImageOps
+
+    try:
+        im0 = Image.open(p)
+        try:
+            W0, H0 = im0.size
+            _too_big(W0, H0)
+            im0.load()  # a single-frame PNG / JPEG closes its file once decoded; the pixels stay usable
+        except BaseException:
+            im0.close()
+            raise
+        turned = changed = im0.getexif().get(0x0112, 1) not in (0, 1)  # EXIF orientation: browsers apply it, PIL not
+        im = ImageOps.exif_transpose(im0) if changed else im0
+        if im.mode not in ("L", "RGB"):
+            im, changed = _flatten(im), True
+        if im is not im0:
+            im0.close()
+    except UploadError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise UploadError(422, f"could not read this image: it may be damaged or not really a "
+                               f"{p.suffix.lstrip('.').upper()} ({type(e).__name__})") from e
+    if turned:
         m["notes"].append("turned to match the photo's orientation tag")
-    if im.width * im.height > MAX_PIXELS:
-        s = (MAX_PIXELS / (im.width * im.height)) ** 0.5
-        m["notes"].append(f"downscaled from {im.width}x{im.height} px")
-        im = im.resize((round(im.width * s), round(im.height * s)), Image.LANCZOS)
-        changed = True
+    colour = im.mode == "RGB" and _colourful(im)
+    if im.mode == "RGB" and not colour and im.width * im.height > GRAY_ABOVE_PIXELS:
+        im, changed = im.convert("L"), True
+    # a phone photo of a sheet: flatten it (detection runs on a small copy, so a big flat scan costs ~nothing)
     try:
         from bp.generic.rectify import rectify
 
-        flat, info = rectify(im)
+        if im.width * im.height <= MAX_PIXELS:
+            flat, info = rectify(im)
+        else:
+            flat, info = rectify(im.reduce(max(1, max(im.size) // 1600)))
+            if flat is not None:  # a huge photo: rectify a MAX_PIXELS copy (a photo has no detail beyond that)
+                m["notes"].append(f"downscaled from {im.width}x{im.height} px")
+                flat, info = rectify(_shrink(im, MAX_PIXELS))
     except Exception as e:  # noqa: BLE001
         flat, info = None, {"why": f"rectify failed: {type(e).__name__}"}
     if flat is not None:
-        im, changed = flat, True
+        im, changed, colour = flat, True, flat.mode == "RGB"
         m["rectified"] = info
         m["notes"].append("rectified from your photo: perspective flattened and shadows evened out")
+    elif colour and im.width * im.height > WORK_RGB_PIXELS:
+        _save_png(im.convert("L"), full)
+        m["full"] = {"file": full.name, "w": im.width, "h": im.height}
+        m["notes"].append(f"colour copy downscaled from {im.width}x{im.height} px (full size kept in grayscale "
+                          "for small text)")
+        im, changed = _shrink(im, WORK_RGB_PIXELS), True
     if changed:
         _save_raster(im, p)
+    m["image_w"], m["image_h"], m["colour"] = im.width, im.height, bool(colour)
+
+
+def _raster_copies(p: Path, m: dict):
+    """After the working file is final (rectified, turned): the browser's display copy (<name>.view.png, long side
+    <= VIEW_SIDE) for a big sheet, or the OCR copy (<name>.ocr.png, 2x Lanczos) for a small one."""
+    from PIL import Image
+
+    with Image.open(p) as im:
+        side = max(im.size)
+        if side <= VIEW_SIDE and side >= OCR_UPSCALE_BELOW:
+            return
+        im.load()
+        if side > VIEW_SIDE:
+            s = VIEW_SIDE / side
+            v = im.resize((max(1, round(im.width * s)), max(1, round(im.height * s))), Image.LANCZOS,
+                          reducing_gap=3.0)
+            v.save(p.with_name(p.name + ".view.png"), "PNG", compress_level=3)
+        else:
+            im.resize((im.width * 2, im.height * 2), Image.LANCZOS).save(p.with_name(p.name + ".ocr.png"), "PNG",
+                                                                        compress_level=3)
 
 
 def _save_raster(im, p: Path):
     if p.suffix.lower() in (".jpg", ".jpeg"):
-        im.convert("RGB").save(p, "JPEG", quality=92)
+        (im if im.mode in ("L", "RGB") else im.convert("RGB")).save(p, "JPEG", quality=92)
     else:
-        im.save(p)
+        _save_png(im, p)
 
 
 def _prep_pdf(p: Path, m: dict):
@@ -730,9 +1011,20 @@ def _turn_pages(p: Path, kind: str, sheets: dict, m: dict):
     if kind == "raster":
         from PIL import Image
 
-        with Image.open(p) as im:
-            im.load()
-            _save_raster(im.rotate(-turns.get(0, 0), expand=True), p)
+        op = {90: Image.Transpose.ROTATE_270, 180: Image.Transpose.ROTATE_180, 270: Image.Transpose.ROTATE_90}
+        t = turns.get(0, 0) % 360
+        if t not in op:
+            return
+        full = p.with_name(p.name + ".full.png")
+        for f in (p, full) if full.exists() else (p,):  # the full-size copy turns with the working file
+            with Image.open(f) as im:
+                im.load()
+                im = im.transpose(op[t])
+            _save_raster(im, f)
+            if f is p and "image_w" in m:
+                m["image_w"], m["image_h"] = im.width, im.height
+            elif f is not p and m.get("full"):
+                m["full"].update(w=im.width, h=im.height)
     elif kind.startswith("pdf"):
         import pymupdf
 
@@ -751,6 +1043,7 @@ def _turn_pages(p: Path, kind: str, sheets: dict, m: dict):
 
 def _prepare(d: Path, p: Path, m: dict) -> tuple[Path, str]:
     """Validate and normalise one uploaded file (runs once per distinct file). Returns (working file, kind)."""
+    import filecmp
     import shutil
 
     m["notes"] = []
@@ -759,6 +1052,10 @@ def _prepare(d: Path, p: Path, m: dict) -> tuple[Path, str]:
     keep_orig = ext != ".svg"  # an SVG is active content: never kept or served as itself, only its PDF
     if keep_orig and not orig.exists():
         shutil.copyfile(p, orig)
+    for pat in ("*.full.png", "*.view.png", "*.ocr.png", "sheet_meta_p*.json", "sheet_p*.png"):
+        for f in d.glob(pat):  # left by an earlier preparation of the same file (PREP_VERSION bump)
+            if f not in (p, orig):
+                f.unlink(missing_ok=True)
     if ext in CONVERT_EXT:
         p2 = _convert(p)
         m["notes"].append(f"converted from {ext.lstrip('.').upper()} to {p2.suffix.lstrip('.').upper()}")
@@ -793,6 +1090,8 @@ def _prepare(d: Path, p: Path, m: dict) -> tuple[Path, str]:
             _turn_pages(p, "raster" if kind == "raster" else "pdf", sh, m)
         if sheets.not_a_drawing(sh):
             m["not_drawing"] = sheets.not_a_drawing(sh)
+    if kind == "raster":
+        _raster_copies(p, m)
     if SHEET_TYPES and kind in ("raster", "pdf-vector", "pdf-raster") and not m.get("not_drawing") \
             and not (DAILY_CAP and spent_today() >= DAILY_CAP):
         # what kind of sheet page 0 is (architectural / slab / piping plan: bp/sheets), one cheap Haiku call; the
@@ -810,7 +1109,7 @@ def _prepare(d: Path, p: Path, m: dict) -> tuple[Path, str]:
             print(f"sheet type check failed for {p}: {e!r}", flush=True)
     if not keep_orig:
         pass
-    elif (d / ("original" + ext)).read_bytes() == p.read_bytes() if p.exists() and p.stat().st_size < 50e6 else False:
+    elif p.exists() and orig.exists() and filecmp.cmp(orig, p, shallow=False):  # streamed, any size
         (d / ("original" + ext)).unlink()  # nothing changed: no second copy
     else:
         m["original"] = "original" + ext

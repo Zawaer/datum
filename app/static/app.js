@@ -34,10 +34,12 @@ let askSeq = 0, animating = false;
 
 // ------------------------------------------------------------ pan / zoom (mouse, wheel, touch pinch)
 let view = {s: 1, x: 0, y: 0};
+let hiresInfo = null, hiresT = null, hiresSeq = 0;  // sharp zoom on big sheets (see hiresUpdate)
 const stage = $('#stage'), viewer = $('#viewer'), img = $('#img'), ov = $('#ov');
 function apply() {
   stage.style.transform = `translate(${view.x}px,${view.y}px) scale(${view.s})`; ov.style.setProperty('--u', (1 / view.s) + 'px');
   if (pin2d != null) pinFollow();
+  hiresSoon();
 }
 // phone "quick ask" (<= 600 px): the answer sheet and the ask bar float over the bottom of the drawing and the tour
 // caption over its top, so fitting and zooming aim at the part of the drawing that is still in view
@@ -111,6 +113,47 @@ window.addEventListener('resize', () => { if (mode !== '2d') return; if (QA.matc
 $('#zin').onclick = () => zoomAt(viewer.clientWidth / 2, viewer.clientHeight / 2, 1.4);
 $('#zout').onclick = () => zoomAt(viewer.clientWidth / 2, viewer.clientHeight / 2, 1 / 1.4);
 $('#zfit').onclick = fit;
+
+// ------------------------------------------------------------ sharp zoom on big sheets
+// #img is the display copy (a big upload's is <= 6000 px; a PDF page at 130 dpi). Zoomed in past its resolution, the
+// part in view is fetched again at screen resolution (/api/crop, from the full-size raster or the PDF itself) and laid
+// over it in the stage's own coordinates, so it pans and zooms with the drawing and the evidence stays aligned.
+const hires = document.createElement('img');
+hires.id = 'hires'; hires.alt = ''; hires.draggable = false;
+hires.style.cssText = 'position:absolute;left:0;top:0;display:none;pointer-events:none;box-shadow:none';
+img.after(hires);
+function hiresReset(view, page) {
+  hiresSeq++; hires.style.display = 'none'; hires.removeAttribute('src'); delete hires.dataset.url; hiresInfo = null;
+  if (!view) return;
+  const key = view + '#' + (page || 0), seq = hiresSeq;
+  fetch('/api/pageinfo?path=' + encodeURIComponent(view) + '&page=' + (page || 0)).then(r => r.ok ? r.json() : null)
+    .then(d => { if (d && seq === hiresSeq) { hiresInfo = {key, w: d.w, h: d.h}; hiresSoon(); } }).catch(() => {});
+}
+function hiresSoon() { clearTimeout(hiresT); hiresT = setTimeout(hiresUpdate, 160); }
+function hiresUpdate() {
+  const Wn = img.naturalWidth, Hn = img.naturalHeight;
+  if (mode !== '2d' || !cur || !cur.shown || !Wn || !hiresInfo || hiresInfo.key !== cur.shown + '#' + (cur.page || 0)) return;
+  const dpr = window.devicePixelRatio || 1, want = Wn * view.s * dpr;  // device px across the page's width
+  // the display copy is enough (or the source has nothing more): drop the overlay
+  if (want <= Wn * 1.15 || hiresInfo.w <= Wn * 1.15) { hires.style.display = 'none'; return; }
+  let dens = Math.min(hiresInfo.w, 2 ** Math.ceil(Math.log2(want)));  // a few levels only, so crops cache
+  const G = 32, sw = Wn * view.s, sh = Hn * view.s;  // the view, normalised, snapped outwards to a 1/32 grid
+  const x0 = Math.max(0, Math.floor(-view.x / sw * G) / G), x1 = Math.min(1, Math.ceil((viewer.clientWidth - view.x) / sw * G) / G);
+  const y0 = Math.max(0, Math.floor(-view.y / sh * G) / G), y1 = Math.min(1, Math.ceil((viewer.clientHeight - view.y) / sh * G) / G);
+  if (x1 <= x0 || y1 <= y0) return;
+  const big = Math.max((x1 - x0) * dens, (y1 - y0) * dens * Hn / Wn);
+  if (big > 4096) dens *= 4096 / big;  // the server's cap; still sharper than the display copy
+  const w = Math.round((x1 - x0) * dens);
+  const url = `/api/crop?path=${encodeURIComponent(cur.shown)}&page=${cur.page || 0}&x0=${x0}&y0=${y0}&x1=${x1}&y1=${y1}&w=${w}`;
+  if (hires.dataset.url === url) { hires.style.display = ''; return; }
+  const seq = ++hiresSeq, pre = new Image();
+  pre.onload = () => {
+    if (seq !== hiresSeq) return;  // a newer view (or another drawing) won
+    Object.assign(hires.style, {left: x0 * Wn + 'px', top: y0 * Hn + 'px', width: (x1 - x0) * Wn + 'px', height: (y1 - y0) * Hn + 'px', display: ''});
+    hires.src = url; hires.dataset.url = url;
+  };
+  pre.src = url;
+}
 
 // ------------------------------------------------------------ adding missed items
 function setAdding(on) {
@@ -430,10 +473,10 @@ function renderChips(qs, suggested) {
 function setAnswered(on) { $('#side').classList.toggle('answered', on); }
 function showImage(view, page = 0) {
   cur.shown = view || null; cur.page = page || 0; syncPageBar();
-  if (!view) { img.removeAttribute('src'); return; }
+  if (!view) { img.removeAttribute('src'); hiresReset(null); return; }
   loadWords(view, page || 0);
   const src = '/api/render?path=' + encodeURIComponent(view) + (page ? '&page=' + page : '');
-  if (img.getAttribute('src') !== src) { loading('Rendering the drawing…'); img.onload = () => loading(''); img.onerror = () => { loading(''); hint('Could not render this drawing'); }; img.src = src; }
+  if (img.getAttribute('src') !== src) { hiresReset(view, page); loading('Rendering the drawing…'); img.onload = () => loading(''); img.onerror = () => { loading(''); hint('Could not render this drawing'); }; img.src = src; }
 }
 
 // ------------------------------------------------------------ upload

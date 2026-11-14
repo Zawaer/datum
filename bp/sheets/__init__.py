@@ -22,6 +22,9 @@ Contract for a module `bp/sheets/<name>.py`:
      "page":  page index the image is of,
      "low_res": True for a raster under 3000 px on its long side (OCR upscaled; lower confidence on small text),
      "w", "h": image size in px,
+     "image_full", "full_w", "full_h": most detailed raster of the page (an upload's full-size copy, possibly
+              grayscale; else == image); "image_ocr": 2x upscale of a small upload (or None); "image_view": the
+              browser's display copy (or None): see _copies. All share the page's normalised coordinates.
      ...}   modules may add their own cached keys under their own name (meta["slab"] = {...}).
 
 `answer` returns the usual solver result (docs/EVIDENCE.md):
@@ -263,8 +266,10 @@ def classify(image_path: str, model: str = "haiku") -> dict:
 
     Image.MAX_IMAGE_PIXELS = None
     with Image.open(image_path) as im:
+        if im.mode not in ("L", "RGB"):
+            im = im.convert("RGB")
+        im.thumbnail((1568, 1568), reducing_gap=3.0)  # shrink first: a 139 MP sheet never goes RGB at full size
         im = im.convert("RGB")
-        im.thumbnail((1568, 1568))
     r = llm.ask(CLASSIFY_PROMPT, [im], model=model, tag="sheets-classify", timeout=60)
     d = llm.parse_json(r["text"]) or {}
     if not isinstance(d, dict):
@@ -325,9 +330,34 @@ def build_meta(path: str, page: int = 0, cache_dir: str | Path | None = None, do
             pass
     meta.setdefault("kind", None)
     meta.setdefault("title", "")
+    _copies(meta)
     with _meta_lock:
         _meta_mem[key] = meta
     return meta
+
+
+def _copies(meta):
+    """Copies an upload's preparation (app/server.py) leaves beside a raster working file `<image>`:
+    image_full (+ full_w, full_h): the most detailed raster of the page (`<image>.full.png`, grayscale, when a colour
+      sheet's working copy was downscaled; otherwise the image itself). Same page, same normalised coordinates.
+    image_ocr: `<image>.ocr.png`, a 2x Lanczos upscale of a small raster (long side < 4000 px), or None.
+    image_view: `<image>.view.png`, the browser's display copy (long side <= 6000 px), or None."""
+    img = meta.get("image") or ""
+    if not img or "image_full" in meta:
+        return
+    full = img + ".full.png"
+    if os.path.exists(full):
+        try:
+            from PIL import Image
+
+            with Image.open(full) as im:
+                meta["image_full"], meta["full_w"], meta["full_h"] = full, im.width, im.height
+        except OSError:
+            pass
+    if "image_full" not in meta:
+        meta["image_full"], meta["full_w"], meta["full_h"] = img, meta.get("w"), meta.get("h")
+    for k, suf in (("image_ocr", ".ocr.png"), ("image_view", ".view.png")):
+        meta[k] = img + suf if os.path.exists(img + suf) else None
 
 
 # ------------------------------------------------------------------------------------------------- OCR (shared)
@@ -359,7 +389,9 @@ def _ocr_run(meta, region, scale, psm):
     from PIL import Image
 
     Image.MAX_IMAGE_PIXELS = None
-    im = Image.open(meta["image"]).convert("L")
+    # a small raster's prepared 2x copy reads better (same page, so the normalised boxes are the same)
+    src = meta.get("image_ocr") if scale == 1.0 and meta.get("image_ocr") else meta["image"]
+    im = Image.open(src).convert("L")
     W, H = im.size
     x0, y0, x1, y1 = region or (0, 0, 1, 1)
     box = (round(x0 * W), round(y0 * H), round(x1 * W), round(y1 * H))

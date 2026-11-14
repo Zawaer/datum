@@ -199,11 +199,12 @@ def render(path: str, page: int = 0, max_side: int = 2048):
     if ext in RASTER:
         im = Image.open(path)
         im.load()
-        im = im.convert("RGB")
-        if max(im.size) > max_side:
+        if im.mode not in ("L", "RGB"):
+            im = im.convert("RGB")
+        if max(im.size) > max_side:  # shrink before going RGB: a 139 MP grayscale sheet never becomes 417 MB
             s = max_side / max(im.size)
-            im = im.resize((round(im.width * s), round(im.height * s)), Image.LANCZOS)
-        return im
+            im = im.resize((round(im.width * s), round(im.height * s)), Image.LANCZOS, reducing_gap=3.0)
+        return im.convert("RGB")
     if ext == "dxf":
         return None  # no page render for DXF here; the UI renders it from the same extents
     import pymupdf
