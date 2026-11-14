@@ -100,3 +100,38 @@ def test_schedule_marks_parse(monkeypatch):
     sch = O.schedule_doors("x.pdf")
     assert sch["page"] == 1
     assert sch["schedules"] == [{"101A": 2, "102": 1}, {"106": 1}]
+
+
+def test_vector_doors_from_tessellated_arcs(tmp_path):
+    """A PDF page with door swings drawn as short line pieces (as CAD exports do): one single door, one double door,
+    one 45-degree swing with its leaf, and a row of locker arcs that must not count."""
+    pymupdf = pytest.importorskip("pymupdf")
+    doc = pymupdf.open()
+    pg = doc.new_page(width=1200, height=800)
+    sh = pg.new_shape()
+
+    def arc(cx, cy, r, a0, a1, n=8, leaf=True):
+        pts = [pymupdf.Point(cx + r * math.cos(math.radians(a0 + (a1 - a0) * k / n)),
+                             cy + r * math.sin(math.radians(a0 + (a1 - a0) * k / n))) for k in range(n + 1)]
+        for p, q in zip(pts, pts[1:]):
+            sh.draw_line(p, q)
+        if leaf:
+            sh.draw_line(pymupdf.Point(cx, cy), pts[-1])
+
+    for x in range(0, 600, 60):  # a wall so the page has ordinary linework too
+        sh.draw_line(pymupdf.Point(x, 200), pymupdf.Point(x + 50, 200))
+    arc(100, 200, 20, 0, -90)                       # single door
+    arc(200, 200, 20, 0, -90), arc(240, 200, 20, 180, 270)  # double door: hinges r1 + r2 apart
+    arc(350, 200, 20, 0, -45, n=2)                  # 45-degree swing, two pieces, with its leaf
+    for k in range(6):                              # locker row: identical arcs 12 apart
+        arc(420 + 12 * k, 300, 20, 0, 90, leaf=False)
+    sh.finish(color=(0, 0, 0), width=0.5)
+    sh.commit()
+    f = tmp_path / "doors.pdf"
+    doc.save(f)
+    r = O.vector_doors(f, 0)
+    # the locker row's two end arcs survive the crowding filter (as on the DAF sheet); the others go
+    doors = [d for d in r["doors"] if d["bbox"][1] * 800 < 250]
+    assert len(r["doors"]) - len(doors) <= 2
+    assert len(doors) == 3
+    assert sorted(d["leaves"] for d in doors) == [1, 1, 2]

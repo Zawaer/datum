@@ -106,5 +106,56 @@
    "AW 078-24-33 p69 A-101F": "schedule (p76) marks on sheet: 101A, 101B, 102, 103, 104A, 104B = 6; CV drew 6 -> agrees, confidence 0.9"
   },
   "lead_window_gold_note": "lead's gold of 101 school windows counts internal vision panels too; answers now read '67 exterior windows (+N internal glazed panels)' with both sets of boxes"
+ },
+ "vector_pdf_doors (third pass)": {
+  "method": "door swings read from the PDF's own linework: chains of short stroke pieces (tessellated arcs) fitted to circles; quarter arcs (60-120 deg, >= 3 pieces, fit error <= 3 %) of door-leaf radius (0.5-1.5 m at the printed ratio, else the dominant quarter-arc radius) count; partial (30-60 deg), short (2 pieces) or rough (<= 8 %) arcs count only with a straight leaf ~r long from the hinge; runs of identical arcs < 1.3 r apart (lockers) are dropped; pairs closing towards each other = one double door",
+  "DAF dorm A-2 (PDF p3), box-by-box hand check of the vector boxes on an 8x render": {
+   "found": 198,
+   "false": 6,
+   "correct": 192,
+   "missed": 6,
+   "gold": 198,
+   "precision": 0.97,
+   "recall": 0.97,
+   "false_list": [
+    "2 end arcs of the locker row in the common area",
+    "elevator symbol",
+    "armchair in the common lounge",
+    "2 armchairs in the north wing (east side)"
+   ],
+   "missed_list": [
+    "4 corridor doors at the west wing's two ends (arc drawn in two broken pieces)",
+    "double-acting double door west corridor -> common area",
+    "north corridor -> common area door"
+   ],
+   "of_which_double": 49,
+   "note": "48 of the doubles are the wardrobe double doors (one per dorm room); without wardrobes the dorm has ~150 doors. The earlier structural estimate (~130-135 hinged) undercounted the corridor doors.",
+   "other_methods_on_this_sheet": {
+    "cubicasa_detector_hires": 204,
+    "haiku_3x3_tiles": 109,
+    "raster_swing_reading": "6 (double-line walls defeat the solid-wall assumption)"
+   }
+  },
+  "DfE school level 00 PDF": {
+   "vector_swing_doors": 102,
+   "plus_raster_leaf_doors": 20,
+   "answer": 122,
+   "hand_gold": 128,
+   "note": "vector reading has no false swing on the overlay check; misses are folding / ajar-leaf / sliding doors (no arc), which the raster leaf detector adds"
+  },
+  "AW 078-24-28 A-101 PDF": {
+   "vector_doors": 6,
+   "doubles": 2,
+   "hand_gold": 6,
+   "schedule": 6,
+   "note": "raster leaf doors are only added when the vector reading finds >= 20 doors (on A-101 they were 3 leader lines), so the answer is the exact 6, which the A-601 schedule confirms"
+  },
+  "AW 078-24-33 A-101F PDF": {
+   "vector_doors": 7,
+   "doubles": 3,
+   "schedule_marks_on_sheet": 6,
+   "note": "not hand-checked; schedule says 6"
+  },
+  "raster_grey_double_line_walls": "not done this round: the dorm raster still goes to the detector fallback (204 doors vs 198)"
  }
 }

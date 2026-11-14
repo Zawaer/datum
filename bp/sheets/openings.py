@@ -739,16 +739,38 @@ def analyse_meta(meta) -> dict:
                "px_per_m": (wppm or r.get("px_per_m_estimated") or 0) / f or None,
                "scale_from": "printed scale" if wppm else "median door swing = 0.9 m" if r.get("px_per_m_estimated") else None,
                "solid_walls": None}
+        # vector PDF page: door swings read from the drawing's own curves are exact; they replace the raster swings
+        # (leaf-only / folding doors found on the raster are kept when no vector swing covers them)
+        if str(meta.get("path") or "").lower().endswith(".pdf"):
+            try:
+                vd = vector_doors(meta["path"], meta.get("page") or 0)
+            except Exception as e:  # noqa: BLE001
+                log.warning("openings: vector doors failed: %s", e)
+                vd = None
+            if vd and len(vd["doors"]) >= 3:
+                vb = [d["bbox"] for d in vd["doors"]]
+
+                def covered(b):
+                    cx, cy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+                    return any(v[0] - 0.003 <= cx <= v[2] + 0.003 and v[1] - 0.003 <= cy <= v[3] + 0.003 for v in vb)
+                extra = [d for d in res["doors"] if d.get("kind") == "leaf" and not covered(d["bbox"])] \
+                    if not res["low_res"] and len(vb) >= 20 else []  # small sheets: leader lines look like leaves
+                res["doors"] = [{"bbox": d["bbox"], "leaves": d["leaves"], "kind": "vector-swing"}
+                                for d in vd["doors"]] + extra
+                res["doors"].sort(key=lambda d: (round(d["bbox"][1] * 40), d["bbox"][0]))
+                res["vector"] = {"swing_doors": len(vd["doors"]), "arcs": vd["arcs"], "raster_leaf_doors": len(extra)}
         try:  # the symbol detector always runs (free, ~5 s): fallback for low-res rasters and a sanity check
             res["yolo"] = yolo_openings(meta["image"], ppm)
         except Exception as e:  # noqa: BLE001
             log.warning("openings: detector fallback failed: %s", e)
         # swing reading implausibly short of the detector (unfilled double-line walls, grey swings): treat as low-res
         yd = len((res.get("yolo") or {}).get("doors") or [])
-        res["cv_ok"] = not res["low_res"] and not (yd >= 10 and len(res["doors"]) < 0.6 * yd) \
+        if res.get("vector"):
+            res["low_res"] = False  # the doors come from the vector drawing, whatever the raster's resolution
+        res["cv_ok"] = bool(res.get("vector")) or not res["low_res"] and not (yd >= 10 and len(res["doors"]) < 0.6 * yd) \
             and not (len(res["doors"]) < 3 and yd > len(res["doors"]))  # 1-2 swings on a scan: not a reading
         # plausibility: a floor plan has at least ~1 door per 100 m2 of building (bbox area, needs a scale)
-        if res["cv_ok"] and res.get("px_per_m"):
+        if res["cv_ok"] and res.get("px_per_m") and not res.get("vector"):
             try:
                 ext = building_bbox(_gray(meta["image"]))
             except Exception:  # noqa: BLE001
@@ -924,16 +946,30 @@ def answer(path, question, meta):
             return None
         nd = sum(1 for d in ds if d.get("leaves") == 2)
         nl = sum(1 for d in ds if d.get("kind") == "leaf")
+        nv = sum(1 for d in ds if d.get("kind") == "vector-swing")
         for i, d in enumerate(ds, 1):
             tag = " (double)" if d.get("leaves") == 2 else " (folding / ajar leaf)" if d.get("kind") == "leaf" else ""
             ev.append(_ev(d["bbox"], f"door {i}{tag}"))
-        parts.append(f"{len(ds)} doors ({nd} double doors counted once, {nl} drawn as a folding or ajar leaf "
+        src = (f"{nv} read from the PDF's vector door swings, " if nv else "")
+        parts.append(f"{len(ds)} doors ({src}{nd} double doors counted once, {nl} drawn as a folding or ajar leaf "
                      f"without a swing)")
-        conf.append(0.8 if len(ds) >= 5 else 0.55)
+        conf.append(0.9 if nv else 0.8 if len(ds) >= 5 else 0.55)
     if it in ("windows", "doors_windows"):
         ws = r["windows"]
-        if not ws and it == "windows":
+        yw = (r.get("yolo") or {}).get("windows") or []
+        if not ws and len(yw) >= 5:
+            # no glazing strips in solid walls (double-line walls, small window symbols): the detector's windows
+            r = dict(r, windows=yw, internal_glazing=[])
+            ws = yw
+            parts.append(f"{len(ws)} windows from the symbol detector (this drawing's walls are not solid, so the "
+                         f"wall-strip reading found none; expect ~1 in 8 wrong or missed)")
+            for i, w in enumerate(ws, 1):
+                ev.append(_ev(w["bbox"], f"window {i}"))
+            conf.append(0.45)
+            ws = None
+        if ws is not None and not ws and it == "windows":
             return None
+    if it in ("windows", "doors_windows") and ws is not None:
         for i, w in enumerate(ws, 1):
             ev.append(_ev(w["bbox"], f"window {i}"))
         ig = len(r["internal_glazing"])
@@ -1081,3 +1117,183 @@ def _add_schedule_check(res, meta, it):
         res["confidence"] = max(res.get("confidence", 0), 0.7)
     elif ours == n:
         res["confidence"] = max(res.get("confidence", 0), 0.9)
+
+
+# ------------------------------------------------------------------------------------------ vector PDF door swings
+def _page_segments(page):
+    """All stroked line pieces of a PDF page as an (N, 4) array in page (unrotated) coordinates, Bézier curves
+    flattened to 8 pieces each, plus the stroke grey level per piece."""
+    segs, grey = [], []
+    ts = np.linspace(0, 1, 9)
+    for x in page.get_drawings():
+        if x.get("type") == "f" or not x.get("color"):
+            continue
+        g = float(np.mean(x["color"][:3]))
+        for it in x["items"]:
+            if it[0] == "l":
+                segs.append((it[1].x, it[1].y, it[2].x, it[2].y))
+                grey.append(g)
+            elif it[0] == "c":
+                p0, p1, p2, p3 = it[1:5]
+                bx = (1 - ts) ** 3 * p0.x + 3 * (1 - ts) ** 2 * ts * p1.x + 3 * (1 - ts) * ts ** 2 * p2.x + ts ** 3 * p3.x
+                by = (1 - ts) ** 3 * p0.y + 3 * (1 - ts) ** 2 * ts * p1.y + 3 * (1 - ts) * ts ** 2 * p2.y + ts ** 3 * p3.y
+                for k in range(8):
+                    segs.append((bx[k], by[k], bx[k + 1], by[k + 1]))
+                    grey.append(g)
+    return np.array(segs, float).reshape(-1, 4), np.array(grey, float)
+
+
+def _vector_arcs(S, rmax):
+    """Circle arcs among chains of short pieces (a curve tessellated into lines, or flattened Béziers): pieces joined
+    end to end through degree-2 nodes without sharp turns. [(cx, cy, r, span_deg, a0, a1, chain idx)]."""
+    import collections
+
+    L = np.hypot(S[:, 2] - S[:, 0], S[:, 3] - S[:, 1])
+    idx = np.nonzero((L > 1e-3) & (L < 0.6 * rmax))[0]
+    q = 1 / max(1e-4, 0.002 * rmax)
+
+    def key(x, y):
+        return (round(x * q), round(y * q))
+
+    adj = collections.defaultdict(list)
+    ends = {}
+    for i in idx:
+        a, b = key(S[i, 0], S[i, 1]), key(S[i, 2], S[i, 3])
+        ends[i] = (a, b)
+        adj[a].append(i)
+        adj[b].append(i)
+
+    def unit(i, frm):
+        a, b = ends[i]
+        v = (S[i, 2] - S[i, 0], S[i, 3] - S[i, 1]) if a == frm else (S[i, 0] - S[i, 2], S[i, 1] - S[i, 3])
+        n = math.hypot(*v) or 1.0
+        return v[0] / n, v[1] / n
+
+    used, out = set(), []
+    for i in idx:
+        if i in used:
+            continue
+        used.add(i)
+        chain = [i]
+        for start in ends[i]:
+            cur, k = i, (ends[i][1] if start == ends[i][0] else ends[i][0])
+            ext = []
+            while len(adj[k]) == 2:
+                nxt = adj[k][0] if adj[k][1] == cur else adj[k][1]
+                if nxt in used:
+                    break
+                d1 = unit(cur, ends[cur][0] if ends[cur][1] == k else ends[cur][1])
+                d2 = unit(nxt, k)
+                if d1[0] * d2[0] + d1[1] * d2[1] < math.cos(math.radians(35)):
+                    break
+                ext.append(nxt)
+                used.add(nxt)
+                cur = nxt
+                k = ends[nxt][1] if ends[nxt][0] == k else ends[nxt][0]
+            chain = ext[::-1] + chain if start == ends[i][0] else chain + ext
+        if len(chain) < 2:
+            continue
+        P = np.r_[S[chain, :2], S[chain, 2:]]
+        A = np.c_[2 * P[:, 0], 2 * P[:, 1], np.ones(len(P))]
+        sol, *_ = np.linalg.lstsq(A, (P ** 2).sum(1), rcond=None)
+        cx, cy = sol[0], sol[1]
+        r = math.sqrt(max(0.0, sol[2] + cx * cx + cy * cy))
+        err = np.abs(np.hypot(P[:, 0] - cx, P[:, 1] - cy) - r).max() / max(r, 1e-9)
+        if not (0 < r <= rmax) or err > 0.08:
+            continue
+        ang = np.sort(np.arctan2(P[:, 1] - cy, P[:, 0] - cx) % (2 * np.pi))
+        gaps = np.diff(np.r_[ang, ang[0] + 2 * np.pi])
+        g = int(np.argmax(gaps))
+        a0 = ang[(g + 1) % len(ang)]
+        span = 2 * np.pi - gaps[g]
+        out.append((cx, cy, r, math.degrees(span), a0, a0 + span, chain, err))
+    return out
+
+
+def vector_doors(pdf_path, page=0) -> dict | None:
+    """Doors from the vector drawing of a PDF page: quarter-circle swings (60-120 degrees) whose radius is a door
+    leaf, a straight leaf piece ~r long from the hinge (when drawn), paired into double doors. The leaf radius is
+    taken from the page scale when printed, else from the dominant radius among the quarter arcs.
+    Returns {"doors": [{"bbox" (normalised to the rotated page), "leaves", "r_m"}], "arcs": n, "r_pt": [...]}
+    or None when the page has no vector arcs (a scan)."""
+    import pymupdf
+
+    doc = pymupdf.open(str(pdf_path))
+    pg = doc[int(page)]
+    S, grey = _page_segments(pg)
+    if len(S) < 50:
+        return None
+    long_pt = max(pg.rect.width, pg.rect.height)
+    t = pg.get_text()
+    ratios = {int(m) for m in re.findall(r"\b1\s*:\s*(\d{2,4})\b", t)}
+    for a, b in re.findall(r"(\d+)/(\d+)\"\s*=\s*1'\s*-?\s*0\"", t):
+        ratios.add(round(12 * int(b) / int(a)))
+    for a in re.findall(r"\b(\d{1,2})\"\s*=\s*(\d{1,3})'\s*-?\s*0\"", t):
+        ratios.add(round(12 * int(a[1]) / int(a[0])))
+    ratios = {r for r in ratios if 10 <= r <= 2000}
+    pt_per_m = (72 / 0.0254) / ratios.pop() if len(ratios) == 1 else None
+    rmax = 1.6 * pt_per_m if pt_per_m else long_pt / 30
+    allarcs = _vector_arcs(S, rmax)
+
+    def has_leaf(a):
+        """a straight piece ~r long starting at the hinge, along one end of the arc (the drawn door leaf)"""
+        cx, cy, r = a[0], a[1], a[2]
+        L = np.hypot(S[:, 2] - S[:, 0], S[:, 3] - S[:, 1])
+        for e0, e1 in ((0, 2), (2, 0)):
+            near = (np.hypot(S[:, e0] - cx, S[:, e0 + 1] - cy) < 0.15 * r) & (L > 0.6 * r) & (L < 1.25 * r)
+            for i in np.nonzero(near)[0]:
+                ang = math.atan2(S[i, e1 + 1] - cy, S[i, e1] - cx)
+                for end in (a[4], a[5]):
+                    if abs((ang - end + math.pi) % (2 * math.pi) - math.pi) < math.radians(12):
+                        return True
+        return False
+
+    # a quarter swing (>= 3 pieces); a swing drawn part-open (30-60 degrees, e.g. corridor doors shown at 45, often
+    # only 2 pieces) needs its leaf. Radius limits first, the leaf test is the slow part.
+    if pt_per_m:
+        allarcs = [a for a in allarcs if 0.5 * pt_per_m <= a[2] <= 1.5 * pt_per_m]
+    arcs = [a for a in allarcs if 60 <= a[3] <= 120 and len(a[6]) >= 3 and a[7] <= 0.03]
+    if arcs and not pt_per_m:
+        rs = np.array([a[2] for a in arcs])
+        hist, edges = np.histogram(np.log(rs), bins=30)
+        k = int(np.argmax(hist))
+        mode = math.exp((edges[k] + edges[k + 1]) / 2)
+        arcs = [a for a in arcs if 0.55 * mode <= a[2] <= 1.8 * mode]
+        allarcs = [a for a in allarcs if 0.55 * mode <= a[2] <= 1.8 * mode]
+    arcs += [a for a in allarcs if (30 <= a[3] < 60 or (60 <= a[3] <= 120 and (len(a[6]) < 3 or a[7] > 0.03)))
+             and has_leaf(a)]  # rough or short arcs count with a drawn leaf
+    if not arcs:
+        return {"doors": [], "arcs": 0, "pt_per_m": pt_per_m}
+    sw = [{"c": (a[0], a[1]), "r": a[2], "a0": a[4], "a1": a[5], "span": a[3]} for a in arcs]
+    # duplicates (the same arc drawn twice / in two layers)
+    uniq = []
+    for s in sw:
+        if not any(math.hypot(s["c"][0] - u["c"][0], s["c"][1] - u["c"][1]) < 0.1 * s["r"] and
+                   abs(s["r"] - u["r"]) < 0.1 * s["r"] for u in uniq):
+            uniq.append(s)
+    # a run of identical arcs closer than a leaf width (locker / cupboard fronts, seat rows) is furniture, not doors
+    crowd = [sum(1 for u in uniq if u is not s and abs(u["r"] - s["r"]) < 0.15 * s["r"] and
+                 math.hypot(u["c"][0] - s["c"][0], u["c"][1] - s["c"][1]) < 1.3 * s["r"]) for s in uniq]
+    uniq = [s for s, c in zip(uniq, crowd) if c < 2]
+    used, doors = set(), []
+    for i, s in enumerate(uniq):
+        if i in used:
+            continue
+        used.add(i)
+        mate = next((j for j in range(i + 1, len(uniq)) if j not in used and _pair(s, uniq[j])), None)
+        parts = [s] if mate is None else [s, uniq[mate]]
+        if mate is not None:
+            used.add(mate)
+        bs = [_swing_box(p) for p in parts]
+        doors.append({"bbox": [min(b[0] for b in bs), min(b[1] for b in bs), max(b[2] for b in bs),
+                               max(b[3] for b in bs)], "leaves": len(parts),
+                      "r_m": round(float(np.mean([p["r"] for p in parts])) / pt_per_m, 2) if pt_per_m else None})
+    # page (unrotated) coords -> rotated page as rendered -> normalised
+    M = pg.rotation_matrix
+    W, H = pg.rect.width, pg.rect.height
+    for d in doors:
+        r = pymupdf.Rect(*d["bbox"]) * M
+        d["bbox"] = [r.x0 / W, r.y0 / H, r.x1 / W, r.y1 / H]
+    doors.sort(key=lambda d: (round(d["bbox"][1] * 40), d["bbox"][0]))
+    return {"doors": doors, "arcs": len(uniq), "pt_per_m": pt_per_m,
+            "r_pt": sorted(round(s["r"], 2) for s in uniq)[:: max(1, len(uniq) // 10)]}
