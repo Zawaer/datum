@@ -1529,11 +1529,14 @@ def analyse(meta) -> dict:
     # scale
     k, dims, n_scale = _scale_from_dims(hor, ver, W, H, g)
     scale_src = f"{n_scale} dimension-string pairs" if k else None
-    if not k:
-        k2 = _scale_from_sheet(full_text + " " + " ".join(w["text"] for w in hor + ver)
-                               + (f" SCALE: {meta['scale']}" if meta.get("scale") else ""), W, H)
-        if k2:
-            k, scale_src = k2
+    k2 = _scale_from_sheet(full_text + " " + " ".join(w["text"] for w in hor + ver)
+                           + (f" SCALE: {meta['scale']}" if meta.get("scale") else ""), W, H)
+    if not k and k2:
+        k, scale_src = k2
+    elif k and k2 and n_scale < 6 and not 0.5 < k / k2[0] < 2:
+        # a few misread dimension strings agreeing by chance (a rough scan: 4 pairs gave 3 mm/px where the printed
+        # 1/4" = 1'-0" on ANSI D says 21): the printed scale and sheet size win
+        k, scale_src = k2[0], k2[1] + f" (the {n_scale} dimension pairs read disagreed)"
 
     # zones
     joint_pts = [((w["bbox"][0] + w["bbox"][2]) / 2 * W, (w["bbox"][1] + w["bbox"][3]) / 2 * H) for w in hor + ver
@@ -2026,6 +2029,10 @@ def answer(path, question, meta) -> dict | None:
                 if c not in calls:
                     calls.append(c)
             if not calls or not re.search(r"bars?|reinforc|rebar", ql):
+                return None
+            if not any("@" in c for c in calls):
+                # only bar marks with a length (an extra "D22x3000" under the columns): the reinforcement itself
+                # ("D19 @ 250 E.W.") was not read, so the general reader looks instead of a misleading part answer
                 return None
             return _res("; ".join(calls[:8]), conf0 * 0.6, f"{len(calls)} bar callouts read on the sheet (no slab-type "
                         "note)", [], A, "bars")

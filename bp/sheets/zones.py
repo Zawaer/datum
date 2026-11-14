@@ -1371,6 +1371,85 @@ def _fmt_ftin(ft: float) -> str:
     return f"{f}'-{i}\""
 
 
+def _reread_dims(meta, dims, W, H):
+    """A scan: the overall dimension string is often missed or misread (323'-0" for 323'-4"). The band around the
+    longest horizontal string read (where the overall one sits, just outside its chain) is read again at 3x, and of
+    near-equal readings of the longest one the reading that the strings of its chain add up to wins."""
+    hz = [d for d in dims if not d[1]]
+    if not hz:
+        return dims
+    top = max(hz, key=lambda d: d[0])[2]["bbox"]
+    hh = max(top[3] - top[1], 0.005)
+    reg = [0.0, max(0.0, top[1] - 6 * hh), 1.0, min(1.0, top[3] + 6 * hh)]
+    extra = []
+    for sc_, psm in ((3.0, 11), (2.0, 6)):
+        try:
+            ws = sheets.ocr_words(meta, region=reg, scale=sc_, psm=psm, min_conf=0)
+        except Exception:  # noqa: BLE001
+            ws = []
+        for w in ws:
+            ft = _dim_ft(w["text"])
+            b = w["bbox"]
+            if ft is None or ft < 10 or (b[3] - b[1]) * H > (b[2] - b[0]) * W:
+                continue
+            extra.append((ft, False, {**w, "band": True}))
+    alld = dims + extra
+    hz = [d for d in alld if not d[1]]
+    big = max(d[0] for d in hz)
+    # each of the longest strings once more on its own, tight and at 3x: the inches a small scan loses come back
+    # ("323'" -> 323'-4")
+    seen, drop = [], set()
+    for i, d in enumerate(sorted(range(len(alld)), key=lambda j: -alld[j][0])):
+        i, d = d, alld[d]
+        b = d[2]["bbox"]
+        if d[1] or d[0] < 0.95 * big:
+            continue
+        if any(abs(b[0] - o[0]) < 0.01 and abs(b[1] - o[1]) < 0.01 for o in seen):
+            if d[2].get("band"):
+                drop.add(i)
+            continue
+        seen.append(b)
+        w_, h_ = b[2] - b[0], b[3] - b[1]
+        reg = [max(0.0, b[0] - 0.3 * w_), max(0.0, b[1] - 0.4 * h_), min(1.0, b[2] + 1.2 * w_), min(1.0, b[3] + 0.4 * h_)]
+        reads = []
+        for psm in (7, 11):
+            try:
+                reads += [_dim_ft(w["text"]) for w in sheets.ocr_words(meta, region=reg, scale=3.0, psm=psm, min_conf=0)]
+            except Exception:  # noqa: BLE001
+                pass
+        reads = [r for r in reads if r and abs(r - d[0]) <= 0.02 * d[0]]
+        if reads:
+            best = max(set(reads), key=reads.count)
+            if best != d[0]:
+                alld[i] = (best, d[1], {**d[2], "text": _fmt_ftin(best), "reread": True})
+        elif d[2].get("band"):
+            drop.add(i)  # a band reading the tight look does not confirm: noise
+        else:
+            continue
+        big = max(x[0] for j, x in enumerate(alld) if not x[1] and j not in drop)
+    alld = [d for j, d in enumerate(alld) if j not in drop]
+    hz = [d for d in alld if not d[1]]
+    big = max(d[0] for d in hz)
+    near = [d for d in hz if d[0] >= big * 0.985]
+    vals = sorted({round(d[0], 2) for d in near})
+    if len(vals) > 1:
+        # the chain of strings on one line next to it (133'-10" + 55'-8" + 133'-10" under 323'-4")
+        def chain_sum(d):
+            b = d[2]["bbox"]
+            cy, h_ = (b[1] + b[3]) / 2, b[3] - b[1]
+            row = {}
+            for e in hz:
+                eb = e[2]["bbox"]
+                ey = (eb[1] + eb[3]) / 2
+                if e is not d and e[0] < 0.8 * d[0] and 0.5 * h_ < abs(ey - cy) < 6 * h_:
+                    row.setdefault(round(ey / max(h_, 1e-6)), {})[round((eb[0] + eb[2]) / 2, 2)] = e[0]
+            return [sum(v.values()) for v in row.values() if len(v) >= 2]
+        for d in sorted(near, key=lambda d: -d[0]):
+            if any(abs(s_ - d[0]) < 0.1 for s_ in chain_sum(d)):
+                return [x for x in alld if x not in near or x is d]
+    return alld
+
+
 def _answer_dimension(meta, question):
     """Overall length / width of the building: the longest printed dimension string (horizontal for length,
     the other direction for width / depth when it was read), kept as printed (323'-4"), its line measured as a check."""
@@ -1387,6 +1466,8 @@ def _answer_dimension(meta, question):
         dims.append((ft, vert, w))
     if not dims:
         return None
+    if not meta.get("words") and meta.get("image"):
+        dims = _reread_dims(meta, dims, W, H)
     want_w = bool(re.search(r"\b(width|wide|depth|deep)\b", question, re.I))
     hz = [d for d in dims if not d[1]]
     vt = [d for d in dims if d[1]]
