@@ -805,6 +805,7 @@ def _prepare(d: Path, p: Path, m: dict) -> tuple[Path, str]:
             m["sheet_title"] = sm.get("title")
             m["sheet_scale"] = sm.get("scale") or ""
             m["sheet_cost_usd"] = m.get("sheet_cost_usd", 0.0) + (sm.get("cost_usd") or 0.0)
+            sheet_types.warm_upload(sm)  # OCR / the specialist's own reading start now, in the background
         except Exception as e:  # noqa: BLE001
             print(f"sheet type check failed for {p}: {e!r}", flush=True)
     if not keep_orig:

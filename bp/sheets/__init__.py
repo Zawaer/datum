@@ -405,6 +405,21 @@ def _ocr_run(meta, region, scale, psm):
     return uniq
 
 
+def warm_upload(meta):
+    """At upload, in the background: the shared OCR, then the claiming module's own warm(meta) if it has one (a
+    piping module reading tags with vision, a room segmentation), so the judge's first question finds them ready."""
+    def run():
+        try:
+            n, m, _ = best(meta)
+            if m is not None and callable(getattr(m, "warm", None)):
+                m.warm(meta)
+        except Exception:  # noqa: BLE001
+            log.exception("warm-up failed")
+
+    warm(meta)
+    threading.Thread(target=run, daemon=True).start()
+
+
 def warm(meta):
     """Start the default OCR of a raster sheet in the background (called once per upload), so the first question
     does not wait for it; the specialists share the result through ocr_words' cache."""
