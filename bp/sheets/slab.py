@@ -448,7 +448,7 @@ def _chains_px(spans, vertical, tol=3.0, gap=0.0):
     return rows
 
 
-def _dimension_zones(out_zones, types, used, dims, W, H, S):
+def _dimension_zones(out_zones, types, used, dims, W, H, S, center=None):
     """Dimension-driven check of the raster zones (and zones for slab notes the flood missed):
     - a ragged zone (> 8 corners) or one that an interior dimension chain says is longer is rebuilt as the rectangle
       its dimension lines span; when that differs from the raster area by > 10 % the rectangle wins (and says so);
@@ -511,7 +511,7 @@ def _dimension_zones(out_zones, types, used, dims, W, H, S):
     for ti, t in enumerate(types):
         if ti in used:
             continue
-        cx, cy = (t["bbox"][0] + t["bbox"][2]) / 2 * W, (t["bbox"][1] + t["bbox"][3]) / 2 * H
+        cx, cy = center(t) if center else ((t["bbox"][0] + t["bbox"][2]) / 2 * W, (t["bbox"][1] + t["bbox"][3]) / 2 * H)
         hx = sorted([d for d in hs if d["span"][0] < cx < d["span"][2] and d["span"][2] - d["span"][0] >= 0.02 * S
                      and d.get("inlier")], key=lambda d: abs(d["span"][1] - cy))
         if not hx:
@@ -626,7 +626,7 @@ def _read_zone_note(meta, z, W, H):
     except (TypeError, ValueError):
         fx, fy = 0.5, 0.5
     cx, cy = (x0 + fx * (x1 - x0)) / W, (y0 + fy * (y1 - y0)) / H
-    ty.update({"text": str(d["note"]), "bbox": [cx - 0.02, cy - 0.01, cx + 0.02, cy + 0.01]})
+    ty.update({"text": str(d["note"]), "bbox": [cx - 0.02, cy - 0.01, cx + 0.02, cy + 0.01], "frame": "desk"})
     return ty, cost
 
 
@@ -657,6 +657,11 @@ def _deskew(g):
     M = cv2.getRotationMatrix2D((W / 2, H / 2), ang, 1.0)
     g2 = cv2.warpAffine(g, M, (W, H), flags=cv2.INTER_LINEAR, borderValue=255)
     return g2, cv2.invertAffineTransform(M)
+
+
+def _tp(Minv, p):
+    x, y = p
+    return (float(Minv[0, 0] * x + Minv[0, 1] * y + Minv[0, 2]), float(Minv[1, 0] * x + Minv[1, 1] * y + Minv[1, 2]))
 
 
 def _unrotate(out_zones, pads, Minv):
@@ -1607,7 +1612,33 @@ def analyse(meta) -> dict:
         types = [t for t in types if t["thickness_mm"]]
 
     # scale
-    k, dims, n_scale = _scale_from_dims(hor, ver, W, H, g)
+    # the zones are traced on the levelled grey: words, notes and dimension strings used with them are put in that
+    # frame too (a 1.5 deg skew moved them up to ~25 px off the walls they belong to on a 2000 px sheet)
+    Mf = None
+    if rot is not None:
+        import cv2
+
+        Mf = cv2.invertAffineTransform(rot)
+
+    def fwd(x, y):
+        if Mf is None:
+            return x, y
+        return (float(Mf[0, 0] * x + Mf[0, 1] * y + Mf[0, 2]), float(Mf[1, 0] * x + Mf[1, 1] * y + Mf[1, 2]))
+
+    def wdesk(bb):
+        if Mf is None:
+            return bb
+        pts = [fwd(bb[0] * W, bb[1] * H), fwd(bb[2] * W, bb[1] * H), fwd(bb[0] * W, bb[3] * H), fwd(bb[2] * W, bb[3] * H)]
+        return [min(p[0] for p in pts) / W, min(p[1] for p in pts) / H, max(p[0] for p in pts) / W,
+                max(p[1] for p in pts) / H]
+
+    def tcenter(t):
+        cx, cy = (t["bbox"][0] + t["bbox"][2]) / 2 * W, (t["bbox"][1] + t["bbox"][3]) / 2 * H
+        return (cx, cy) if t.get("frame") == "desk" else fwd(cx, cy)
+
+    hor_g = [dict(w, bbox=wdesk(w["bbox"])) for w in hor] if Mf is not None else hor
+    ver_g = [dict(w, bbox=wdesk(w["bbox"])) for w in ver] if Mf is not None else ver
+    k, dims, n_scale = _scale_from_dims(hor_g, ver_g, W, H, g)
     scale_src = f"{n_scale} dimension-string pairs" if k else None
     k2 = _scale_from_sheet(full_text + " " + " ".join(w["text"] for w in hor + ver)
                            + (f" SCALE: {meta['scale']}" if meta.get("scale") else ""), W, H)
@@ -1619,7 +1650,7 @@ def analyse(meta) -> dict:
         k, scale_src = k2[0], k2[1] + f" (the {n_scale} dimension pairs read disagreed)"
 
     # zones
-    joint_pts = [((w["bbox"][0] + w["bbox"][2]) / 2 * W, (w["bbox"][1] + w["bbox"][3]) / 2 * H) for w in hor + ver
+    joint_pts = [((w["bbox"][0] + w["bbox"][2]) / 2 * W, (w["bbox"][1] + w["bbox"][3]) / 2 * H) for w in hor_g + ver_g
                  if re.fullmatch(r"[CE]\.?J\.?", w["text"].upper())]
     zones, _outside = _zones(g_seg, k, joint_pts)
     S = max(H, W)
@@ -1679,8 +1710,7 @@ def analyse(meta) -> dict:
         poly = Polygon(z["gross"])
         z["type"] = None
         for ti, ty in enumerate(types):
-            cx = (ty["bbox"][0] + ty["bbox"][2]) / 2 * W
-            cy = (ty["bbox"][1] + ty["bbox"][3]) / 2 * H
+            cx, cy = tcenter(ty)
             if poly.contains(Point(cx, cy)) and ti not in used:
                 z["type"], z["type_how"] = ti, "note inside the zone"
                 used.add(ti)
@@ -1702,7 +1732,7 @@ def analyse(meta) -> dict:
     for ti, t in enumerate(types):
         if ti in used:
             continue
-        pt = Point((t["bbox"][0] + t["bbox"][2]) / 2 * W, (t["bbox"][1] + t["bbox"][3]) / 2 * H)
+        pt = Point(*tcenter(t))
         for zi, z in enumerate(out_zones):
             if z["type"] is None:
                 pairs.append((Polygon(z["gross"]).distance(pt), ti, zi))
@@ -1719,7 +1749,7 @@ def analyse(meta) -> dict:
                 z["type"], z["type_how"] = default, "the U.N.O. (unless noted otherwise) slab note"
     _merge_untyped(out_zones, S)
     if k and os.environ.get("BP_SLAB_DIMZONES", "1") == "1":
-        _dimension_zones(out_zones, types, used, dims, W, H, S)
+        _dimension_zones(out_zones, types, used, dims, W, H, S, center=tcenter)
     union = np.zeros_like(g, dtype=np.uint8)
     for z in zones:
         union |= z["mask"]
@@ -1766,6 +1796,16 @@ def analyse(meta) -> dict:
     low = bool(meta.get("low_res")) if "low_res" in meta else (src != "pdf-text" and max(meta.get("w") or 0, meta.get("h") or 0) < 3000)
     if rot is not None:  # geometry back into the uploaded image's own coordinates (evidence is drawn on it)
         _unrotate(out_zones, pads, rot)
+        for d in dims:
+            if d.get("span"):
+                a = _tp(rot, (d["span"][0], d["span"][1]))
+                b = _tp(rot, (d["span"][2], d["span"][3]))
+                d["span"] = [a[0], a[1], b[0], b[1]]
+            if d.get("bbox"):
+                bb = d["bbox"]
+                c = [_tp(rot, (bb[0] * W, bb[1] * H)), _tp(rot, (bb[2] * W, bb[3] * H))]
+                d["bbox"] = [min(c[0][0], c[1][0]) / W, min(c[0][1], c[1][1]) / H, max(c[0][0], c[1][0]) / W,
+                             max(c[0][1], c[1][1]) / H]
     res = {"v": 1, "src": src, "low_res": low, "imperial": imperial, "W": W, "H": H, "f": f, "k": k, "scale_src": scale_src,
            "scale_note": f"1:{sc.group(1)}" if sc else None, "types": types, "zones": out_zones,
            "pads": pads, "trenches": trenches, "trench_blocks": [b["bbox"] for b in tl_blocks],
