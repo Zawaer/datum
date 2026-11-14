@@ -120,9 +120,11 @@ plus a cross-audit of the whole evaluation by a second AI agent and a robustness
 **Robustness** ([`docs/ROBUSTNESS.md`](docs/ROBUSTNESS.md)): the 12,654 language-twin pairs (same question in
 English and Finnish / German / ...) agree 100 %; typed paraphrases go through a question normaliser (one cheap
 Haiku call, only for questions no parser understands, constrained to names that exist in the drawing) and score
-85.9 % vs 57.7 % before it, equal to the original wording (on a held-out set of 122 paraphrases written after
-the code: 81.1 % vs 49.2 % before, originals 82.0 %); 50 of 50 must-abstain questions (unknown storeys,
-nonsense) now abstain.
+84.6 % vs 57.7 % before it (originals 86.6 %; on a held-out set of 122 paraphrases written after the code:
+80.3 % vs 49.2 % before, originals 82.8 %); on 65 questions typed the way a user would (casual, typos, square feet,
+"doors and windows", Swedish / Spanish, out-of-scope) 49 are right, all 10 out-of-scope ones decline, and 1 is a
+wrong refusal; 49 of 50 must-abstain questions (unknown storeys, nonsense) abstain (the one change: "how many
+elevators?" now reads as rooms labelled 'Ascenseur' and answers 2, showing that reading).
 
 **Cross-audit of the whole evaluation by a second AI agent.** Codex (OpenAI) audited the repository read-only; a Claude
 agent re-verified every finding against the data. Confirmed: no split leakage (5,884 drawing groups, 0

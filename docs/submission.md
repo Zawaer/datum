@@ -25,7 +25,7 @@ _(665 characters)_
 
 ## Description (≤ 5000 chars, markdown)
 
-_Character count of the block between the rules below: 4,649 (limit 5,000)._
+_Character count of the block between the rules below: 544 (limit 5,000)._
 
 ---
 
@@ -59,7 +59,7 @@ The answer is counted out on the drawing: numbered boxes, rooms outlined with th
 - **Independent cross-check.** A second method re-derives 98 % of numeric answers (PDF re-read for CAD plans, the SVG sheet for IFC, a fine-tuned vision model for scans). Where they agree, Swiss and IFC answers were right 99.98 % of the time (all but 2 of 8,184); it caught a real error in our own CAD reading of an apartment area. On conflict, confidence is halved and both readings are shown.
 - **Provenance.** Every number in an LLM-written answer is traced to the facts it cites, or flagged.
 
-Robustness: 12,654 language-twin pairs agree 100 %; held-out typed paraphrases 81 % vs 82 % for the original wording (49 % before our normaliser); 50/50 must-abstain questions abstain.
+Robustness: 12,654 language-twin pairs agree 100 %; held-out typed paraphrases 80 % vs 83 % for the original wording (49 % before our normaliser); 49 of 65 questions typed like a user would right, all out-of-scope ones declined; 49/50 must-abstain questions abstain.
 
 ### 3. Creativity
 
