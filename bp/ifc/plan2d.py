@@ -102,6 +102,23 @@ def _area(poly) -> float:
     return abs(sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(poly, poly[1:] + poly[:1]))) / 2
 
 
+def _rings(polys):
+    """-> (outer ring, holes): the largest ring, and the other closed rings lying inside its bounding box."""
+    rings = [q for q in polys if len(q) >= 3]
+    if not rings:
+        return polys[0], []
+    outer = max(rings, key=_area)
+    x0, x1 = min(x for x, _ in outer), max(x for x, _ in outer)
+    y0, y1 = min(y for _, y in outer), max(y for _, y in outer)
+    holes = [q for q in rings if q is not outer and _area(q) > 1e-7
+             and all(x0 <= x <= x1 and y0 <= y <= y1 for x, y in q)]
+    return outer, holes
+
+
+def _r5(ring):
+    return [[round(x, 5), round(y, 5)] for x, y in ring]
+
+
 def svg_for(pdf_path: Path) -> Path:
     return pdf_path.with_suffix(".svg")
 
@@ -115,17 +132,17 @@ def evidence_2d(pdf_rel: str, pdf_abs: Path, items: list[dict], polygon: bool = 
         if r is None:
             continue
         if polygon:
-            poly = max(r["polys"], key=len)
+            poly, holes = _rings(r["polys"])
             out.append({"kind": "polygon", "file": pdf_rel, "page": 0,
-                        "points": [[round(x, 5), round(y, 5)] for x, y in poly],
+                        "points": _r5(poly), "holes": [_r5(h) for h in holes],
                         "label": it["label"], "value": it.get("value")})
         else:
             # counted elements are drawn with their real outline from the SVG twin (an L-shaped room or a wall run
             # is not its bounding rectangle); the bbox stays for zooming and badge placement
             n = sum(1 for o in out if o.get("counted")) + 1
-            poly = max(r["polys"], key=lambda q: _area(q) or len(q))
+            poly, holes = _rings(r["polys"])
             out.append({"kind": "polygon", "file": pdf_rel, "page": 0, "counted": True, "bbox": r["bbox"],
-                        "points": [[round(x, 5), round(y, 5)] for x, y in poly],
+                        "points": _r5(poly), "holes": [_r5(h) for h in holes],
                         "label": f"{n}. {it['label']}", "value": None})
     return out
 

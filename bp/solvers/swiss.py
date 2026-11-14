@@ -187,6 +187,14 @@ def _nat(r):
 ROOM_NUM_RE = r"(?<![\w.])([a-z]?\d+\.\d{2})(?![\w.])"
 
 
+
+def _holes(fl, poly) -> list:
+    """Inner rings (courtyards, rooms a corridor wraps around) in page coordinates, so the UI can cut them out."""
+    ax, bx, ay, by = fl.to_page
+    geom = poly if poly.geom_type == "Polygon" else max(poly.geoms, key=lambda p: p.area)
+    return [[[round(ax * x + bx, 5), round(ay * y + by, 5)] for x, y in r.coords]
+            for r in geom.interiors if len(r.coords) >= 4]
+
 class SwissSolver:
     def __init__(self, variant=None):
         self.root = data_root()
@@ -248,7 +256,7 @@ class SwissSolver:
             if fl.to_page and room.poly.area > 0:
                 lab = label or " ".join(x for x in (room.number, room.name) if x)
                 ev.append({"kind": "polygon", "file": page_file, "page": 0, "points": fl.norm_poly(room.poly),
-                           "label": lab, "value": value})
+                           "holes": _holes(fl, room.poly), "label": lab, "value": value})
 
         def area_text(room):
             # the printed "x.xx m²" on the PDF, if the label has one
