@@ -870,8 +870,8 @@ def grid(items: list[dict]):
     letters = sorted(rpos)
     rb = fr[1]
     ra = rpos[letters[0]] - rb * ord(letters[0])
-    rpos = {chr(k): ra + rb * k for k in range(ord("A"), ord(letters[-1]) + 1)
-            if chr(k) not in "IO" and 0.0 < ra + rb * k < 1.0}
+    rpos = {chr(k): ra + rb * k for k in range(ord("A"), ord(letters[-1]) + 4)
+            if chr(k) not in "IO" and 0.03 < ra + rb * k < 0.97}
     return cpos, rpos
 
 
@@ -909,9 +909,10 @@ def _ev(bbox, label, value=None, page=0, kind="box"):
 def _families_asked(q: str, present: set) -> list[str] | None:
     ql = q.lower()
     # a family code typed directly ("How many PIT?", "count the FSCV tags")
-    for code in sorted(present, key=len, reverse=True):
-        if re.search(r"(?<![a-z0-9])" + re.escape(code.lower()) + r"(?:s|'s)?(?![a-z0-9])", ql) and code not in ("IF",):
-            return [code]
+    codes = [c for c in sorted(present, key=len, reverse=True) if c not in ("IF", "P", "V")
+             and re.search(r"(?<![a-z0-9])" + re.escape(c.lower()) + r"(?:s|'s)?(?![a-z0-9])", ql)]
+    if codes:
+        return codes
     for pat, fams in GLOSSARY:
         if re.search(pat, ql):
             hit = [f for f in fams if f in present]
