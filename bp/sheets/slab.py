@@ -18,6 +18,7 @@ Pipeline (cached once per upload in meta["slab"]):
 """
 from __future__ import annotations
 
+import json
 import logging
 import math
 import os
@@ -1323,11 +1324,47 @@ def _snap(L_mm, dims, tol=0.006):
 
 
 # ----------------------------------------------------------------------------------------------- analyse
+def _reads_file(meta) -> Path | None:
+    img = meta.get("image")
+    if not img:
+        return None
+    try:
+        return Path(meta.get("_slab_cache_dir") or Path(img).parent) / f"slab_reads_{Path(img).stem}_{Path(img).stat().st_size}.json"
+    except OSError:
+        return None
+
+
+def _load_reads(meta) -> None:
+    """The model's readings of this sheet (note crops, zone crops) are kept with the upload: after a restart the
+    slab is analysed from the same readings, so its answers don't change (the same file, the same answers)."""
+    if "_slab_reads" in meta:
+        return
+    f = _reads_file(meta)
+    try:
+        meta["_slab_reads"] = json.loads(f.read_text()) if f is not None and f.exists() else {}
+    except (OSError, ValueError):
+        meta["_slab_reads"] = {}
+
+
+def _save_reads(meta) -> None:
+    f = _reads_file(meta)
+    if f is None or not meta.get("_slab_reads"):
+        return
+    try:
+        f.write_text(json.dumps(meta["_slab_reads"]))
+    except (OSError, TypeError, ValueError):
+        pass
+
+
 def _vision_text(meta) -> dict:
     """Last resort without OCR: Haiku reads the slab notes + overall dimensions (one call, ~$0.01)."""
     from PIL import Image
 
     from bp.generic import llm
+
+    cache = meta.setdefault("_slab_reads", {})
+    if isinstance(cache.get("vision_text"), dict):
+        return {**cache["vision_text"], "cost_usd": 0.0}
 
     Image.MAX_IMAGE_PIXELS = None
     with Image.open(meta["image"]) as im:
@@ -1340,6 +1377,8 @@ def _vision_text(meta) -> dict:
     r = llm.ask(prompt, [im], model="haiku", tag="sheets-slab-read", timeout=90)
     d = llm.parse_json(r["text"]) or {}
     d = d if isinstance(d, dict) else {}
+    if r.get("text"):
+        cache["vision_text"] = dict(d)
     d["cost_usd"] = r.get("cost_usd", 0.0)
     return d
 
@@ -1481,6 +1520,7 @@ def analyse(meta) -> dict:
     from bp.sheets import ocr_lines
 
     cost = 0.0
+    _load_reads(meta)
     hor, ver, src = _ocr(meta)
     g, f = _gray(meta)
     g, rot = _deskew(g)  # a scan's slight rotation breaks straight-line tests (joints, ticks): measure level
@@ -1716,6 +1756,7 @@ def analyse(meta) -> dict:
                if ver else [])),
            "stairs": [b["bbox"] for b in blocks if re.search(r"\bSTAIR", b["text"], re.I) and b["bbox"][2] > b["bbox"][0]]}
     meta["slab"] = res
+    _save_reads(meta)
     return res
 
 
