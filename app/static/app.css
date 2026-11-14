@@ -50,7 +50,8 @@ header { position: relative; z-index: 20; display: flex; align-items: center; ga
 .linkbtn { background: none; border: 0; color: var(--mut); border-radius: var(--r1); padding: 6px 10px; cursor: pointer; text-decoration: none; font-size: 13px; font-weight: 500; white-space: nowrap; }
 .linkbtn:hover { color: var(--text); background: var(--panel2); }
 .keysbtn { width: 26px; height: 26px; padding: 0; margin-left: 6px; border: 1px solid var(--line2); border-radius: 50%; font-size: 12px; }
-.pop { position: absolute; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r2); box-shadow: var(--pop); z-index: 30; }
+/* floating panels (picker, ⋯ menu, keyboard help); not .pop, which is the answer card's entrance animation */
+.popover { position: absolute; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r2); box-shadow: var(--pop); z-index: 30; }
 .keys { right: 16px; top: 50px; padding: 12px 16px; display: grid; gap: 6px; font-size: 13px; color: var(--mut); min-width: 200px; }
 .only-phone { display: none; }
 .scrim { display: none; }
@@ -155,7 +156,7 @@ main { position: relative; flex: 1; display: grid; grid-template-columns: minmax
 #side.answered #intro, #side.answered #ctatour, #side.answered #or, #side.answered #chips3 { display: none; }
 .hero h2 { margin: 0 0 8px; font-size: 28px; line-height: 1.15; font-weight: 600; letter-spacing: -.02em; }
 .hero p { margin: 0; font-size: 15px; color: var(--mut); }
-.cta { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 20px; margin-top: 6px; border: 0; border-radius: var(--r2); background: var(--ev); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 1px 2px rgba(0,63,99,.25); }
+.btn.cta { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 20px; margin-top: 6px; border: 0; border-radius: var(--r2); background: var(--ev); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 1px 2px rgba(0,63,99,.25); }
 .btn.cta:hover { background: var(--ev-ink); }
 .or { display: flex; align-items: center; gap: 12px; margin: 14px 0 0; font-size: 12px; color: var(--faint); }
 .or::before, .or::after { content: ''; flex: 1; border-top: 1px solid var(--line); }
@@ -431,7 +432,7 @@ svg .ping.model { stroke: var(--chk); }
   #side, #side:not(.answered) { border-left: 0; overflow: visible; padding: 20px 16px 24px; gap: 12px; justify-content: flex-start; }
   .hero h2 { font-size: 22px; }
   .hero p { font-size: 14px; }
-  .cta { align-self: stretch; justify-content: center; }
+  .btn.cta { align-self: stretch; justify-content: center; }
   .or { margin-top: 6px; }
   .chip { padding: 10px 12px; }
   .card { padding: 16px 16px 0; }

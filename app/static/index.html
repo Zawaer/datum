@@ -28,7 +28,7 @@
     <a class="linkbtn" href="/results">Score<span class="only-desk">board</span></a>
     <button class="linkbtn keysbtn only-desk" id="keysbtn" aria-label="Keyboard shortcuts" aria-expanded="false" aria-controls="keys">?</button>
   </nav>
-  <div class="pop keys" id="keys" hidden role="dialog" aria-label="Keyboard shortcuts">
+  <div class="popover keys" id="keys" hidden role="dialog" aria-label="Keyboard shortcuts">
     <div><kbd>Enter</kbd> ask</div><div><kbd>/</kbd> type a question</div><div><kbd>Esc</kbd> close · cancel</div>
     <div><kbd>f</kbd> fit drawing</div><div><kbd>+</kbd> <kbd>−</kbd> zoom</div><div><kbd>←</kbd> <kbd>→</kbd> tour steps</div>
   </div>
@@ -46,7 +46,7 @@
       <button class="vmbtn" id="vmbtn" aria-haspopup="true" aria-expanded="false" aria-controls="vmenu" aria-label="View options" title="View options" hidden>
         <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="3.5" cy="8" r="1.4" fill="currentColor"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/><circle cx="12.5" cy="8" r="1.4" fill="currentColor"/></svg>
       </button>
-      <div class="pop vmenu" id="vmenu" hidden role="group" aria-label="View options">
+      <div class="popover vmenu" id="vmenu" hidden role="group" aria-label="View options">
         <div class="vmitems" id="vmitems"></div>
         <div class="tools3d" id="tools3d">
           <label>Storey <select id="storey"></select></label>
@@ -65,7 +65,7 @@
     <div class="credit" id="credit" title="Dataset credit (click to show it in full)"></div>
     <div class="dropzone" id="dropzone" hidden>Drop the drawing to upload it</div>
   </section>
-  <div class="pop picker-pop" id="list" role="dialog" aria-label="Pick a drawing" hidden>
+  <div class="popover picker-pop" id="list" role="dialog" aria-label="Pick a drawing" hidden>
     <div class="pk-head">
       <label class="upload" id="uploadbox" tabindex="0">
         <input type="file" id="file" accept=".pdf,.png,.jpg,.jpeg,.dxf,.ifc" hidden>
