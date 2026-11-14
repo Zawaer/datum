@@ -22,8 +22,9 @@ status: "verified"   every number and quote is traced to a cited line or derived
         "partial"    >= 80 % of them are (the rest uncited or untraceable), or there is nothing to check
                      (claims == 0);
         "unverified" < 80 % are traced to the cited lines. The 80 % cut was chosen on the ifc_bench dev
-                     split: answers below it were judge-correct 30 % of the time (vs 52 % above), so
-                     solvers cap their confidence at 0.3 (docs/PROVENANCE.md).
+                     split (answers below it: 38 % judge-correct, verified ones: 57 %); solvers cap the
+                     confidence of unverified answers at 0.3. Numbers: docs/PROVENANCE.md,
+                     reproduce with `python -m bp.provenance` (replays cached LLM answers, no API spend).
 """
 from __future__ import annotations
 
@@ -326,3 +327,87 @@ def apply(result: dict, prov: dict, cap: float = 0.3) -> dict:
             result["confidence"] = cap
         result["explanation"] = (str(result.get("explanation") or "") + f" | provenance: {prov['note']}").strip(" |")
     return result
+
+
+# ------------------------------------------------------------------------------------------- measurement
+def _measure(out="runs/provenance_ifctext.jsonl"):
+    """Re-run ifctext@route on ifc_bench dev + test from the on-disk LLM cache (no paid calls: a cache miss
+    is an error), join with the judged runs, and print status distribution / judge accuracy per status, a
+    fabricated-number injection test, and the generic re-score from logged evidence."""
+    import collections
+    import json
+    import random
+
+    import bp.solvers.ifctext as IT
+    from bp.data import load_questions
+
+    IT.ask = lambda *a, **k: {"text": "", "cost_usd": 0.0, "error": "cache-miss"}
+    qs = {q["id"]: q for q in load_questions()}
+    solver, rows, inj, rng = IT.IfcTextSolver("route"), [], collections.Counter(), random.Random(0)
+    import bp.provenance as P  # the module the solvers call (this file may be running as __main__)
+
+    plain = P.check
+
+    def injecting(text, srcs, computed=(), context=()):  # also test: one number changed -> still verified?
+        p = plain(text, srcs, computed, context)
+        cands = [n for n in p["numbers"] if n["found_in"] != "estimate" and not n["embedded"]]
+        if p["status"] == "verified" and cands:
+            n = rng.choice(cands)
+            d = len(n["raw"].split(".")[1]) if "." in n["raw"] else 0
+            new = f"{n['value'] * rng.choice([0.87, 1.13, 1.5, 0.5]) + rng.choice([1, 3, 7]):.{d}f}"
+            ls = text.splitlines()
+            ls[n["line"]] = ls[n["line"]].replace(n["raw"], new, 1)
+            inj[plain("\n".join(ls), srcs, computed, context)["status"]] += 1
+        return p
+
+    P.check = injecting
+    try:
+        for split in ("dev", "test"):
+            for line in open(f"runs/ifctext_route_{split}.jsonl"):
+                r = json.loads(line)
+                if r["method"] != "ifctext-route-haiku":
+                    continue
+                o = solver(qs[r["id"]])
+                assert o["answer"] == r["pred"], f"answer changed for {r['id']} (cache miss?)"
+                p = o["provenance"]
+                rows.append({"id": r["id"], "split": split, "correct": r["correct"], "status": p["status"],
+                             "claims": p["claims"], "traced": p["traced"], "note": p["note"],
+                             "conf_before": r["confidence"], "conf_after": o["confidence"],
+                             "n_ev": len(o["evidence"]), "n_ev_verified": sum(bool(e.get("verified")) for e in o["evidence"]),
+                             "numbers": [(n["raw"], n["found_in"]) for n in p["numbers"]],
+                             "quotes": [(q["text"], q["found_in"]) for q in p["quotes"]]})
+    finally:
+        P.check = plain
+    with open(out, "w") as f:
+        for r in rows:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    print("| split | status | n | share | judge accuracy |\n|---|---|---|---|---|")
+    for split in ("dev", "test"):
+        g = [r for r in rows if r["split"] == split]
+        by = collections.defaultdict(list)
+        for r in g:
+            by[r["status"] + (" (nothing to check)" if not r["claims"] else "")].append(r["correct"])
+        for k in ("verified", "partial", "partial (nothing to check)", "unverified"):
+            if by.get(k):
+                print(f"| {split} | {k} | {len(by[k])} | {len(by[k]) / len(g):.0%} | {sum(by[k]) / len(by[k]):.1%} |")
+        print(f"| {split} | all | {len(g)} | 100% | {sum(r['correct'] for r in g) / len(g):.1%} |")
+    print("\none fabricated number injected into a verified answer ->", dict(inj))
+    import re as _re
+
+    print("\ngeneric text path, re-scored from logged evidence labels (segment text truncated to 80 chars):")
+    for run in ("runs/generic_opening_final.jsonl", "runs/generic_opening_nemotron.jsonl"):
+        c = collections.defaultdict(list)
+        for line in open(run):
+            r = json.loads(line)
+            if not r["method"].startswith("generic-text"):
+                continue
+            srcs = [(f"ev{i}", (_re.search(r": '(.*)'$", e["label"], _re.S) or [None, e["label"]])[1])
+                    for i, e in enumerate(r["evidence"])]
+            vals = [e["value"] for e in r["evidence"] if isinstance(e.get("value"), (int, float))]
+            p = plain(r["pred"], srcs, computed=[sum(vals)] if vals else ())
+            c[p["status"] + (" (nothing to check)" if not p["claims"] else "")].append(r["correct"])
+        print(run, {k: f"{len(v)} ({sum(v) / len(v):.0%} correct)" for k, v in sorted(c.items())})
+
+
+if __name__ == "__main__":
+    _measure()
