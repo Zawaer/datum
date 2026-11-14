@@ -140,7 +140,7 @@ def fig_selective():
         x, y = 100 * th["coverage"], 100 * th["accuracy_answered"]
         ax.plot(x, y, "o", ms=13, color=c, markeredgecolor=SURFACE, markeredgewidth=2.5, zorder=5)
         tx, ty = (58, 85.5) if key == "all" else (58, 80.5)
-        ax.annotate(f"{lab}: answers {x:.0f} %, {y:.1f} % right\n(vs {100 * sel[key]['base_acc']:.1f} % when forced to answer all)",
+        ax.annotate(f"{lab}: answers {x:.1f} %, {y:.1f} % right\n(vs {100 * sel[key]['base_acc']:.1f} % when forced to answer all)",
                     (x, y), xytext=(tx, ty), textcoords="data", fontsize=14, color=INK, va="center",
                     arrowprops=dict(arrowstyle="-", color=INK2, lw=1.2, shrinkB=8))
     ax.set_xlim(102, 0)

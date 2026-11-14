@@ -1,14 +1,14 @@
 # Blueprints That Talk
 
-**Ask a construction drawing or a BIM model a question, in any language, and get the answer with its proof
-drawn on the drawing.** Our Junction 2026 entry for Stoa's *Make Blueprints Talk* challenge.
+**Ask a construction drawing or a BIM model a question (tested in English, Finnish, German, French, Italian and
+Dutch) and get the answer with its proof drawn on the drawing.** Our Junction 2026 entry for Stoa's *Make Blueprints Talk* challenge.
 
 On **all 25,420 questions of a held-out test split** (every question in every language, not a sample) we are right **89.5 %** of the time
-[95 % CI 89.1–89.8], for **$0.013 per 1,000 questions** in API fees and 0.04 s per question.
+[95 % CI 89.1–89.8], for **$0.013 per 1,000 questions** in API fees (+ ~$0.005 local compute) and 0.04 s per question.
 The fair frontier comparison, **Claude Sonnet 5.5 given the drawing *and* its sibling CAD / IFC files** (the
 same inputs our solvers read), gets **69.8 %** [60.9–78.4] at **$25.76 per 1,000**. That is +20 points at
-about 1/1,900 of the cost. The evaluation was **audited independently** by a second AI lab's coding agent
-(Codex, OpenAI), and every finding was re-checked: no leakage between dev and test, no test data in
+about 1/1,900 of the cost. The evaluation was **cross-audited by a second AI agent (Codex, OpenAI)**,
+and every finding was re-checked: no leakage between dev and test, no test data in
 training, tuning or calibration, no gold lookups at inference, and the headline recount reproduces.
 
 A router sends every question to the cheapest method that can answer it **exactly**: CAD geometry for
@@ -19,8 +19,10 @@ wrong. Four verification layers sit on top (below): **evidence that adds up**, *
 **independent cross-check** by a second method, and **provenance** checks on every LLM-written number.
 
 Stoa's brief asks for approaches next year's frontier models won't make obsolete: *"hybrids of frontier models
-+ CV + 3D/geometry + small fine-tuned models"*. That is this system, piece by piece: CAD and IFC geometry, a
-small CV detector, a fine-tuned 8B VLM as second opinion, and a frontier LLM only where free text needs it.
++ CV + 3D/geometry + small fine-tuned models"*. That is this system, piece by piece: CAD and IFC geometry,
+our own CV detector (trained on a local RTX 4070), our fine-tuned 8B VLM as second opinion, and Claude Haiku 5.5,
+a small frontier LLM, only for free text. Share of the 25,420 test questions per route: CAD / IFC geometry 34.7 %,
+detector 64.9 %, Haiku 0.4 % (the 110 free-text questions).
 
 ![Counting doors on a Swiss apartment plan: 20 numbered doors read from the CAD layers, "Very likely right", and a second, independent method that agrees](docs/deck/img/step-1.jpg)
 <sub>Drawing: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0 (rendered by the Junction dataset authors).</sub>
@@ -33,7 +35,7 @@ small CV detector, a fine-tuned 8B VLM as second opinion, and a frontier LLM onl
 Held-out test split of the full Junction dataset, **split by whole drawing**: each drawing goes to test or dev by a
 SHA-1 hash of its id (20 % test, [`bp/data.py`](bp/data.py) `split_of`), so every format of a drawing (PDF, PNG,
 DXF, IFC and the plans rendered from it) and every language twin of a question stay on the same side, and nothing
-used in development (training, thresholds, prompts) is scored. An independent audit found 0 leaking groups. Official
+used in development (training, thresholds, prompts) is scored. The cross-audit by a second AI agent (Codex) found 0 leaking groups. Official
 tolerance: counts exact, areas / lengths / volumes within 2 %. An abstention counts as wrong.
 
 | system | accuracy [95 % CI] | API $ / 1,000 questions | s / question |
@@ -78,7 +80,7 @@ Sources: ours = [`runs/router_full_test_v6.summary.md`](runs/router_full_test_v6
 ## How we verify
 
 Judges, reviewers and users should not have to take our word for any number. Four verification layers,
-plus an audit of the whole evaluation and a robustness suite:
+plus a cross-audit of the whole evaluation by a second AI agent and a robustness suite:
 
 1. **Evidence that adds up.** Every solver returns `{answer, confidence, method, cost_usd, explanation,
    evidence[]}`. Evidence items are numbered boxes, measured room polygons with their m², text read from the
@@ -122,7 +124,7 @@ Haiku call, only for questions no parser understands, constrained to names that 
 the code: 81.1 % vs 49.2 % before, originals 82.0 %); 50 of 50 must-abstain questions (unknown storeys,
 nonsense) now abstain.
 
-**Independent audit, of the whole evaluation.** Codex (OpenAI) audited the repository read-only; a Claude
+**Cross-audit of the whole evaluation by a second AI agent.** Codex (OpenAI) audited the repository read-only; a Claude
 agent re-verified every finding against the data. Confirmed: no split leakage (5,884 drawing groups, 0
 straddle dev and test), no test data in training, tuning or calibration (`train/cubicasa/make_yolo.py` and
 `train/vlm/build_dataset.py` drop test drawings before reading anything), no gold lookups at inference, and
