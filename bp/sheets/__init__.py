@@ -16,7 +16,8 @@ Contract for a module `bp/sheets/<name>.py`:
      "kind":  sheet kind from the classifier ("arch" | "slab" | "piping" | "other"),
      "words": [{"text", "bbox" (normalised, as displayed), "conf"}] exact vector words when the upload is a PDF
               page with a text layer ("text_source": "pdf"), else [] ("text_source": "ocr"); use sheets.words(meta)
-              (or ocr_words, which returns these first) before running OCR yourself,
+              (or ocr_words, which returns these first) before running OCR yourself; sheets.pdf_paths(meta) gives
+              the page's vector linework (walls, pipes, hatches) in the same normalised coordinates,
      "image": path of a PNG/JPG render of the page (full resolution, page 0 unless "page" says otherwise),
      "page":  page index the image is of,
      "low_res": True for a raster under 3000 px on its long side (OCR upscaled; lower confidence on small text),
@@ -176,6 +177,52 @@ def pdf_words(path: str, page: int) -> list[dict]:
         return out
     except Exception:  # noqa: BLE001
         return []
+
+
+def pdf_paths(meta) -> list[dict]:
+    """Vector linework of a PDF upload's page (walls, pipes, hatches, dimension lines), as displayed and
+    page-normalised: [{"items": [("l", (x0, y0), (x1, y1)) | ("re", (x0, y0, x1, y1)) | ("c", p0, p1, p2, p3) ...],
+    "width": stroke width as a fraction of the page width, "stroke": (r, g, b) | None, "fill": (r, g, b) | None,
+    "dashes": str | None, "bbox": [x0, y0, x1, y1]}]. [] for rasters. Cached in meta["_pdf_paths"]."""
+    if "_pdf_paths" in meta:
+        return meta["_pdf_paths"]
+    out = []
+    path = str(meta.get("path") or "")
+    if path.lower().endswith(".pdf"):
+        try:
+            import pymupdf
+
+            pg = pymupdf.open(path)[meta.get("page") or 0]
+            R = pg.rotation_matrix
+            W, H = pg.rect.width, pg.rect.height
+
+            def pt(p):
+                q = pymupdf.Point(p) * R
+                return (q.x / W, q.y / H)
+
+            for d in pg.get_drawings():
+                items = []
+                for it in d.get("items") or []:
+                    if it[0] == "l":
+                        items.append(("l", pt(it[1]), pt(it[2])))
+                    elif it[0] == "re":
+                        r = pymupdf.Rect(it[1]) * R
+                        r.normalize()
+                        items.append(("re", (r.x0 / W, r.y0 / H, r.x1 / W, r.y1 / H)))
+                    elif it[0] == "c":
+                        items.append(("c", *[pt(p) for p in it[1:5]]))
+                    elif it[0] == "qu":
+                        q = it[1]
+                        items.append(("qu", pt(q.ul), pt(q.ur), pt(q.lr), pt(q.ll)))
+                r = pymupdf.Rect(d["rect"]) * R
+                r.normalize()
+                out.append({"items": items, "width": (d.get("width") or 0) / W, "stroke": d.get("color"),
+                            "fill": d.get("fill"), "dashes": d.get("dashes"),
+                            "bbox": [r.x0 / W, r.y0 / H, r.x1 / W, r.y1 / H]})
+        except Exception:  # noqa: BLE001
+            out = []
+    meta["_pdf_paths"] = out
+    return out
 
 
 def words(meta, **ocr_kw) -> list[dict]:
