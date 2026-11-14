@@ -564,6 +564,12 @@ def _merge_untyped(out_zones, S):
         if u.geom_type != "Polygon" or g.geom_type != "Polygon":
             continue
         u, g = u.simplify(1.5), g.simplify(1.5)
+        env = u.envelope
+        others = [Polygon(o["inner"]).buffer(0) for o in out_zones if o is not t and o is not z]
+        if u.area >= 0.9 * env.area and not any(env.intersection(o).area > 0.01 * env.area for o in others):
+            # the two parts fill their bounding rectangle but for details the flood fill went round (a trench
+            # outline in a corner): the slab is the rectangle
+            u = env
         t["inner"] = [(float(x), float(y)) for x, y in list(u.exterior.coords)[:-1]]
         t["gross"] = [(float(x), float(y)) for x, y in list(g.exterior.coords)[:-1]]
         t["inner_px"], t["gross_px"] = u.area, g.area
