@@ -481,7 +481,7 @@ function traceHTML(r) {
   const note = r.explanation ? `<div>${esc(r.explanation)}</div>` : '';
   const cost = `<div>${money(r.cost_usd || 0)} · ${latency(r.latency_s)} · ${esc(t.model_call)}${t.method ? ` · <code>${esc(t.method)}</code>` : ''}</div>`;
   return `<details class="trace" ${traceOpen ? 'open' : ''}><summary>Why this answer</summary>
-    ${sec('1 · Route', route)}${sec('2 · What it read', read ? `<ul>${read}</ul>` : note)}${sec('3 · Arithmetic', arith)}${sec('4 · Cost and time', cost)}</details>`;
+    ${sec('1 · Route', route)}${sec('2 · What it read', read ? `<ul>${read}</ul>${r.answer == null ? note : ''}` : note)}${sec('3 · Arithmetic', arith)}${sec('4 · Cost and time', cost)}</details>`;
 }
 function predTxt(f, t) {
   if (f.pred == null || f.pred === '') return '<i>no answer</i>';
@@ -528,11 +528,11 @@ function renderAnswer(shownSoFar) {
     ${res.normalized_question && res.normalized_question !== res.question ? `<div class="readas" style="order:1;font-size:12px;color:var(--mut);margin:-2px 0 6px">read as: <i>${esc(res.normalized_question)}</i></div>` : ''}
     ${typeof res.answer === 'string' ? '' : `<div class="big ${abst ? 'abstain' : ''} ${counting ? 'counting' : ''}">${abst ? 'Not sure, so no guess' : num ? fmt(val, t) : ''} <small>${abst ? '' : unitOf(t)}</small></div>`}
     ${typeof res.answer === 'string' ? `<div class="textans">${esc(res.answer.trim().split('\n').map(l => l.replace(/^\s{1,4}(?=\S)/, '')).join('\n'))}</div>` : ''}
-    ${(() => { const h = howOf(res); return `<div class="how ${h.cls}"><b>${h.cls === 'geo' ? '✓ ' : ''}${esc(h.t)}</b><span>${esc(h.how)}</span></div>`; })()}
+    ${(() => { const h = howOf(res); if (num && res.answer === 0 && !items.length && h.cls !== 'geo') h.how = 'it found nothing to box, so there is nothing to check on the drawing: look at the plan yourself before relying on 0'; return `<div class="how ${h.cls}"><b>${h.cls === 'geo' ? '✓ ' : ''}${esc(h.t)}</b><span>${esc(h.how)}</span></div>`; })()}
     ${res.rule ? `<div class="rule"><b>Rule</b> ${esc(res.rule)}</div>` : ''}
     ${crossHTML(res)}
     ${calibHTML(res)}
-    ${abst || !res.trace ? `<div class="expl">${esc(res.explanation || '')}</div>` : ''}
+    ${!res.trace ? `<div class="expl">${esc(res.explanation || '')}</div>` : ''}
     <div class="row">${abst || res.calibration ? '' : `<span class="pill ${confCls}">confidence ${(conf * 100).toFixed(0)}%</span>`}
       ${gold}</div>
     <div class="corr" id="corr"></div>
@@ -759,7 +759,7 @@ function renderEvidence() {
     const name = e.kind === 'box' ? (e.label || 'item').replace(/ \d+$/, '') : (e.label || (e.kind === 'polygon' ? 'region' : 'item'));
     const lead = numbered(e) ? `<span class="n">${e.on ? '#' + k : '–'}</span>` : `<span class="n">${i + 1}</span>`;
     const val = e.value != null && t !== 'count' ? fmt(e.value, t) + ' ' + unitOf(t) : '';
-    const read = modelRead(e) ? `<span class="rd" title="found by a model with score ${Math.round(100 * e.score)} %: please check">${Math.round(100 * e.score)}%</span>` : '';
+    const read = modelRead(e) && e.score != null ? `<span class="rd" title="found by a model with score ${Math.round(100 * e.score)} %: please check">${Math.round(100 * e.score)}%</span>` : '';
     d.innerHTML = `<button class="tg" title="${e.on ? 'drop this item from the answer' : 'put it back'}" aria-label="include">${e.on ? '✓' : ''}</button>${lead}<span class="nm" title="${esc(name)}">${esc(name)}${read}</span><span class="vl">${val}</span>`;
     d.onmouseenter = () => hotItem(i, true); d.onmouseleave = () => hotItem(i, false);
     d.querySelector('.tg').onclick = ev => { ev.stopPropagation(); e.on = !e.on; redraw(); };
@@ -774,7 +774,8 @@ function renderEvidence() {
   }
 }
 // read by a model (detector / LLM / vision) rather than measured from CAD or IFC geometry: drawn dashed amber
-const modelRead = e => e.score != null && !e.added;
+// (a vision / language model's boxes carry no detector score, but they are model-read all the same)
+const modelRead = e => !e.added && (e.score != null || (e.kind === 'box' && !!res && howOf(res).cls !== 'geo'));
 function focusItem(i) {
   const e = items[i]; if (!e) return;
   if (mode === '3d' || e.kind === 'ifc') { hotItem(i, true); setTimeout(() => hotItem(i, false), 1200); return; }
