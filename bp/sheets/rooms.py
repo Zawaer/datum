@@ -451,7 +451,9 @@ def segment(image, px_per_m=None, words=None, meta=None, with_labels=True) -> di
 
     g = _gray(image)
     H, W = g.shape
-    scan = _scan_like(g)
+    # a PDF page without a text layer is a scan in a PDF, however clean its paper looks after rendering
+    scan = _scan_like(g) or bool(meta and str(meta.get("path") or "").lower().endswith(".pdf")
+                                 and not meta.get("words"))
     if scan:
         # grey scan paper / toner that is never black: stretch paper to white and ink to black first, so the ink,
         # thin-line and fill thresholds below mean the same as on a clean render (grey paper hid every door swing)
