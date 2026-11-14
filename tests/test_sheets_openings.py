@@ -16,6 +16,15 @@ FIX = Path(__file__).parent / "fixtures/openings/school_nw_half.png"
 PPM = 117.85 / 2
 
 
+
+@pytest.fixture(autouse=True)
+def _no_model_calls(monkeypatch):
+    """No test here calls a model: the vision checks (closets, crop names, room identification) get an empty reply
+    unless a test patches llm.ask itself."""
+    import bp.generic.llm as llm
+
+    monkeypatch.setattr(llm, "ask", lambda *a, **k: {"text": "", "cost_usd": 0.0})
+
 @pytest.fixture(scope="module")
 def res():
     return O.detect_openings(FIX, PPM)

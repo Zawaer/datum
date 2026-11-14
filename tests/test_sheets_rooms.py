@@ -8,6 +8,15 @@ from bp.sheets import rooms as R
 PPM = 60.0  # px per metre of the synthetic sheet
 
 
+
+@pytest.fixture(autouse=True)
+def _no_model_calls(monkeypatch):
+    """No test here calls a model: the vision checks (closets, crop names, room identification) get an empty reply
+    unless a test patches llm.ask itself."""
+    import bp.generic.llm as llm
+
+    monkeypatch.setattr(llm, "ask", lambda *a, **k: {"text": "", "cost_usd": 0.0})
+
 def _plan():
     """Two rooms side by side, 4 x 3 m and 3 x 3 m (inside faces), 0.2 m walls, a 0.9 m door with leaf and swing
     between them, a 1.5 m window (two glazing lines) in the outer wall, a scale bar 0-10 m, and grey furniture."""
