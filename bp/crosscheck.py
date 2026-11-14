@@ -559,10 +559,13 @@ def ifc_second(q):
 # --------------------------------------------------------------------------------------------------
 # cubicasa5k: a second, separately trained detector (and its own dev-tuned count thresholds)
 
-CC_SECOND_WEIGHTS = os.environ.get("BP_XCHECK_CC_WEIGHTS", "cache/crosscheck/cc_second_m1280.pt")
+# The primary detector is YOLO11m (v4, installed Sat 05:30); the second opinion is the older, separately
+# trained YOLO11s (v3), so the two stay independent models. Cache and thresholds are per second-model tag.
+CC_SECOND_WEIGHTS = os.environ.get("BP_XCHECK_CC_WEIGHTS", "cache/cubicasa/weights_v3/best.pt")
+CC_SECOND_TAG = os.environ.get("BP_XCHECK_CC_TAG", "v3s")
 CC_SECOND_IMGSZ = 1280
-CC_DET_CACHE = Path(__file__).resolve().parents[1] / "cache" / "crosscheck" / "cc_dets"
-CC_THRESH_FILE = Path(__file__).resolve().parents[1] / "cache" / "crosscheck" / "cc_second_thresholds.json"
+CC_DET_CACHE = Path(__file__).resolve().parents[1] / "cache" / "crosscheck" / f"cc_dets_{CC_SECOND_TAG}"
+CC_THRESH_FILE = Path(__file__).resolve().parents[1] / "cache" / "crosscheck" / f"cc_second_thresholds_{CC_SECOND_TAG}.json"
 _cc_model, _cc_lock = None, threading.Lock()
 
 
