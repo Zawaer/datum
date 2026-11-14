@@ -25,7 +25,7 @@ _(585 characters)_
 
 ## Description (≤ 5000 chars, markdown)
 
-_Character count of the block between the rules below: 4,086 (limit 5,000)._
+_Character count of the block between the rules below: 4,192 (limit 5,000)._
 
 ---
 
@@ -58,7 +58,7 @@ For final judging, Stoa uploads unseen complex sheets. Each upload is classified
 - **Slab plans:** area by type (thickness + bars), reinforcement, trenches, sumps, joint panels.
 - **Piping plans:** tag counts, pipe sizes, notes, referenced sheets, run lengths.
 
-On Stoa's four example sheets (41 questions): vector PDF 40/41, full-res PNG 36/41, 2,000 px JPG 31/41, 2,500 px PNG 28/41, scanned PDF 28/41. Before the specialists, the generic reader got 22 of the original 34 on the PDFs (now 33). On sibling sheets we never tuned on: 10/11. Weak: low-res school plans (1/8 at 2,000 px; coarse sheets now give totals only and say why) and slab areas on unseen sheets (on one held-out slab plan the areas come out 23–41 % low, flagged low confidence).
+On Stoa's four example sheets (41 questions): vector PDF 40/41, full-res PNG 36/41, 2,000 px JPG 31/41, 2,500 px PNG 28/41, scanned PDF 28/41. Before the specialists, the generic reader got 22 of the original 34 on the PDFs (now 33). On sibling sheets we never tuned on: 10/11. Weak: low-res school plans (1/8 at 2,000 px; coarse sheets now give totals only and say why) and small slabs from low-res images (on the held-out S-100A/B slab plans the PDF areas land within 1–4 % of hand measurements; from 2,000 px JPGs the 6" slabs come out ~40 % low, flagged low confidence).
 
 ### 3. Visualising reasoning
 
