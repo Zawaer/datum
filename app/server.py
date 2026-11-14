@@ -605,6 +605,69 @@ def plan3d(request: Request, path: str):
     return out
 
 
+# ---- /api/walls: an uploaded plan's walls for the 3D view (bp/sheets/walls3d.py: rooms.py's wall mask, simplified to
+# <= ~4,000 polygon edges, in page-normalised coordinates, with the scale and the doors / windows in the wall lines).
+# Cached in memory and beside the prepared image (walls_p<page>.json); a result on a provisional scale (the upload's
+# OCR still running) is served but not cached, so the next open gets the real one.
+_WALLS: collections.OrderedDict = collections.OrderedDict()
+_walls_locks: dict = {}
+
+
+@app.get("/api/walls")
+def walls(request: Request, path: str, page: int = 0):
+    from bp.sheets import walls3d
+
+    _heavy_limit(request)
+    _known_drawing(path)
+    if not path.startswith("uploads/") or not 0 <= page < 10_000:
+        raise HTTPException(404, "3D walls are read from uploaded plans")
+    p = resolve(path)
+    if not p.is_file() or p.suffix.lower() not in (".png", ".jpg", ".jpeg", ".pdf"):
+        raise HTTPException(404, "3D walls are read from raster or PDF plans")
+    st = p.stat()
+    key = (str(p), page, st.st_mtime_ns, st.st_size)
+    if key in _WALLS:
+        return _WALLS[key]
+    cf_ = p.parent / f"walls_p{page}.json"
+    with _hits_lock:
+        lock = _walls_locks.setdefault(key, threading.Lock())
+    with lock:  # one extraction per page, however many tabs ask at once
+        if key in _WALLS:
+            return _WALLS[key]
+        out = None
+        if cf_.is_file():
+            try:
+                c = json.loads(cf_.read_text())
+                if c.get("version") == walls3d.VERSION and c.get("src") == [st.st_mtime_ns, st.st_size]:
+                    out = c
+            except (OSError, ValueError):
+                out = None
+        if out is None:
+            if not _heavy_sem.acquire(timeout=60):
+                raise HTTPException(503, "the server is busy; please try again in a minute")
+            try:
+                out, final = walls3d.for_upload(str(p.resolve()), page)
+            except HTTPException:
+                raise
+            except Exception as e:  # noqa: BLE001
+                print(f"walls failed for {path!r} page {page}: {e!r}", flush=True)
+                raise HTTPException(422, "could not read walls from this page") from e
+            finally:
+                _heavy_sem.release()
+            out["src"] = [st.st_mtime_ns, st.st_size]
+            if not final:
+                return out
+            try:
+                cf_.write_text(json.dumps(out))
+            except OSError:
+                pass
+        _WALLS[key] = out
+        while len(_WALLS) > 32:
+            _WALLS.popitem(last=False)
+        _walls_locks.pop(key, None)
+    return out
+
+
 def _known_drawing(path: str):
     """A dataset drawing from the index, or an upload's own folder: anything else is a 404."""
     if "\x00" in path or not (path in BY_PATH or re.fullmatch(r"uploads/[0-9a-f]{12}/[A-Za-z0-9._-]+", path)):

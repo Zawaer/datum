@@ -29,7 +29,13 @@ const app = {
 };
 const isSwiss = c => !!c && !!c.path && !c.path.startsWith('uploads/') && c.path.includes('swiss_dwellings/');
 const isRaster = c => !!c && !!c.path && !c.path.startsWith('uploads/') && c.path.includes('cubicasa5k/') && /\.(png|jpe?g)$/i.test(c.path);
-const has3D = c => isSwiss(c) || isRaster(c);
+// an uploaded raster / PDF plan: its walls come from the server (/api/walls), and the toggle shows only once they look
+// like a building (enough enclosed rooms); keyed by page, as each page of a PDF is its own plan
+const isUpload = c => !!c && !!c.path && c.path.startsWith('uploads/') && /\.(pdf|png|jpe?g)$/i.test(c.path);
+const keyOf = c => c ? c.path + (isUpload(c) ? '#' + (c.page || 0) : '') : null;
+const upOK = new Map();  // key -> true (plausible walls) / false (keep 2D)
+const has3D = c => isSwiss(c) || isRaster(c) || (isUpload(c) && upOK.get(keyOf(c)) === true);
+const UP_WALL_H = 2.4, UP_SILL = 0.9, UP_HEAD = 2.1, UP_LEAF = 2.02;  // an upload's walls: real heights in plan metres
 
 // ------------------------------------------------------------ DOM: toggle, container, labels, legend
 const viewer = $('#viewer');
@@ -197,6 +203,25 @@ function shape(outer, holes = []) {
 function prism(shapes, y0, y1) {
   const g = new THREE.ExtrudeGeometry(shapes, {depth: y1 - y0, bevelEnabled: false, curveSegments: 1});
   g.rotateX(-Math.PI / 2); g.translate(0, y0, 0);
+  return regroup(g);
+}
+// three.js gives every shape its own cap and side groups, i.e. two draw calls per shape: a sheet with 2,000 wall pieces
+// would cost 4,000 calls. Reorder the (non-indexed) vertices by material so the whole prism draws in one call per material.
+function regroup(g) {
+  if (g.index || g.groups.length <= 2) return g;
+  const mats = [...new Set(g.groups.map(x => x.materialIndex))].sort((a, b) => a - b), groups = [];
+  const ranges = mats.map(mi => g.groups.filter(x => x.materialIndex === mi));
+  for (const [name, attr] of Object.entries(g.attributes)) {
+    const n = attr.itemSize, src = attr.array, dst = new src.constructor(src.length);
+    let o = 0;
+    ranges.forEach((rs, k) => {
+      const start = o;
+      for (const r of rs) { dst.set(src.subarray(r.start * n, (r.start + r.count) * n), o * n); o += r.count; }
+      if (name === 'position') groups.push([start, o - start, mats[k]]);
+    });
+    g.setAttribute(name, new THREE.BufferAttribute(dst, n));
+  }
+  g.clearGroups(); for (const [s, c, mi] of groups) g.addGroup(s, c, mi);
   return g;
 }
 function mesh(g, mat, cast = true, receive = true) { const m = new THREE.Mesh(g, mat); m.castShadow = cast; m.receiveShadow = receive; return m; }
@@ -304,7 +329,7 @@ function build(d) {
   // white walls, flat-shaded so each orientation reads in its own tone, a slightly darker cap and thin dark outlines;
   // doors are open with a beige leaf, windows keep a sill with light-blue glass above it, set into the wall
   const wallMat = [new THREE.MeshLambertMaterial({color: COL.cap, flatShading: true}), new THREE.MeshLambertMaterial({color: COL.wall, flatShading: true})];
-  const wg = prism(d.walls.map(p => shape(p.outer, p.holes)), 0, WALL_H);
+  const wg = prism(d.walls.map(p => shape(p.outer, p.holes)), 0, d.wallH || WALL_H);
   rise.add(mesh(wg, wallMat));
   if (d.wallEdges) {  // a raster's walls are many small blocks: outline their union (from the pixel mask), not each block
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(d.wallEdges(center, WALL_H), 3));
@@ -315,6 +340,7 @@ function build(d) {
   const doorFloor = new THREE.MeshBasicMaterial({color: COL.door, transparent: true, opacity: 0.45, depthWrite: false,
     polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4});
   const fixMat = new THREE.MeshLambertMaterial({color: COL.fixture, flatShading: true});
+  if (d.openings) uploadOpenings(d.openings, d.wallH, wallMat, glassMat, doorMat);
   d.symbols.forEach((s, k) => {
     const sh = [shape(s.pts)];
     s.c = centroid(s.pts); s.k = k;
@@ -346,6 +372,25 @@ function paneOf(pts, f) {
   const [p0, p1, p2, p3] = pts;
   return l1 < l2 ? [mid(p0, p1, t0), mid(p0, p1, t1), mid(p3, p2, t1), mid(p3, p2, t0)]
     : [mid(p0, p3, t0), mid(p1, p2, t0), mid(p1, p2, t1), mid(p0, p3, t1)];
+}
+// an upload's doors and windows, merged by kind into a handful of meshes (a 2,000-room sheet stays one draw call per
+// material): a window keeps a sill and a head of wall with a glass pane between, a door a closed beige leaf under a
+// lintel. o.r = [x0, y0, x1, y1] (m), o.axis = 'h' when its wall runs along x.
+function uploadOpenings(o, H, wallMat, glassMat, doorMat) {
+  const rect = ([a, b, c, e]) => shape([[a, b], [c, b], [c, e], [a, e]]);
+  const band = ({r: [a, b, c, e], axis}, t) => {  // the opening's middle, `t` m thick across its wall
+    if (axis === 'h') { const m = (b + e) / 2; return rect([a, m - t / 2, c, m + t / 2]); }
+    const m = (a + c) / 2; return rect([m - t / 2, b, m + t / 2, e]);
+  };
+  const add = (shapes, y0, y1, mat, edgeA) => {
+    if (!shapes.length) return;
+    const g = prism(shapes, y0, y1), m = mesh(g, mat); m.raycast = () => {}; rise.add(m);
+    if (edgeA) rise.add(edges(g, edgeA));
+  };
+  add(o.windows.map(w => rect(w.r)), 0, UP_SILL, wallMat, 0.45);
+  add([...o.windows, ...o.doors].map(w => rect(w.r)), UP_HEAD, H, wallMat, 0.45);
+  add(o.windows.map(w => band(w, 0.05)), UP_SILL, UP_HEAD, glassMat, 0.3);
+  add(o.doors.map(w => band(w, 0.06)), 0, UP_LEAF, doorMat, 0.35);
 }
 const toPlanD = (d, u, v) => { const [ax, bx, ay, by] = d.to_page; return [(u - bx) / ax, (v - by) / ay]; };
 
@@ -553,7 +598,8 @@ function legend() {
       `<em><b>0</b>${br.map(b => `<b>${b}</b>`).join('')}</em></span><span>m² per room · ${n} measured</span>`;
   } else what = `<span><i class="pin"></i>${n} counted</span>`;
   if (ev.length && off) what += `<span><i style="background:#e9ebee;border:1px solid #9aa2ad"></i>${off} dropped</span>`;
-  const src = data && data.raster ? 'walls read from the drawing\'s thick lines, cut away' : `walls from the CAD layers, cut at ${WALL_H} m`;
+  const src = data && data.upload ? `walls read from the drawing, ${data.wallH} m high` + (data.scale ? ` · scale ${data.scale.estimated ? 'estimated from wall thickness' : 'from the sheet'}` : '')
+    : data && data.raster ? 'walls read from the drawing\'s thick lines, cut away' : `walls from the CAD layers, cut at ${WALL_H} m`;
   leg.innerHTML = `${what}<span class="p3wide">Floor: the drawing · ${src}</span>`;
 }
 
@@ -629,8 +675,55 @@ const loadImg = src => new Promise(ok => {
   const im = new Image(); im.decoding = 'async';
   im.onload = () => ok(im); im.onerror = () => ok(null); im.src = src;
 });
-async function load(p) {
+// an upload's walls from the server, in plan metres (x right, y up from the page's bottom-left), the page itself on the
+// floor and a sharp crop of the building over it. null: the walls don't look like a building, keep 2D. The server
+// unreachable or failing: the browser reads the walls itself (rasterPlan), if it finds enough of them.
+function uploadPlan(w) {
+  const [Wm, Hm] = w.page_m, M = ([u, v]) => [u * Wm, (1 - v) * Hm];
+  const R = b => [b[0] * Wm, (1 - b[3]) * Hm, b[2] * Wm, (1 - b[1]) * Hm];
+  const walls = w.walls.map(p => ({outer: p.outer.map(M), holes: (p.holes || []).map(h => h.map(M))}));
+  const op = k => (w[k] || []).map(o => ({r: R(o.bbox), axis: o.axis}));
+  return {upload: true, raster: true, walls, symbols: [], rooms: [], wallH: UP_WALL_H, openings: {doors: op('doors'), windows: op('windows')},
+    to_page: [1 / Wm, 0, -1 / Hm, 1], bounds: R(w.bounds), scale: w.scale, style: w.wall_style};
+}
+async function loadUpload(c) {
+  const page = c.page || 0, view = c.shown || c.path;
+  const vq = `path=${encodeURIComponent(view)}` + (page ? `&page=${page}` : '');
+  let d = null, failed = false;
+  try {
+    const r = await fetch(`/api/walls?path=${encodeURIComponent(c.path)}&page=${page}`);
+    if (!r.ok) failed = true;
+    else {
+      const w = await r.json();
+      if (!w.plausible || !w.walls || !w.walls.length || !w.page_m) return null;
+      d = uploadPlan(w);
+    }
+  } catch (e) { failed = true; }
+  const img = await loadImg('/api/render?dpi=220&' + vq);
+  if (!d) {  // the endpoint failed: the browser's own reading, if it finds a building's worth of walls
+    if (!failed || !img) return null;
+    const r = rasterPlan(img);
+    if (r.nRects < 60) return null;
+    r.img = img; return r;
+  }
+  d.img = img;
+  const [bx0, by0, bx1, by1] = d.bounds, m = 2, [ax, bx, ay, by] = d.to_page;
+  const us = [(bx0 - m) * ax + bx, (bx1 + m) * ax + bx], vs = [(by0 - m) * ay + by, (by1 + m) * ay + by];
+  const box = [Math.max(0, Math.min(...us)), Math.max(0, Math.min(...vs)), Math.min(1, Math.max(...us)), Math.min(1, Math.max(...vs))];
+  const cw = Math.min(4096, Math.max(512, Math.round((bx1 - bx0 + 2 * m) * 60 / 32) * 32));
+  const sharp = await loadImg(`/api/crop?${vq}&x0=${box[0].toFixed(5)}&y0=${box[1].toFixed(5)}&x1=${box[2].toFixed(5)}&y1=${box[3].toFixed(5)}&w=${cw}`);
+  if (sharp && sharp.naturalWidth > (img ? img.naturalWidth * (box[2] - box[0]) * 1.2 : 0)) d.sharp = {im: sharp, box};
+  return d;
+}
+
+async function load(p, c) {
   if (dataPath === p && data) return data;
+  if (c && isUpload(c)) {
+    const d = await loadUpload(c);
+    upOK.set(p, !!d);
+    if (!d) throw new Error('no plausible walls on this drawing');
+    return d;
+  }
   if (isRaster({path: p})) {
     const im = await loadImg('/api/render?path=' + encodeURIComponent(p));
     if (!im) throw new Error('no drawing');
@@ -775,7 +868,7 @@ function rasterPlan(im) {
 
 async function open() {
   const c = app.cur(); if (!has3D(c) || opened) return;
-  opened = true; path = c.path;
+  opened = true; path = keyOf(c);
   try { if (typeof window.pinCardAt === 'function') window.pinCardAt(null); } catch (e) { /* app changed */ }  // a 2D card stays in 2D
   initGL();
   box.classList.add('on'); viewer.classList.add('p3on');
@@ -784,9 +877,9 @@ async function open() {
   resize();
   let d;
   loadEl.hidden = false;
-  try { d = await load(path); } catch (err) { loadEl.hidden = true; close(); hintMsg('No 3D model could be built from this plan'); return; }
+  try { d = await load(path, c); } catch (err) { loadEl.hidden = true; close(); hintMsg('No 3D model could be built from this plan'); return; }
   loadEl.hidden = true;
-  if (!opened || path !== (app.cur() || {}).path) return;
+  if (!opened || path !== keyOf(app.cur())) return;
   data = d; dataPath = path;
   if (built !== d) build(d);
   applyEvidence(false);
@@ -820,15 +913,21 @@ function hintMsg(msg) {
   h.hidden = false; h.textContent = msg; setTimeout(() => { if (h.textContent === msg) h.hidden = true; }, 2500);
 }
 
+const upPending = new Set();
 function sync() {
-  const c = app.cur(), swiss = has3D(c);
+  const c = app.cur(), k = keyOf(c);
+  if (isUpload(c) && !upOK.has(k) && !upPending.has(k)) {  // an upload: read its walls now; the toggle shows if they're plausible
+    upPending.add(k);
+    load(k, c).then(d => { if (keyOf(app.cur()) === k && !opened) { data = d; dataPath = k; if (renderer) build(d); } })
+      .catch(() => {}).finally(() => { upPending.delete(k); if (!upOK.has(k)) upOK.set(k, false); q(); });
+  }
+  const swiss = has3D(c);
   const modes = $('#modes'), ifc3d = modes && modes.classList.contains('show');
   tog.classList.toggle('show', swiss && !ifc3d);
-  if (opened && (!c || c.path !== path || !swiss)) close();
-  if (swiss && c.path !== dataPath) {  // fetch the geometry ahead of the click, so the rise starts at once
-    const p = c.path;
-    load(p).then(d => { if ((app.cur() || {}).path === p && !opened) { data = d; dataPath = p; if (renderer) build(d); } }).catch(() => {});
-    dataPath = p; data = null;
+  if (opened && (!c || k !== path || !swiss)) close();
+  if (swiss && k !== dataPath && !upPending.has(k)) {  // fetch the geometry ahead of the click, so the rise starts at once
+    load(k, c).then(d => { if (keyOf(app.cur()) === k && !opened) { data = d; dataPath = k; if (renderer) build(d); } }).catch(() => {});
+    dataPath = k; data = null;
   }
   if (opened && data && signature() !== evSig && !tweens.size) applyEvidence(true);
   else if (opened && data && signature() !== evSig) setTimeout(sync, 300);
