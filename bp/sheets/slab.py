@@ -41,6 +41,8 @@ def detect(meta) -> float:
     s = 0.8 if meta.get("kind") == "slab" else 0.0
     if re.search(r"foundation|slab[- ]on[- ]grade|slab plan|\bS-?1\d\d", meta.get("title", ""), re.I):
         s = max(s, 0.85)
+    if re.search(r"FOUNDATION AND SLAB PLAN|SLAB PLAN|\d{2,3}\s*(?:MM\s*)?SLAB[- ]ON[- ]GRADE", blob, re.I):
+        s = max(s, 0.8)
     hits = len(re.findall(r"slab|foundation|footing|reinforc|rebar|S\.?O\.?G|\bD\d{2}\s*@", blob, re.I))
     return min(1.0, s + min(0.2, 0.04 * hits))
 
@@ -53,53 +55,25 @@ def _num(s: str):
     return None
 
 
-def _pdf_words(path: str, page: int, W: int, H: int) -> list[dict]:
-    try:
-        import pymupdf
-    except ImportError:
-        return []
-    try:
-        pg = pymupdf.open(path)[page]
-    except Exception:  # noqa: BLE001
-        return []
-    pw, ph = pg.rect.width, pg.rect.height
-    out = []
-    d = pg.get_text("dict")
-    for b in d.get("blocks", []):
-        for ln in b.get("lines", []):
-            dx, dy = ln.get("dir", (1, 0))
-            vertical = abs(dy) > abs(dx)
-            for sp in ln.get("spans", []):
-                txt = sp.get("text", "").strip()
-                if not txt:
-                    continue
-                x0, y0, x1, y1 = sp["bbox"]
-                # spans keep their words together; split horizontal spans into words by character share
-                words = txt.split()
-                if vertical or len(words) == 1:
-                    out.append({"text": txt if vertical else words[0], "conf": 99.0, "vertical": vertical,
-                                "bbox": [x0 / pw, y0 / ph, x1 / pw, y1 / ph]})
-                    continue
-                n = len(txt)
-                pos = 0
-                for w in words:
-                    i = txt.index(w, pos)
-                    a, b2 = i / n, (i + len(w)) / n
-                    out.append({"text": w, "conf": 99.0, "vertical": False,
-                                "bbox": [(x0 + a * (x1 - x0)) / pw, y0 / ph, (x0 + b2 * (x1 - x0)) / pw, y1 / ph]})
-                    pos = i + len(w)
-    return out
-
-
 def _ocr(meta) -> tuple[list[dict], list[dict], str]:
     """(horizontal words, vertical words, source). Words: {"text","bbox" (normalised),"conf"}."""
     from bp.sheets import ocr_words
 
-    path = meta.get("path") or meta.get("image")
-    if str(path).lower().endswith(".pdf"):
-        ws = _pdf_words(path, meta.get("page", 0), meta.get("w", 1), meta.get("h", 1))
-        if len(ws) > 30:
-            return [w for w in ws if not w["vertical"]], [w for w in ws if w["vertical"]], "pdf-text"
+    pw = meta.get("words") if meta.get("text_source", "pdf") == "pdf" else None
+    if not pw:
+        path = str(meta.get("path") or "")
+        if path.lower().endswith(".pdf"):
+            from bp.sheets import pdf_words
+
+            pw = pdf_words(path, meta.get("page", 0))
+    if pw and len(pw) > 30:
+        Wi, Hi = meta.get("w") or 1, meta.get("h") or 1
+        hor, ver = [], []
+        for w in pw:
+            x0, y0, x1, y1 = w["bbox"]
+            vert = len(w["text"]) >= 2 and (y1 - y0) * Hi > 1.5 * (x1 - x0) * Wi
+            (ver if vert else hor).append({**w, "conf": 99.0, "vertical": vert})
+        return hor, ver, "pdf-text"
     w = meta.get("w") or 2000
     scale = 3.0 if w < 3000 else (2.0 if w < 6000 else 1.0)
     hor = ocr_words(meta, scale=scale, psm=11)
@@ -134,7 +108,9 @@ def _blocks(lines: list[dict]) -> list[dict]:
             last = b["lines"][-1]["bbox"]
             gap = ln["bbox"][1] - last[3]
             ov = min(bb[2], ln["bbox"][2]) - max(bb[0], ln["bbox"][0])
-            if -0.5 * h < gap < 1.2 * h and ov > 0 and abs(ln["bbox"][0] - last[0]) < 6 * h:
+            nb = [min(bb[0], ln["bbox"][0]), min(bb[1], ln["bbox"][1]), max(bb[2], ln["bbox"][2]), max(bb[3], ln["bbox"][3])]
+            small = (nb[2] - nb[0]) < 0.2 and (nb[3] - nb[1]) < 0.12
+            if small and -0.5 * h < gap < 1.2 * h and ov > 0 and abs(ln["bbox"][0] - last[0]) < 6 * h:
                 b["lines"].append(ln)
                 b["bbox"] = [min(bb[0], ln["bbox"][0]), min(bb[1], ln["bbox"][1]), max(bb[2], ln["bbox"][2]),
                              max(bb[3], ln["bbox"][3])]
@@ -177,7 +153,7 @@ def _type_name(ty: dict) -> str:
 
 
 # ----------------------------------------------------------------------------------------------- geometry
-def _gray(meta, max_side=3200):
+def _gray(meta, max_side=2000):
     import cv2
 
     g = cv2.imread(meta["image"], cv2.IMREAD_GRAYSCALE)
@@ -229,7 +205,7 @@ def _min_side(m):
     return min(x1 - x0, y1 - y0)
 
 
-def _zones(g):
+def _zones(g, k=None):
     """Slab zones: list of {"mask"}. Enclosed white areas (hatch strokes ignored); thin strips (wall bands between
     their outlines) dropped; areas separated only by a thin line (control joint, dimension line) merged."""
     import cv2
@@ -242,6 +218,7 @@ def _zones(g):
     n, lab, st, _ = cv2.connectedComponentsWithStats((1 - d).astype(np.uint8), connectivity=4)
     lab0 = lab.copy()
     min_a = 0.0004 * W * H
+    # wall bands (edge beams up to ~0.8 m) must not survive the opening as panels of their own
     ko = max(9, round(S * 0.011)) | 1
     kopen = cv2.getStructuringElement(cv2.MORPH_RECT, (ko, ko))
     keep = {}
@@ -487,6 +464,51 @@ def _offset_poly(pts, offs):
     return out
 
 
+def _clean_poly(pts):
+    """Drop repeated and collinear vertices of a rectilinear polygon."""
+    out = []
+    for p in pts:
+        if not out or abs(p[0] - out[-1][0]) > 0.5 or abs(p[1] - out[-1][1]) > 0.5:
+            out.append(p)
+    if len(out) > 1 and abs(out[0][0] - out[-1][0]) <= 0.5 and abs(out[0][1] - out[-1][1]) <= 0.5:
+        out.pop()
+    changed = True
+    while changed and len(out) > 4:
+        changed = False
+        for i in range(len(out)):
+            a, b, c = out[i - 1], out[i], out[(i + 1) % len(out)]
+            if (abs(a[0] - b[0]) <= 0.5 and abs(b[0] - c[0]) <= 0.5) or (abs(a[1] - b[1]) <= 0.5 and abs(b[1] - c[1]) <= 0.5):
+                out.pop(i)
+                changed = True
+                break
+    return out
+
+
+def _rects(pts):
+    """Rectilinear polygon -> disjoint rectangles (x0, y0, x1, y1), merged where they stack with equal x-range."""
+    from shapely.geometry import Polygon, box
+
+    P = Polygon(pts)
+    ys = sorted({round(p[1], 1) for p in pts})
+    xs = sorted({round(p[0], 1) for p in pts})
+    rects = []
+    for y0, y1 in zip(ys, ys[1:]):
+        row = [(x0, x1) for x0, x1 in zip(xs, xs[1:]) if P.contains(box(x0, y0, x1, y1).centroid)]
+        runs = []
+        for x0, x1 in row:
+            if runs and abs(runs[-1][1] - x0) < 0.5:
+                runs[-1][1] = x1
+            else:
+                runs.append([x0, x1])
+        for x0, x1 in runs:
+            prev = next((r for r in rects if abs(r[0] - x0) < 0.5 and abs(r[2] - x1) < 0.5 and abs(r[3] - y0) < 0.5), None)
+            if prev:
+                prev[3] = y1
+            else:
+                rects.append([x0, y0, x1, y1])
+    return sorted(rects, key=lambda r: -(r[2] - r[0]) * (r[3] - r[1]))
+
+
 def _poly_area(pts):
     n = len(pts)
     return abs(sum(pts[i][0] * pts[(i + 1) % n][1] - pts[(i + 1) % n][0] * pts[i][1] for i in range(n))) / 2
@@ -656,8 +678,11 @@ def _scale_from_dims(hor, ver, W, H, g=None):
 
 
 def _snap_to(v, ticks, tol):
-    best = min(ticks, key=lambda t: abs(t - v), default=None)
-    return float(best) if best is not None and abs(best - v) <= tol else v
+    """Nearest tick within tol, preferring ticks of long (overall) dimensions: those mark the outer faces."""
+    near = [(t, w) for t, w in ticks.items() if abs(t - v) <= tol]
+    if not near:
+        return v
+    return float(max(near, key=lambda tw: (tw[1], -abs(tw[0] - v)))[0])
 
 
 def _snap(L_mm, dims, tol=0.006):
@@ -733,10 +758,19 @@ def _reread_notes(meta, blocks):
         x0, y0, x1, y1 = b["bbox"]
         lh = max(0.004, (y1 - y0) / max(1, len(b["lines"])))
         if re.match(r"\s*NOTES?\b", b["text"], re.I) or "TRENCH LENGTH" in b["text"].upper():
-            boxes.append([x0 - 0.005, y0 - lh, min(1, x0 + 0.5), y0 + 0.075])  # the whole general-notes column
+            boxes.append([x0 - 0.005, y0 - lh, min(1, x0 + 0.5), y0 + 0.075, "general"])  # the notes column
         else:
-            boxes.append([x0 - 3 * lh, y0 - 2.5 * lh, x1 + 3 * lh, y1 + 2.5 * lh])
-    boxes = _merge_boxes([[max(0, a), max(0, b), min(1, c), min(1, d)] for a, b, c, d in boxes])
+            boxes.append([x0 - 3 * lh, y0 - 2.5 * lh, x1 + 3 * lh, y1 + 2.5 * lh, "note"])
+    general = _merge_boxes([[max(0, a), max(0, b), min(1, c), min(1, d)] for a, b, c, d, t in boxes if t == "general"])
+    notes_b = []
+    for a, b, c, d, t in boxes:
+        if t == "note" and (c - a) < 0.25 and (d - b) < 0.2:
+            bx = [round(max(0, a), 4), round(max(0, b), 4), round(min(1, c), 4), round(min(1, d), 4)]
+            if not any(n[0] <= (a + c) / 2 <= n[2] and n[1] <= (b + d) / 2 <= n[3] and (n[2] - n[0]) >= (c - a) * 0.9
+                       for n in notes_b):  # a note already covered by another crop
+                notes_b.append(bx)
+    boxes = general + notes_b
+    is_general = {tuple(bx): bx in general for bx in boxes}
     cache = meta.setdefault("_slab_reads", {})
     cost = 0.0
 
@@ -774,16 +808,28 @@ def _reread_notes(meta, blocks):
         def sub(m):
             t = m.group(0)
             near = crop_nums.get(tuple(bx), set())
-            if not near or t in near:
+            if not is_general.get(tuple(bx)) or not near or t in near:
                 return t
             alt = [o for o in near if len(o) == len(t) and sum(a != b for a, b in zip(o, t)) == 1]
             return alt[0] if len(alt) == 1 else t
         return re.sub(r"(?<![\dA-Z])\d{4,6}(?!\d)", sub, note)
 
-    out = []
+    def toks(t):
+        return set(re.findall(r"[A-Z]{2,}|\d{2,}", t.upper()))
+
+    out, seen = [], set()
     for bx in boxes:
+        inside_b = [b for b in blocks if bx[0] <= (b["bbox"][0] + b["bbox"][2]) / 2 <= bx[2]
+                    and bx[1] <= (b["bbox"][1] + b["bbox"][3]) / 2 <= bx[3]]
         for n in cache.get(",".join(f"{v:.4f}" for v in bx)) or []:
-            out.append({"text": fix(n, bx), "bbox": bx, "lines": [], "read": "haiku+ocr"})
+            # locate the note: the OCR block in the crop sharing most words with it
+            best = max(inside_b, key=lambda b: len(toks(n) & toks(b["text"])), default=None)
+            bb = best["bbox"] if best is not None and len(toks(n) & toks(best["text"])) >= 2 else bx
+            key = re.sub(r"\W", "", n.upper())
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({"text": fix(n, bx), "bbox": bb, "lines": [], "read": "haiku+ocr"})
     if not out:
         return blocks, cost
     # keep OCR blocks that the re-read crops do not cover; the crops' notes replace the rest
@@ -838,7 +884,7 @@ def analyse(meta) -> dict:
     scale_src = f"{n_scale} dimension-string pairs" if k else None
 
     # zones
-    zones, _outside = _zones(g)
+    zones, _outside = _zones(g, k)
     S = max(H, W)
     good = []
     for z in zones:
@@ -857,8 +903,12 @@ def analyse(meta) -> dict:
             scale_src = "overall dimension read by vision (rough)"
 
     eps = max(2.0, S * 0.0015)
-    xt = sorted({round(c, 1) for d in dims if d.get("inlier") and not d["vertical"] for c in (d["span"][0], d["span"][2])})
-    yt = sorted({round(c, 1) for d in dims if d.get("inlier") and d["vertical"] for c in (d["span"][1], d["span"][3])})
+    xt, yt = {}, {}
+    for d in dims:
+        if d.get("inlier"):
+            t, cs = (yt, (d["span"][1], d["span"][3])) if d["vertical"] else (xt, (d["span"][0], d["span"][2]))
+            for c in cs:
+                t[round(c, 1)] = max(t.get(round(c, 1), 0), d["v"])
     out_zones = []
     for i, z in enumerate(zones):
         others = np.zeros_like(g, dtype=bool)
@@ -871,8 +921,10 @@ def analyse(meta) -> dict:
         offs = _outward_offsets(g, z["mask"], pts, others, _outside)
         gross = _offset_poly(pts, offs)
         # snap the outer faces to the dimension-line ticks (extension lines) when one is close
-        tol = 0.012 * S
-        gross = [(_snap_to(x, xt, tol), _snap_to(y, yt, tol)) for x, y in gross]
+        tol = 0.015 * S
+        gross = _clean_poly([(_snap_to(x, xt, tol), _snap_to(y, yt, tol)) for x, y in gross])
+        if len(gross) < 4:
+            continue
         n_pan, cuts = _cj_panels(g, z["mask"])
         out_zones.append({"inner": pts, "gross": gross, "inner_px": _poly_area(pts), "gross_px": _poly_area(gross),
                           "panels": n_pan, "cuts": cuts, "walled": round(z["walled"], 3),
@@ -909,7 +961,8 @@ def analyse(meta) -> dict:
 
     # notes: trenches, sumps, CJ, scale
     trenches = []
-    for m in re.finditer(r"([A-Z][A-Z ]{2,40}?)\s+TRENCH\s+LENGTH\s*[-=:]?\s*(\d[\d,]*)", full_text.upper()):
+    tr_text = "\n".join(b["text"] for b in blocks if b.get("read")) or full_text
+    for m in re.finditer(r"([A-Z][A-Z ]{2,40}?)\s+TRENCH\s+LENGTH\s*[-=:]?\s*(\d[\d,]*)", tr_text.upper()):
         trenches.append({"name": m.group(1).strip().title() + " trench", "length_mm": int(m.group(2).replace(",", ""))})
     tl_blocks = [b for b in blocks if "TRENCH" in b["text"].upper()]
     sump_blocks = [b for b in blocks if re.search(r"\bSUMP\b", b["text"].upper())]
@@ -926,7 +979,7 @@ def analyse(meta) -> dict:
            "trench_labels": [{"text": b["text"], "bbox": b["bbox"]} for b in tl_blocks],
            "sumps": sumps, "cj_words": [w["bbox"] for w in cj_words],
            "hatch_note": hatch_note["text"] if hatch_note else None,
-           "dims": [{"v": d["v"], "vertical": d["vertical"], "bbox": d["bbox"]} for d in dims], "cost_usd": cost,
+           "dims": [{k2: d[k2] for k2 in ("v", "vertical", "bbox", "span", "k", "inlier") if k2 in d} for d in dims], "cost_usd": cost,
            "text": full_text}
     meta["slab"] = res
     return res
@@ -942,19 +995,25 @@ def _norm_pts(pts, W, H):
 
 
 def _zone_explain(z, a, k, dims):
-    """'19,800 x 12,000 mm = 237.6 m2' when the zone is a rectangle whose sides match printed dimensions."""
-    xs = [p[0] for p in z["gross"]]
-    ys = [p[1] for p in z["gross"]]
-    w_mm, h_mm = (max(xs) - min(xs)) * k, (max(ys) - min(ys)) * k
-    if len(z["gross"]) == 4:
-        dw = _snap(w_mm, [d for d in dims if not d["vertical"]])
-        dh = _snap(h_mm, [d for d in dims if d["vertical"]])
-        if dw and dh:
-            area = dw["v"] * dh["v"] / 1e6
-            return area, f"{dw['v']:,} × {dh['v']:,} mm = {area:.2f} m² (sides match the printed dimensions)", [dw, dh]
-        return a, f"{w_mm:,.0f} × {h_mm:,.0f} mm (measured) = {a:.2f} m²", []
-    # rectilinear: main rectangle + rest
-    return a, f"rectilinear outline, {len(z['gross'])} corners, bbox {w_mm:,.0f} × {h_mm:,.0f} mm, measured {a:.2f} m²", []
+    """Zone area as rectangles: '19,800 × 12,000 mm = 237.60 m²' (+ more rectangles for L-shapes). A side equal
+    to a printed dimension (within 0.6 %) uses the printed value; others are measured (rounded to 10 mm)."""
+    hd = [d for d in dims if not d["vertical"]]
+    vd = [d for d in dims if d["vertical"]]
+    parts, total, printed = [], 0.0, 0
+    for x0, y0, x1, y1 in _rects(z["gross"]):
+        w, h = (x1 - x0) * k, (y1 - y0) * k
+        dw, dh = _snap(w, hd), _snap(h, vd)
+        w2 = dw["v"] if dw else round(w, -1)
+        h2 = dh["v"] if dh else round(h, -1)
+        printed += bool(dw) + bool(dh)
+        ar = w2 * h2 / 1e6
+        total += ar
+        parts.append((w2, h2, ar, bool(dw), bool(dh)))
+    if not parts or abs(total - a) / max(a, 1e-9) > 0.03:
+        return a, f"measured {a:.2f} m²", []
+    txt = " + ".join(f"{w:,.0f}{'' if pw else '*'} × {h:,.0f}{'' if ph else '*'}" for w, h, _, pw, ph in parts)
+    star = " (* measured; other sides are printed dimensions)" if printed < 2 * len(parts) else " (sides = printed dimensions)"
+    return total, f"{txt} mm = {total:.2f} m²" + (star if printed else " (sides measured)"), parts
 
 
 def _zone_area(z, A):
