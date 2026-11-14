@@ -169,10 +169,11 @@ def test_heldout_S100A_imperial(tmp_path):
     assert r["answer"] == pytest.approx(5.5, abs=0.01) and r["unit"] == "ft"
     r = slab.answer(str(p), "What is the slab area by type?", m)
     assert r["unit"] == "SF" and re.search(r"12\" \(305 mm\).*SF", r["answer"])
-    assert r["confidence"] < 0.6  # segmentation is incomplete on this sheet: say so
+    assert "dimension strings" in r["explanation"]
     # hand-derived gold from the dimension strings: 6" = 12'-8" x 40'-8" (cable trench room) + 6'-0" x 6'-8"
-    # (north-west room) = 555 SF; 12" pump room ~ 58'-4" x 49'-2" = 2,868 SF (ramp / step strip ambiguous).
-    # Measured today: 12" ~ 2,200 SF (-23 %: the ramp bay and the pipe-trench bay leak to the outside),
-    # 6" ~ 325 SF (-41 %: the trench half of the room and the small room are missed). Kept as a sanity band only.
+    # (north-west room) = 555 SF; 12" pump room 58'-4" x 49'-2" = 2,868 SF. The traced outlines alone gave
+    # 2,206 / 325 SF; the dimension-driven check rebuilds the ragged / short / missed rooms.
     a12 = slab.answer(str(p), "What is the area of the 12 inch slab?", m)["answer"]
-    assert 0.6 * 2868 < a12 < 1.1 * 2868
+    a6 = slab.answer(str(p), "What is the area of the 6 inch slab?", m)["answer"]
+    assert a12 == pytest.approx(2868, rel=0.03)
+    assert a6 == pytest.approx(555, rel=0.04)

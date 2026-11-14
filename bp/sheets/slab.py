@@ -58,7 +58,9 @@ def _dim_tokens(words, vertical):
 
     if not words:
         return []
-    T = (lambda b: [b[1], b[0], b[3], b[2]]) if vertical else (lambda b: b)
+    # vertical dimension text reads bottom-to-top: rotate it into a left-to-right line (x' = -y, y' = x)
+    T = (lambda b: [-b[3], b[0], -b[1], b[2]]) if vertical else (lambda b: b)
+    Ti = (lambda b: [b[1], -b[2], b[3], -b[0]]) if vertical else (lambda b: b)
     ws = [{**w, "bbox": T(w["bbox"])} for w in words]
     out = []
     for ln in ocr_lines(ws):
@@ -76,7 +78,7 @@ def _dim_tokens(words, vertical):
             used = [w for a, b, w in spans if a < m.end() and b > m.start()]
             bb = [min(w["bbox"][0] for w in used), min(w["bbox"][1] for w in used),
                   max(w["bbox"][2] for w in used), max(w["bbox"][3] for w in used)]
-            out.append({"text": m.group(0), "v": v, "bbox": T(bb), "conf": min(w.get("conf", 99) for w in used)})
+            out.append({"text": m.group(0), "v": v, "bbox": Ti(bb), "conf": min(w.get("conf", 99) for w in used)})
     return out
 _EL_RE = re.compile(r"EL(?:EV)?\.?\s*[=:]?\s*\+?\s*(-?\d[\d.,]*)", re.I)
 
@@ -101,6 +103,35 @@ def _num(s: str):
     return None
 
 
+def _pdf_vertical_words(meta):
+    """{(text, cx, cy): is_vertical} for the PDF page's words, from each text line's writing direction as displayed
+    (short vertical words like 14' are not recognisable from their box shape). None if not a PDF."""
+    path = str(meta.get("path") or "")
+    if not path.lower().endswith(".pdf"):
+        return None
+    try:
+        import pymupdf
+
+        pg = pymupdf.open(path)[meta.get("page", 0)]
+        R = pg.rotation_matrix
+        W, H = pg.rect.width, pg.rect.height
+        dirs = {}
+        d = pg.get_text("dict")
+        for bi, b in enumerate(d.get("blocks", [])):
+            for li, ln in enumerate(b.get("lines", [])):
+                dx, dy = ln.get("dir", (1, 0))
+                q = pymupdf.Point(dx, dy) * R - pymupdf.Point(0, 0) * R
+                dirs[(b.get("number", bi), li)] = abs(q.y) > abs(q.x)
+        out = {}
+        for x0, y0, x1, y1, t, bno, lno, _wno in pg.get_text("words"):
+            r = pymupdf.Rect(x0, y0, x1, y1) * R
+            r.normalize()
+            out[(t, round((r.x0 + r.x1) / 2 / W, 3), round((r.y0 + r.y1) / 2 / H, 3))] = dirs.get((bno, lno), False)
+        return out
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _ocr(meta) -> tuple[list[dict], list[dict], str]:
     """(horizontal words, vertical words, source). Words: {"text","bbox" (normalised),"conf"}."""
     from bp.sheets import ocr_words
@@ -114,10 +145,15 @@ def _ocr(meta) -> tuple[list[dict], list[dict], str]:
             pw = pdf_words(path, meta.get("page", 0))
     if pw and len(pw) > 30:
         Wi, Hi = meta.get("w") or 1, meta.get("h") or 1
+        vdirs = _pdf_vertical_words(meta)
         hor, ver = [], []
         for w in pw:
             x0, y0, x1, y1 = w["bbox"]
-            vert = len(w["text"]) >= 2 and (y1 - y0) * Hi > 1.5 * (x1 - x0) * Wi
+            key = (w["text"], round((x0 + x1) / 2, 3), round((y0 + y1) / 2, 3))
+            if vdirs is not None and key in vdirs:
+                vert = vdirs[key]
+            else:
+                vert = len(w["text"]) >= 2 and (y1 - y0) * Hi > 1.5 * (x1 - x0) * Wi
             (ver if vert else hor).append({**w, "conf": 99.0, "vertical": vert})
         return hor, ver, "pdf-text"
     w = meta.get("w") or 2000
@@ -294,6 +330,105 @@ def _erase_pdf_shading(meta, g):
     except Exception as e:  # noqa: BLE001
         log.warning("slab: could not erase PDF shading: %s", e)
         return g
+
+
+def _chains_px(spans, vertical, tol=3.0, gap=0.0):
+    """Dimension lines as (cross coordinate, lo, hi) runs: all spans on one line merged (outliers included: their
+    ends may be off, but the line's extent is right)."""
+    rows: list = []
+    for d in spans:
+        c = d["span"][0] if vertical else d["span"][1]
+        lo, hi = (d["span"][1], d["span"][3]) if vertical else (d["span"][0], d["span"][2])
+        for r in rows:
+            if abs(r[0] - c) <= tol and lo <= r[2] + tol + gap and hi >= r[1] - tol - gap:
+                r[1], r[2] = min(r[1], lo), max(r[2], hi)
+                break
+        else:
+            rows.append([c, lo, hi])
+    return rows
+
+
+def _dimension_zones(out_zones, types, used, dims, W, H, S):
+    """Dimension-driven check of the raster zones (and zones for slab notes the flood missed):
+    - a ragged zone (> 8 corners) or one that an interior dimension chain says is longer is rebuilt as the rectangle
+      its dimension lines span; when that differs from the raster area by > 10 % the rectangle wins (and says so);
+    - a slab note with no zone gets the rectangle of the smallest dimensions enclosing it."""
+    from shapely.geometry import box as sbox
+
+    hs = [d for d in dims if d.get("span") and not d["vertical"]]
+    vs = [d for d in dims if d.get("span") and d["vertical"]]
+    if not hs or not vs:
+        return
+    xt = sorted({c for d in hs if d.get("inlier") for c in (d["span"][0], d["span"][2])})
+    yt = sorted({c for d in vs if d.get("inlier") for c in (d["span"][1], d["span"][3])})
+    hch, vch = _chains_px(hs, False, gap=0.025 * S), _chains_px(vs, True, gap=0.025 * S)
+    tol = 0.012 * S
+    snap_tol = 0.004 * S
+
+    def snap(v, ticks):
+        b = min(ticks, key=lambda t: abs(t - v), default=None)
+        return float(b) if b is not None and abs(b - v) <= snap_tol else v
+
+    for z in out_zones:
+        pts = z["inner"]
+        xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+        x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+        ragged = len(pts) > 8
+        ext = []
+        for c, lo, hi in vch:  # a vertical chain inside the zone measures its full length
+            if x0 + tol < c < x1 - tol and lo < y1 and hi > y0 and (lo < y0 - tol or hi > y1 + tol):
+                y0, y1 = min(y0, lo), max(y1, hi)
+                ext.append("a vertical dimension chain inside the room")
+        for c, lo, hi in hch:
+            if y0 + tol < c < y1 - tol and lo < x1 and hi > x0 and (lo < x0 - tol or hi > x1 + tol):
+                x0, x1 = min(x0, lo), max(x1, hi)
+                ext.append("a horizontal dimension chain inside the room")
+        if not ragged and not ext:
+            continue
+        r = [snap(x0, xt), snap(y0, yt), snap(x1, xt), snap(y1, yt)]
+        a_dim = (r[2] - r[0]) * (r[3] - r[1])
+        a_ras = z["inner_px"]
+        if abs(a_dim - a_ras) / max(a_ras, 1e-9) <= 0.10:
+            continue
+        others = [sbox(*_bbox_pts(o["inner"])) for o in out_zones if o is not z]
+        if any(sbox(*r).intersection(o).area > 0.15 * a_dim for o in others):
+            continue
+        why = "its traced outline was ragged" if ragged else ext[0] + " runs past the traced outline"
+        z["raster_inner"], z["raster_px"] = pts, a_ras
+        z["inner"] = [(r[0], r[1]), (r[0], r[3]), (r[2], r[3]), (r[2], r[1])]
+        z["inner_px"] = a_dim
+        z["dim_note"] = f"rebuilt from the dimension strings ({why}; traced area was {a_ras / a_dim * 100:.0f} % of it)"
+    # slab notes without a zone
+    for ti, t in enumerate(types):
+        if ti in used:
+            continue
+        cx, cy = (t["bbox"][0] + t["bbox"][2]) / 2 * W, (t["bbox"][1] + t["bbox"][3]) / 2 * H
+        hx = sorted([d for d in hs if d["span"][0] < cx < d["span"][2] and d["span"][2] - d["span"][0] >= 0.02 * S
+                     and d.get("inlier")], key=lambda d: abs(d["span"][1] - cy))
+        if not hx:
+            continue
+        wpx = hx[0]["span"][2] - hx[0]["span"][0]
+        vy = sorted([d for d in vs if d["span"][1] < cy < d["span"][3] and d["span"][3] - d["span"][1] >= 0.6 * wpx
+                     and d.get("inlier")], key=lambda d: abs(d["span"][0] - cx))
+        if not vy:
+            continue
+        r = [hx[0]["span"][0], vy[0]["span"][1], hx[0]["span"][2], vy[0]["span"][3]]
+        if max(r[2] - r[0], r[3] - r[1]) > 0.5 * S:
+            continue
+        a_dim = (r[2] - r[0]) * (r[3] - r[1])
+        if any(sbox(*r).intersection(sbox(*_bbox_pts(o["inner"]))).area > 0.15 * a_dim for o in out_zones):
+            continue
+        pts = [(r[0], r[1]), (r[0], r[3]), (r[2], r[3]), (r[2], r[1])]
+        out_zones.append({"inner": pts, "gross": pts, "inner_px": a_dim, "gross_px": a_dim, "stair_parts": [],
+                          "panels": 1, "cuts": [], "walled": None, "type": ti, "centroid": [cx, cy],
+                          "type_how": "room spanned by the dimension strings around the note",
+                          "dim_note": "the traced outline missed this room: built from the dimension strings"})
+        used.add(ti)
+
+
+def _bbox_pts(pts):
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    return min(xs), min(ys), max(xs), max(ys)
 
 
 def _bbox(m):
@@ -1176,6 +1311,8 @@ def analyse(meta) -> dict:
             if dist < 0.15 * S:
                 z["type"], z["type_how"] = ti, f"nearest note outside the zone ({dist * (k or 0) / 1000:.1f} m away, leader)"
                 used.add(ti)
+    if k and os.environ.get("BP_SLAB_DIMZONES", "1") == "1":
+        _dimension_zones(out_zones, types, used, dims, W, H, S)
     union = np.zeros_like(g, dtype=np.uint8)
     for z in zones:
         union |= z["mask"]
@@ -1238,7 +1375,7 @@ def _norm_pts(pts, W, H):
     return [[round(x / W, 5), round(y / H, 5)] for x, y in pts]
 
 
-def _zone_explain(z, a, k, dims, key="gross", stairs=(), WH=(1, 1)):
+def _zone_explain(z, a, k, dims, key="gross", stairs=(), WH=(1, 1), imperial=False):
     """Zone area as rectangles: '19,800 × 12,000 mm = 237.60 m²' (+ more rectangles for L-shapes). A side equal
     to a printed dimension (within 0.6 %) uses the printed value; others are measured (rounded to 10 mm)."""
     hd = [d for d in dims if not d["vertical"]]
@@ -1269,14 +1406,15 @@ def _zone_explain(z, a, k, dims, key="gross", stairs=(), WH=(1, 1)):
         return a_kept, f"measured {a_kept:.2f} m²" + (f" (stair well {sum(dropped):.1f} m² left out)" if dropped else ""), []
     def lab(v, d):
         if not d:
-            return f"{v:,.0f}*"
+            return (_fmt_ftin(v) if imperial else f"{v:,.0f}") + "*"
         t = _fmt_ftin(v) if d.get("imperial") else f"{v:,.0f}"
         return t + (f" ({d['how']})" if d.get("how") else "")
 
     txt = " + ".join(f"{lab(w, pw)} × {lab(h, ph)}" for w, h, _, pw, ph in parts)
     star = " (* measured; other sides are printed dimensions)" if printed < 2 * len(parts) else " (sides = printed dimensions)"
     tail = f"; stair well ({sum(dropped):.1f} m²) left out" if dropped else ""
-    return total, f"{txt} mm = {total:.2f} m²" + (star if printed else " (sides measured)") + tail, parts
+    unit = "" if imperial else " mm"
+    return total, f"{txt}{unit} = {total:.2f} m²" + (star if printed else " (sides measured)") + tail, parts
 
 
 def _zone_area(z, A):
@@ -1286,10 +1424,13 @@ def _zone_area(z, A):
     dims = A["dims"] + A.get("chains", [])
     a_meas = _m2(z["inner_px"], k)
     stairs = A.get("stairs", [])
-    a, how, used = _zone_explain(z, a_meas, k, dims, key="inner", stairs=stairs, WH=(A["W"], A["H"]))
+    a, how, used = _zone_explain(z, a_meas, k, dims, key="inner", stairs=stairs, WH=(A["W"], A["H"]),
+                                 imperial=bool(A.get("imperial")))
     g_meas = _m2(z["gross_px"], k)
-    ga, ghow, _ = _zone_explain(z, g_meas, k, A["dims"], key="gross", stairs=stairs, WH=(A["W"], A["H"]))
-    return a, f"clear area inside the walls: {how}; outer faces: {ghow}", used
+    ga, ghow, _ = _zone_explain(z, g_meas, k, A["dims"], key="gross", stairs=stairs, WH=(A["W"], A["H"]),
+                                imperial=bool(A.get("imperial")))
+    note = f" [{z['dim_note']}]" if z.get("dim_note") else ""
+    return a, f"clear area inside the walls: {how}{note}; outer faces: {ghow}", used
 
 
 def _chains(dims):
@@ -1530,8 +1671,8 @@ def answer(path, question, meta) -> dict | None:
                 faces = " top face" if "top" in t.get("faces", []) else ""
                 extra = "; bottom face reinforcing as indicated (hatched pads)" if t.get("bottom_as_indicated") else ""
                 v = f"{', '.join(t['bars'])}{faces}{extra}" if t.get("bars") else None
-                if len(tys) > 1 and v:
-                    v = f"{t['thickness_mm']} mm slab: {v}"
+                if len({_type_name(tt) for _, tt in tys}) > 1 and v:
+                    v = f"{_type_name(t).split(' w/')[0]} slab: {v}"
             if v:
                 out.append(v)
                 ev.append(_text_ev(t["bbox"], f"note: {t['text'][:80]}"))
@@ -1539,6 +1680,7 @@ def answer(path, question, meta) -> dict | None:
                     ev.append(_zone_ev(z, A, _type_name(t), None))
         if not out:
             return None
+        out = list(dict.fromkeys(out))  # the same note on two rooms answers once
         ans = out[0] if len(out) == 1 else "; ".join(out)
         return _res(ans, conf0 + 0.1 if len(out) == 1 else conf0, "read from the slab note(s): "
                     + " | ".join(t["text"][:90] for _, t in tys), ev, A, "note")
@@ -1560,6 +1702,8 @@ def answer(path, question, meta) -> dict | None:
             conf *= 0.7  # a slab note found no zone: some slab was not segmented (area is likely short)
         if any(len(z["inner"]) > 8 for z in zones):
             conf *= 0.75  # ragged outline: the zone probably leaked or lost a corner
+        if any(z.get("dim_note") for z in zones):
+            conf *= 0.85  # a zone rebuilt from the dimension strings: right size, assumed rectangular
         sel, desc = _match_zones(q, A)
         by_type = re.search(r"by type|per type|each type|each slab|by thickness|breakdown|types? of slab", ql)
         if sel is not None:
