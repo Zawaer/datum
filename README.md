@@ -331,3 +331,5 @@ Per-solver checks: `--solver swiss`, `ifc`, `cubicasa`, `ifctext@combo --source 
 ## Team
 
 Toivo and Rene, Junction 2026 (Espoo, 13–15 Nov 2026). Built during the event with Claude Code.
+
+**Challenges entered:** Stoa "Make Blueprints Talk" (main), Verda Compute Track, Best Use of ElevenLabs, Best Use of CRACI. Tools and why each qualifies: [docs/TRACKS.md](docs/TRACKS.md).
