@@ -450,7 +450,8 @@ def answer(path, question, meta):
             logging.getLogger(__name__).exception("sheet module %s failed", name)
             r = {"answer": None, "confidence": 0.0, "evidence": [], "cost_usd": 0.0, "method": f"sheets-{name}-error",
                  "explanation": f"{name} failed: {type(e).__name__}"}
-        if r is not None and r.get("answer") is not None and it == "rooms_count" and not _count_like(r["answer"]):
+        if r is not None and r.get("answer") is not None and it == "rooms_count" and (
+                not _count_like(r["answer"]) or re.search(r"measured|area|footprint", str(r.get("method")))):
             r = None  # a count question answered with an area or a list: not this specialist's question
         if r is not None and r.get("answer") is not None:
             r.setdefault("method", f"sheets-{name}")
