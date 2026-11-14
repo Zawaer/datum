@@ -533,6 +533,8 @@ def clarify_for(r: dict, question: str, path: str | None = None, page: int = 0) 
 
 def _apply_picks(q: str, picks: dict) -> str:
     """The specialist's wording of a clarify pick."""
+    if picks.get("closets", "").startswith("with "):
+        q = re.sub(r"\?$", "", q) + " (including closet doors)?"  # bp/sheets/openings.closet_mode reads this
     if picks.get("area") == "gross":
         q = re.sub(r"\?$", "", q) + " (gross footprint)?"
     elif picks.get("area") == "net":
@@ -559,9 +561,8 @@ def postprocess(r: dict, picks: dict) -> dict:
     if picks.get("closets") and r.get("answer") is not None:
         r = dict(r)
         keep = picks["closets"].startswith("with ")
-        r["explanation"] = (f"you asked for closet doors to be {'counted' if keep else 'left out'}; the door reader does "
-                            "not tell closet doors apart yet, so check the marks on closets"
-                            + ("" if keep else " and untick any to drop them") + " | "
+        r["explanation"] = (f"you asked for closet doors to be {'counted' if keep else 'left out'}"
+                            + ("" if keep else " (closet / cupboard doors found are marked 'not counted')") + " | "
                             + str(r.get("explanation") or ""))
     return r
 

@@ -165,9 +165,11 @@ def scale_from_bar(image, words=None, meta=None) -> float | None:
 
 
 # ------------------------------------------------------------------------------------------------- segmentation
-def _gaps(wall, thin, axis, ppm):
+def _gaps(wall, thin, axis, ppm, faint=None):
     """Gap bands in wall lines along `axis` (1: horizontal walls, 0: vertical walls).
-    Returns [(mask_slice_box, component mask, length_m, glazed)] in work pixels."""
+    Returns [(mask_slice_box, component mask, length_m, glazed)] in work pixels. faint (coarse sheets only): lighter
+    linework that also counts as a glazing / hatch line along a gap (a 1 px line resampled from a 2500 px render or a
+    150 dpi scan is grey, not black)."""
     import cv2
 
     L = int(MAX_WINDOW_M * ppm)
@@ -182,10 +184,11 @@ def _gaps(wall, thin, axis, ppm):
     band = (closed > 0) & (wall == 0)
     if axis == 0:  # work on rows: transpose vertical walls into horizontal ones
         band, thin, wall = band.T, thin.T, wall.T
+        faint = faint.T if faint is not None else None
     leafy = thin & (cv2.dilate(wall, np.ones((3, 3), np.uint8)) == 0)  # not the anti-aliased rim of a wall
     leafy_d = cv2.dilate(leafy.astype(np.uint8), np.ones((1, 3), np.uint8)) > 0  # leaves drawn a little off square
     # glazing lines, allowed to wander by a pixel across rows after resampling
-    thin_d = cv2.dilate(thin.astype(np.uint8), np.ones((3, 1), np.uint8)) > 0
+    thin_d = cv2.dilate((thin if faint is None else thin | faint).astype(np.uint8), np.ones((3, 1), np.uint8)) > 0
     # gap runs per row; a gap is a stack of runs in consecutive rows with (nearly) the same ends. Grouping runs
     # instead of taking connected components keeps a doorway apart from slivers along ragged wall edges.
     pad = np.zeros((band.shape[0], 1), bool)
@@ -302,6 +305,13 @@ def segment(image, px_per_m=None, words=None, meta=None, with_labels=True) -> di
     dist = cv2.distanceTransform(cv2.morphologyEx(ink, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8)), cv2.DIST_L2, 3)
     ridge = dist[dist >= 1.5]
     wall_px = float(2 * np.median(ridge) / f) if ridge.size else 0.0
+    # coarse sources (screenshots, 2500 px renders, 150 dpi scans): single-pixel glazing / serving-hatch lines are
+    # resampled to mid grey (~190-215), so they fail the black test and a hall leaked into its servery and kitchen
+    scan = _scan_like(g)
+    faint = None
+    if px_per_m < 40 or scan:
+        faint = cv2.resize((g < 220).astype(np.uint8) * 255, size,
+                           interpolation=cv2.INTER_AREA if f < 1 else cv2.INTER_NEAREST) > 40
     disc = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     wall = cv2.morphologyEx(ink, cv2.MORPH_OPEN, disc)
     # drop specks (text dots, arrow heads stay but are harmless)
@@ -311,13 +321,14 @@ def segment(image, px_per_m=None, words=None, meta=None, with_labels=True) -> di
     wall = keep[lab].astype(np.uint8)
 
     barrier = wall.copy()
-    doors, open_gaps = [], []
+    doors, open_gaps, bands = [], [], []  # bands: every gap closed (doorways, glazing, shut openings), work px
     for axis in (1, 0):
-        for (x, y, w, h), length, glazed, leaf in _gaps(wall, thin, axis, ppm):
+        for (x, y, w, h), length, glazed, leaf in _gaps(wall, thin, axis, ppm, faint):
             if not leaf:
                 open_gaps.append((x, y, w, h, length, axis))
                 continue
             barrier[y:y + h, x:x + w] = 1
+            bands.append((x, y, w, h))
             if not glazed:
                 doors.append({"width_m": round(length, 2), "box": (x, y, w, h), "axis": axis})
 
@@ -334,6 +345,7 @@ def segment(image, px_per_m=None, words=None, meta=None, with_labels=True) -> di
         ring = lab[max(0, y - 2):y + h + 2, max(0, x - 2):x + w + 2]
         if border & set(np.unique(ring).tolist()):
             barrier[y:y + h, x:x + w] = 1
+            bands.append((x, y, w, h))
             doors.append({"width_m": round(length, 2), "box": (x, y, w, h), "axis": axis})
             shut += 1
     if shut:
@@ -409,9 +421,9 @@ def segment(image, px_per_m=None, words=None, meta=None, with_labels=True) -> di
         r.pop("_c", None)
     rooms.sort(key=lambda r: -r["area_m2"])
     return {"rooms": rooms, "scale": sc or {"px_per_m": px_per_m, "how": "given"}, "px_per_m": px_per_m,
-            "wall_px": round(wall_px, 1), "_lab": seg_extra, "scan": _scan_like(g),
+            "wall_px": round(wall_px, 1), "_lab": seg_extra, "scan": scan,
             "fill_gray": fill_gray,
-            "doors": doors, "footprint_m2": round(footprint, 1),
+            "doors": doors, "bands": bands, "footprint_m2": round(footprint, 1),
             "footprint_polys": [[[round(p[0][0] / f, 1), round(p[0][1] / f, 1)] for p in c] for c in big]}
 
 
@@ -587,6 +599,105 @@ def vision_labels(image, rooms, budget_usd: float = 0.3, model: str = "haiku") -
 
 
 # ------------------------------------------------------------------------------------------------- answering
+CROP_PROMPT = """Each image is one room cut out of an architectural floor plan (everything outside the room is blanked).
+Image k is room k. Read the room NAME printed inside each room (e.g. "Secondary Classroom (Severe Needs)", "Library",
+"WC", "Corridor"), exactly as printed, without room numbers or areas. If no name is printed in it or you cannot
+actually read it, give "" (never guess from the furniture or the shape).
+JSON only: {{"1": "...", "2": "...", ...}} for rooms {nums}."""
+CROP_TEXT_PX = 2.4   # upscale coarse crops so the printed names (~0.3-0.4 m tall) are >= ~16 px for the VLM
+CROP_MAX_PX = 1100
+CROP_BATCH = 12
+
+
+def crop_labels(seg, image, rooms, min_m2: float = 2.0, model: str = "haiku", overwrite: bool = True) -> float:
+    """Room names read by a VLM, one cut-out crop per room (upscaled, the rest of the sheet blanked so a
+    neighbour's name cannot leak in), CROP_BATCH rooms per call, calls in parallel. For coarse rasters (2500 px
+    renders, screenshots, 150 dpi scans) where tesseract garbles names ("Secorrtery Cissrocen"). Sets
+    r["label"] (label_source "vision"; overwrite: OCR labels too, they are noise at this resolution). Cached next to
+    the image; returns the cost."""
+    import concurrent.futures as cf
+    import hashlib
+    import json
+    import os
+
+    import cv2
+    from PIL import Image
+
+    from bp.generic import llm
+
+    x = seg.get("_lab") or {}
+    if not x or isinstance(image, np.ndarray):
+        return 0.0
+    todo = [r for r in rooms if r["area_m2"] >= min_m2 and r.get("label_source") != "vision"
+            and (overwrite or not r["label"])]
+    if not todo:
+        return 0.0
+    key = hashlib.sha1(json.dumps([[round(v) for v in r["bbox"]] for r in todo]).encode()).hexdigest()[:12]
+    cache = f"{image}.rooms_crops_{key}.json"
+    got = None
+    if os.path.exists(cache):
+        try:
+            got = json.load(open(cache))
+        except (OSError, ValueError):
+            got = None
+    cost = 0.0
+    if got is None:
+        lab, f = x["lab"], x["f"]
+        sh, sw = lab.shape
+        Image.MAX_IMAGE_PIXELS = None
+        im = Image.open(image).convert("L")
+        W, H = im.size
+        # the source raster's own resolution: a scan PDF page rendered at 300 dpi from a 150 dpi image has half the
+        # detail its pixel count suggests, but upscaling it further does not hurt
+        up = max(1.0, min(4.0, CROP_TEXT_PX * 50.0 / max(1.0, x["src_ppm"])))
+        pad_w = max(2, int(0.35 * WORK_PPM))
+        crops = []
+        for r in todo:
+            bx0, by0, bx1, by1 = (int(v * f) for v in r["bbox"])
+            bx0, by0, bx1, by1 = max(0, bx0 - pad_w), max(0, by0 - pad_w), min(sw, bx1 + pad_w), min(sh, by1 + pad_w)
+            m = (lab[by0:by1, bx0:bx1] == r["id"]).astype(np.uint8)
+            m = cv2.dilate(m, np.ones((2 * pad_w + 1, 2 * pad_w + 1), np.uint8))
+            ix0, iy0 = int(bx0 / f), int(by0 / f)
+            ix1, iy1 = min(W, max(ix0 + 1, int(bx1 / f))), min(H, max(iy0 + 1, int(by1 / f)))
+            c = np.asarray(im.crop((ix0, iy0, ix1, iy1))).copy()
+            mm = cv2.resize(m, (c.shape[1], c.shape[0]), interpolation=cv2.INTER_NEAREST)
+            c[mm == 0] = 255
+            s = min(up, CROP_MAX_PX / max(c.shape))
+            ci = Image.fromarray(c)
+            if s != 1:
+                ci = ci.resize((max(1, int(ci.width * s)), max(1, int(ci.height * s))), Image.LANCZOS)
+            crops.append(ci)
+        batches = [list(range(i, min(len(todo), i + CROP_BATCH))) for i in range(0, len(todo), CROP_BATCH)]
+
+        def run(ids):
+            res = llm.ask(CROP_PROMPT.format(nums=f"1..{len(ids)}"), [crops[i] for i in ids], model=model,
+                          tag="rooms-croplabel", think=False)
+            js = llm.parse_json(res.get("text", "")) or {}
+            out = {}
+            for n, i in enumerate(ids, 1):
+                v = js.get(str(n)) if isinstance(js, dict) else None
+                if isinstance(v, str) and v.strip() and "?" not in v:
+                    out[str(i)] = v.strip()
+            return res.get("cost_usd", 0.0), out
+
+        got = {}
+        with cf.ThreadPoolExecutor(min(6, len(batches))) as ex:
+            for c_, out in ex.map(run, batches):
+                cost += c_
+                got.update(out)
+        try:
+            json.dump(got, open(cache, "w"))
+        except OSError:
+            pass
+    for i, r in enumerate(todo):
+        if got.get(str(i)):
+            r["label"] = got[str(i)]
+            r["label_source"] = "vision"
+        elif overwrite and r["label"]:
+            r["label_ocr"], r["label"] = r["label"], ""
+    return cost
+
+
 def detect(meta) -> float:
     s = sheets.kw_score(meta, "arch")
     if meta.get("kind") in ("slab", "piping"):
@@ -747,13 +858,27 @@ def answer(path, question, meta):
     # totals and the footprint hold up; named rooms and wet-room exclusions are left to other paths.
     coarse = seg.get("px_per_m", 100) < COARSE_PPM or wpx < 3 or seg.get("scan", False)
     if seg.get("scan"):
-        low_res = (low_res + "; " if low_res else "") + "scanned sheet: single rooms not measured"
+        low_res = (low_res + "; " if low_res else "") + "scanned sheet"
     if coarse:
-        if query_words(question) or re.search(r"exclud|except|without|wet|dry rooms?", ql):
-            return None
         cf *= 0.6
+        if query_words(question) or re.search(r"exclud|except|without|wet|dry rooms?", ql):
+            # a named room (or a split by room type) on a coarse sheet: OCR garbles the names here, so every room is
+            # read off its own cut-out crop by a VLM (one batch for the sheet, cached); faint glazing / hatch lines
+            # close rooms as on a crisp sheet, so the outline holds within a few % (hall 246 / 241 m² for 245)
+            if not seg.get("_crop_read"):
+                seg["_crop_read"] = True
+                try:
+                    seg["cost_usd"] = seg.get("cost_usd", 0.0) + crop_labels(seg, meta["image"], rooms)
+                except Exception:  # noqa: BLE001
+                    import logging
+
+                    logging.getLogger(__name__).exception("room crop labels failed")
+            if not any(r.get("label_source") == "vision" for r in rooms):
+                return None
+            cf = cf / 0.6 * 0.8
+            low_res = (low_res + "; " if low_res else "") + "room names read from per-room crops by a vision model"
     sel, qw = match_rooms(rooms, question)
-    if qw and not sel:
+    if qw and not sel and not seg.get("_crop_read"):
         # the question names a room we have no label for: read the unlabelled / larger rooms' own crops (budgeted)
         cand = [r for r in rooms if r["area_m2"] >= 1.5]
         if relabel(seg, meta["image"], cand, budget_s=30.0):
@@ -766,7 +891,8 @@ def answer(path, question, meta):
             sel, qw = match_rooms(rooms, question)
     named = bool(sel)
     if any(r.get("label_source") == "vision" for r in sel):
-        cf *= 0.6  # names read by a VLM off an unreadable raster may be wrong
+        # names read by a VLM off an unreadable raster may be wrong (one crop per room is the surer read)
+        cf *= 0.85 if seg.get("_crop_read") else 0.6
     base = {"unit": "m²" if it == "area" else "m", "cost_usd": seg.get("cost_usd", 0.0), "scale": sc.get("how", "")}
     if low_res:
         base["low_res"] = low_res

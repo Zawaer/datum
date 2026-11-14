@@ -717,6 +717,7 @@ def _work_image(meta, ppm):
 # full-resolution raster with doors), the answer goes out without it and the detector runs right after, in the
 # background, as the sanity check it is; its verdict (cv_ok) is applied to the cached reading for later questions.
 DEFER_YOLO = os.environ.get("BP_OPENINGS_DEFER_YOLO", "1") == "1"
+YOLO_WAIT_S = 40.0  # an answer that needs the deferred detector waits this long for it
 _inflight_lock = __import__("threading").Lock()
 _inflight: dict = {}
 
@@ -1023,14 +1024,182 @@ def _ev(b, label):
     return {"kind": "box", "page": 0, "bbox": [round(float(v), 5) for v in b], "label": label, "value": 1}
 
 
+# Closet / wardrobe / cupboard doors are not doors (Stoa's convention, as in the CubiCasa5k gold, where wardrobe
+# swings belong to the "FixedFurniture Closet" symbol and only Door objects count): they are reported separately.
+CLOSET_LEAF_M = 0.55       # a leaf narrower than this is a cupboard / wardrobe leaf (room doors are >= ~0.7 m)
+CLOSET_DEPTH_M = 0.8       # the space a closet door opens into is shallower than this (WC cubicles ~0.85 m) ...
+CLOSET_AREA_M2 = 2.0       # ... and smaller than this
+CLOSET_WORDS = re.compile(r"^(vh|var|var\.|cl|clo|clos|closet|wardrobe|ward|cupboard|cpd|cupbd|linen|lin)$", re.I)
+
+
+def closet_doors(meta, doors, px_per_m=None) -> dict:
+    """{index in doors: reason} for the doors that open a closet / wardrobe / cupboard rather than a room.
+    doors: [{"bbox": normalised, "leaves"?}]. Cues: a leaf < CLOSET_LEAF_M; a door box touching a free space
+    (bp/sheets/rooms.py segmentation) shallower than CLOSET_DEPTH_M and smaller than CLOSET_AREA_M2; a closet label
+    (VH, VAR, CL, closet, wardrobe, cupboard) within 1 m of the door."""
+    if not doors or not meta.get("image"):
+        return {}
+    from bp.sheets import rooms as rooms_mod
+
+    try:
+        seg = rooms_mod._cached(meta)
+    except Exception as e:  # noqa: BLE001
+        log.info("closet check: no room segmentation (%s)", e)
+        seg = None
+    W, H = meta.get("w") or 0, meta.get("h") or 0
+    ppm = (seg or {}).get("px_per_m") or px_per_m
+    if not (W and H and ppm):
+        return {}
+    lab = f = None
+    bands = []
+    small_ids = {}
+    if seg and seg.get("_lab"):
+        lab, f = seg["_lab"]["lab"], seg["_lab"]["f"]
+        wppm = ppm * f / 2  # stats on every 2nd work pixel
+        sub = lab[::2, ::2]
+        n = int(sub.max()) + 1
+        ys, xs = np.nonzero(sub)
+        ls = sub[ys, xs]
+        cnt = np.bincount(ls, minlength=n)
+        mnx, mny = np.full(n, 1 << 30), np.full(n, 1 << 30)
+        mxx, mxy = np.full(n, -1), np.full(n, -1)
+        np.minimum.at(mnx, ls, xs)
+        np.minimum.at(mny, ls, ys)
+        np.maximum.at(mxx, ls, xs)
+        np.maximum.at(mxy, ls, ys)
+        del ys, xs, ls
+        for i in np.nonzero(cnt)[0].tolist():
+            ww, hh = mxx[i] - mnx[i] + 1, mxy[i] - mny[i] + 1
+            area = cnt[i] / wppm ** 2
+            if 0.35 <= min(hh, ww) / wppm < CLOSET_DEPTH_M and 0.2 <= area < CLOSET_AREA_M2:  # not a hollow-wall sliver
+                small_ids[i] = (min(hh, ww) / wppm, float(area))
+        # a closet has one way in: a small space between two doorway bands is a door recess / lobby, not a closet
+        nband = dict.fromkeys(small_ids, 0)
+        sh, sw = lab.shape
+        bands = seg.get("bands") or [dd["box"] for dd in seg.get("doors") or []]
+        for bx, by, bw, bh in bands:
+            ring = lab[max(0, by - 2):min(sh, by + bh + 2), max(0, bx - 2):min(sw, bx + bw + 2)]
+            for i in set(np.unique(ring).tolist()) & set(small_ids):
+                nband[i] += 1
+        small_ids = {i: v for i, v in small_ids.items() if nband[i] <= 1}
+    words = []
+    try:
+        words = meta.get("words") or rooms_mod._words(meta["image"], None, meta)
+    except Exception:  # noqa: BLE001
+        words = []
+    cw = [w for w in words if CLOSET_WORDS.match(str(w.get("text", "")).strip(" .,:;()"))]
+    out = {}
+    for k, d in enumerate(doors):
+        x0, y0, x1, y1 = d["bbox"]
+        side_m = max((x1 - x0) * W, (y1 - y0) * H) / ppm
+        leaf = side_m / (2 if d.get("leaves") == 2 else 1)
+        why = None
+        if 0.2 < leaf < CLOSET_LEAF_M:
+            why = f"leaf {leaf:.2f} m (< {CLOSET_LEAF_M} m)"
+        if why is None and lab is not None and small_ids:
+            sh, sw = lab.shape
+            pad = 0.1 * ppm * f
+            a0, b0 = max(0, int(x0 * W * f - pad)), max(0, int(y0 * H * f - pad))
+            a1, b1 = min(sw, int(x1 * W * f + pad) + 1), min(sh, int(y1 * H * f + pad) + 1)
+            # the space must lie across this door's own doorway band (not behind a wall stub next to it)
+            mine = [(bx, by, bw, bh) for bx, by, bw, bh in bands
+                    if bx < a1 and bx + bw > a0 and by < b1 and by + bh > b0]
+            ids = set()
+            for bx, by, bw, bh in mine:
+                ring = lab[max(0, by - 2):min(sh, by + bh + 2), max(0, bx - 2):min(sw, bx + bw + 2)]
+                ids |= set(np.unique(ring).tolist())
+            if not mine:
+                ids = set(np.unique(lab[b0:b1, a0:a1]).tolist())
+            ids &= set(small_ids)
+            if ids:
+                dep, ar = small_ids[min(ids, key=lambda i: small_ids[i][1])]
+                why = f"opens into a {dep:.2f} m deep, {ar:.1f} m² space"
+        if why is None and cw:
+            r = 1.0 * ppm
+            cx, cy = (x0 + x1) / 2 * W, (y0 + y1) / 2 * H
+            for w in cw:
+                wx, wy = (w["bbox"][0] + w["bbox"][2]) / 2 * W, (w["bbox"][1] + w["bbox"][3]) / 2 * H
+                if abs(wx - cx) < r + (x1 - x0) * W / 2 and abs(wy - cy) < r + (y1 - y0) * H / 2:
+                    why = f"labelled '{w['text']}'"
+                    break
+        if why:
+            out[k] = why
+    return out
+
+
+_CL = r"(?:closet|wardrobe|cupboard|komero|vaatekaap)\w*"
+
+
+def closet_mode(question: str) -> str:
+    """"exclude" (default, Stoa's convention), "include" (the question / a clarify pick asks to count them too) or
+    "only" (the question counts the closet doors themselves)."""
+    q = question.lower()
+    if re.search(r"\(closets: with\b|\b(?:includ\w*|with|plus|and|also|count\w*)\s+(?:the\s+|all\s+)?" + _CL, q) \
+            or re.search(_CL + r"\s+(?:doors?\s+)?(?:included|too|as well)", q):
+        return "include"
+    if re.search(r"\b(?:how many|number of|count)\s+(?:the\s+)?" + _CL, q):
+        return "only"
+    return "exclude"
+
+
+def _split_closets(meta, doors, px_per_m=None, mode="exclude"):
+    """(counted doors, closet doors with "why", not counted), the closet check never failing the answer. mode (see
+    closet_mode): include -> closets are counted (still marked), only -> only closets are counted."""
+    if mode == "include":
+        return list(doors), []
+    try:
+        cl = closet_doors(meta, doors, px_per_m)
+    except Exception as e:  # noqa: BLE001
+        log.warning("closet check failed: %s", e)
+        cl = {}
+    if mode == "only":
+        return [dict(doors[k], why=cl[k]) for k in sorted(cl)], [d for k, d in enumerate(doors) if k not in cl]
+    return [d for k, d in enumerate(doors) if k not in cl], [dict(d, why=cl[k]) for k in sorted(cl) for d in [doors[k]]]
+
+
+def _closet_ev(cs, mode="exclude"):
+    out = []
+    for i, d in enumerate(cs, 1):
+        e = _ev(d["bbox"], f"other door {i}: not counted" if mode == "only" else
+                f"closet door {i}: not counted ({d['why']})")
+        e["value"] = None
+        out.append(e)
+    return out
+
+
 def answer(path, question, meta):
     it = intent(question)
     if it is None:
         return None
     r = analyse_meta(meta)
+    if not r.get("cv_ok", not r["low_res"]) and not r.get("yolo") and r.get("yolo_pending"):
+        # the swing reading looked usable at first (a scan PDF re-rendered to full size: a handful of swings) but did
+        # not stand, so the answer is the deferred detector's: wait for it rather than abstain
+        import time
+
+        t_end = time.monotonic() + YOLO_WAIT_S
+        while r.get("yolo_pending") and time.monotonic() < t_end:
+            time.sleep(0.5)
     if not r.get("cv_ok", not r["low_res"]):
-        out = _answer_yolo(it, r.get("yolo"), r.get("haiku"), size=(meta.get("w"), meta.get("h")),
+        y = r.get("yolo")
+        closets = []
+        if y and y.get("doors") and it in ("doors", "doors_windows"):
+            cmode = closet_mode(question)
+            yd, closets = _split_closets(meta, y["doors"], r.get("px_per_m"), cmode)
+            y = dict(y, doors=yd)
+        out = _answer_yolo(it, y, r.get("haiku"), size=(meta.get("w"), meta.get("h")),
                            px_per_m=r.get("px_per_m"))
+        if out is not None and closets:
+            out["evidence"] += _closet_ev(closets, cmode)
+            out["counts"]["closet_doors"] = len(closets) if cmode != "only" else len(y["doors"])
+            if cmode == "only":
+                out["explanation"] += " Only closet / cupboard doors are counted; the other doors are marked."
+                if it == "doors":
+                    out["answer"] = f"{len(y['doors'])} closet / cupboard doors"
+            else:
+                out["explanation"] += f" {len(closets)} closet / cupboard doors are marked but not counted."
+                if it == "doors" and isinstance(out["answer"], int):
+                    out["answer"] = f"{out['answer']} doors (+{len(closets)} closet doors not counted)"
         if out is not None:
             _add_schedule_check(out, meta, it)
         return out
@@ -1039,6 +1208,10 @@ def answer(path, question, meta):
         ds = r["doors"]
         if not ds:
             return None
+        cmode = closet_mode(question)
+        ds, closets = _split_closets(meta, ds, r.get("px_per_m"), cmode)
+        r = dict(r, doors=ds, closets=closets, closet_mode=cmode)
+        ev += _closet_ev(closets, cmode)
         nd = sum(1 for d in ds if d.get("leaves") == 2)
         nl = sum(1 for d in ds if d.get("kind") == "leaf")
         nv = sum(1 for d in ds if d.get("kind") == "vector-swing")
@@ -1047,7 +1220,8 @@ def answer(path, question, meta):
             ev.append(_ev(d["bbox"], f"door {i}{tag}"))
         src = (f"{nv} read from the PDF's vector door swings, " if nv else "")
         parts.append(f"{len(ds)} doors ({src}{nd} double doors counted once, {nl} drawn as a folding or ajar leaf "
-                     f"without a swing)")
+                     f"without a swing)" + (f"; {len(closets)} closet / cupboard doors not counted (marked)"
+                                            if closets else ""))
         conf.append(0.9 if nv else 0.8 if len(ds) >= 5 else 0.55)
     if it in ("windows", "doors_windows"):
         ws = r["windows"]
@@ -1081,6 +1255,10 @@ def answer(path, question, meta):
         ans = f"{len(r['doors'])} doors and {wtxt}"
     elif it == "doors":
         ans = len(r["doors"])
+        if r.get("closet_mode") == "only":
+            ans = f"{len(r['doors'])} closet / cupboard doors"
+        elif r.get("closets"):
+            ans = f"{len(r['doors'])} doors (+{len(r['closets'])} closet doors not counted)"
     else:
         ans = len(r["windows"]) if not ig else wtxt
     expl = ("Found " + "; ".join(parts) + ". Every counted item is a numbered box: check the marked ones. "
@@ -1089,7 +1267,7 @@ def answer(path, question, meta):
     out = {"answer": ans, "confidence": round(min(conf), 2), "method": f"{METHOD}-cv", "cost_usd": 0.0,
            "explanation": expl, "evidence": ev,
            "counts": {"doors": len(r["doors"]), "windows": len(r["windows"]),
-                      "internal_glazing": len(r["internal_glazing"])}}
+                      "internal_glazing": len(r["internal_glazing"]), "closet_doors": len(r.get("closets") or [])}}
     _add_schedule_check(out, meta, it)
     return out
 
