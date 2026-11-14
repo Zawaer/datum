@@ -19,21 +19,23 @@ _(181 characters)_
 
 ## Short version (~600 chars, for quick paste)
 
-Blueprints That Talk answers questions about construction drawings and BIM models (tested in six languages) and draws the proof: counted doors numbered on the plan, rooms outlined with their m², walls lit up in 3D, adding up to the answer. A router picks the cheapest exact method: CAD geometry, IfcOpenShell, a small detector. On all 25,420 held-out test questions (every one, not a sample): 90.0 % at $0.013 per 1,000, vs 69.8 % for Claude Sonnet 5.5 given the same files at $25.76. Each answer carries a calibrated confidence; numeric ones an independent cross-check. The evaluation was cross-audited by a second AI agent (Codex): no leakage, recount reproduces.
+Blueprints That Talk answers questions about construction drawings and BIM models, typed or spoken in six tested languages, and shows the proof: the plan rises into 3D with the counted doors lit and numbered, items light up one by one as the count ticks up, rooms are outlined with their m². A router picks the cheapest exact method: CAD geometry, IfcOpenShell, a small detector, our fine-tuned vision model as a second opinion. On all 25,420 held-out test questions: 90.0 % at $0.013 per 1,000, vs 69.8 % for Claude Sonnet 5.5 given the same files at $25.76. Calibrated confidence, an independent cross-check, an audited evaluation and 278 automated tests.
 
-_(665 characters)_
+_(657 characters)_
 
 ## Description (≤ 5000 chars, markdown)
 
-_Character count of the block between the rules below: 4,731 (limit 5,000)._
+_Character count of the block between the rules below: 4,648 (limit 5,000)._
 
 ---
 
-**Quantity takeoff is slow by hand, and AI is not trusted with it.** A general model that gets a room area wrong looks exactly as confident as when it is right. **Blueprints That Talk** answers questions about drawings and BIM models, in six languages tested so far, and hands you the proof.
+**Quantity takeoff is slow by hand, and AI is not trusted with it.** A general model that gets a room area wrong looks exactly as confident as when it is right. **Blueprints That Talk** answers questions about drawings and BIM models (six languages tested, typed or spoken) and shows the proof: ask "how many doors?" and the 2D CAD plan rises into a 3D building with the counted doors lit and numbered.
+
+**Outcome:** 90.0 % [89.7–90.4] on all 25,420 held-out test questions at **$0.013 per 1,000**, vs 69.8 % for Claude Sonnet 5.5 given the same files at $25.76.
 
 ### 1. Accuracy
 
-Held-out test split, split by whole drawing (hash of the drawing id, 20 % test; every format and language twin on the same side). Counts exact, measures within 2 %, abstentions count as wrong.
+Split by whole drawing (hash of id, 20 % test; formats and language twins stay together). Counts exact, measures within 2 %, abstentions count as wrong.
 
 | | accuracy [95 % CI] | $ / 1,000 q |
 |---|---|---|
@@ -44,48 +46,52 @@ Held-out test split, split by whole drawing (hash of the drawing id, 20 % test; 
 | Claude Haiku 5.5, drawing only* | 60.6 % | $1.21 |
 | Nemotron 3.5 Super VL (open)* | 49.0 % | $2.59 |
 
-By source: Swiss plans 99.95 % (8,214), IFC numeric 100 % (600), Finnish raster plans 85.1 % (16,496), IFC free text 38.2 % (110, LLM judge; our weak spot).
+By source: Swiss plans 99.95 % (8,214), IFC numeric 100 % (600), Finnish raster plans 85.1 % (16,496; flip test-time augmentation added today, 84.2 → 85.1), IFC free text 38.2 % (110, LLM judge; our weak spot).
 
-\* 400-question sample stratified by source × type (±~13 pp per cell), re-weighted to the test mix. The fair comparison gives Sonnet the same sibling files our solvers read.
+\* 400-question sample stratified by source × type (±~13 pp per cell), re-weighted to the test mix.
 
-**Cross-audited by a second AI agent (Codex).** Codex (OpenAI) audited the evaluation and a Claude agent re-verified each finding: no split leakage, no test data in training, tuning or calibration, no gold lookups at inference; the recount reproduces.
+A second AI agent (Codex) audited the evaluation: no leakage, no test data in training or tuning; the recount reproduces. A fresh clone reproduces the headline with no API keys.
 
 ### 2. Visualising reasoning for verification
 
-The answer is counted out on the drawing: numbered boxes, rooms outlined with their m², IFC elements lit up in 3D by GlobalId. Four layers:
+- **Proof on the drawing:** numbered boxes, rooms outlined with their m², IFC elements lit in 3D (exploded storeys, x-ray). Untick or add an item and the total updates. Boxes: >90 % precision and recall vs independent gold.
+- **X-ray count:** items light up one by one as the number ticks up, beside a "ghost" line of what five frontier models answered and how far off each is.
+- **Calibrated confidence:** answering only at ≥ 0.5 keeps 87.6 % of questions at 95.8 % and turns 1,594 wrong answers into an honest "not sure" (Finnish plans: 93.4 % when answered).
+- **Independent cross-check:** a second method re-derives 98 % of numeric answers; where they agree, Swiss and IFC answers are right 99.98 % of the time; it caught a real error in our own CAD reading. On conflict, confidence is halved and both readings are shown.
+- **Provenance:** every number in an LLM-written answer is traced to the facts it cites, or flagged.
+- **Sign-off:** room heat-map and a printable takeoff sheet.
 
-- **Evidence that adds up.** Untick an item or click a missed one and the total updates. The boxes themselves are right: >90 % precision and recall against independent gold; only ~2.3 % of right counts are right by luck.
-- **Calibrated confidence**, measured on test: answering only at ≥ 0.5 keeps 87.6 % of questions at 95.8 % and turns 1,594 wrong answers into an honest "not sure" (Finnish plans: 93.4 % when answered, 19 % declined; Swiss and IFC numeric: 99.9–100 %, none declined).
-- **Independent cross-check.** A second method re-derives 98 % of numeric answers (PDF re-read for CAD plans, the SVG sheet for IFC, a fine-tuned vision model for scans). Where they agree, Swiss and IFC answers were right 99.98 % of the time (all but 2 of 8,184); it caught a real error in our own CAD reading of an apartment area. On conflict, confidence is halved and both readings are shown.
-- **Provenance.** Every number in an LLM-written answer is traced to the facts it cites, or flagged.
-
-Robustness: 12,654 language-twin pairs agree 100 %; held-out typed paraphrases 80 % vs 83 % for the original wording (49 % before our normaliser); 49 of 65 questions typed like a user would right, all out-of-scope ones declined; 49/50 must-abstain questions abstain.
+Robustness: 12,654 language-twin pairs agree 100 %; held-out typed paraphrases 80 % (49 % before our normaliser); 49/50 must-abstain questions abstain.
 
 ### 3. Creativity
 
-Stoa asks for approaches next year's frontier models won't make obsolete: "hybrids of frontier models + CV + 3D/geometry + small fine-tuned models". That is this system. A router sends each question to the cheapest method that answers it **exactly**:
+Stoa asks for "hybrids of frontier models + CV + 3D/geometry + small fine-tuned models". A router sends each question to the cheapest method that answers it **exactly**:
 
-- **CAD plans:** the PDF's DXF twin gives doors, windows, rooms by layer; evidence is mapped back onto the PDF.
-- **BIM models:** IfcOpenShell counts, areas, lengths, volumes per storey.
-- **Raster scans:** a YOLO11m detector trained only on non-test drawings, confidence calibrated on dev.
-- **Small fine-tuned VLM:** a fine-tuned 8B vision model (Qwen3-VL-8B LoRA, 75 % alone) acts as an independent second opinion: when it agrees (74 % of raster questions), answers are 94.9 % right.
-- **Claude Haiku 5.5, a small frontier LLM, only for free text** (the 110 free-text questions, 0.4 % of test): answers by citing fact ids, and a normaliser that maps free wording onto exact queries using only names in the drawing.
+- **CAD plans:** the DXF twin gives doors, windows, rooms by layer, mapped back onto the PDF and raised into 3D.
+- **BIM:** IfcOpenShell counts, areas, lengths, volumes per storey.
+- **Comparisons** ("which room is the largest?", "is apartment B bigger than A?") answered from the geometry, arithmetic shown.
+- **Raster scans:** a YOLO11m detector trained only on non-test drawings.
+- **Our fine-tuned 8B vision model** (Qwen3-VL LoRA) is a second opinion: when it agrees (74 % of raster questions), answers are 94.9 % right. It now also runs live on a Verda GPU for users' own uploads.
+- **Claude Haiku 5.5 only for free text** (0.4 % of test), citing fact ids.
+- **Ask by voice** in any browser (ElevenLabs speech-to-text) and an interactive "How it works" page.
 
 ### 4. Low inference cost
 
-**$0.013 per 1,000 questions** in API fees on all 25,420 test questions: numeric answers make no paid calls. Local compute adds about $0.006 per 1,000. About 1/1,900 of the fair Sonnet baseline, at 0.04 s instead of ~16 s per answer.
+**$0.013 per 1,000 questions** in API fees: numeric answers make no paid calls; local compute adds ~$0.006. About 1/1,900 of the fair Sonnet baseline, at 0.04 s instead of ~16 s per answer.
 
-### Why it lasts
+### Built to be trusted
 
-A better model will still guess a number from pixels; ours reads it from the geometry and hands you the elements behind it. Models are plug-ins behind one evidence contract, and every human correction is a labelled example. For Stoa: a takeoff engine cheap enough to run on every drawing, every revision.
+Security review and fixes on the public demo, a load test with many judges at once, an accessibility pass, 278 automated tests in CI.
 
-Built by Toivo and Rene at Junction 2026. Code: MIT; reproducible: dataset + one command (`eval.py`), no API keys needed for numeric answers. Drawings: Junction dataset, per-file licences, credited in the app.
+A better model will still guess a number from pixels; ours reads it from the geometry and hands you the elements behind it. For Stoa: a takeoff engine cheap enough to run on every drawing, every revision. Models are plug-ins behind one evidence contract, and every human correction is a labelled example.
+
+Built by Toivo and Rene at Junction 2026. Code: MIT; reproducible with the dataset + one command (`eval.py`). Drawings: Junction dataset, per-file licences, credited in the app.
 
 ---
 
 ## Technologies
 
-Python, FastAPI, IfcOpenShell, ezdxf, PyMuPDF, Shapely, NumPy, Ultralytics YOLO11m, PyTorch, Hugging Face Transformers + PEFT (Qwen3-VL LoRA fine-tuning), vLLM, three.js, Playwright, Claude Sonnet 5.5 / Haiku 5.5 (baseline, LLM judge, free-text answers), Gemini 3.1 Pro and Nemotron 3.5 Super VL (baselines), Codex (cross-audit of the evaluation), Claude Code. Training: local RTX 4070 (detector) and cloud H100s (Verda) for the VLM.
+Python, FastAPI, IfcOpenShell, ezdxf, PyMuPDF, Shapely, NumPy, Ultralytics YOLO11m, PyTorch, Hugging Face Transformers + PEFT (Qwen3-VL LoRA fine-tuning and live serving), vLLM, three.js (3D plans and BIM viewer), ElevenLabs Scribe (voice questions), Caddy, Playwright (demo recording, screenshots), pytest + GitHub Actions (tests and CI), Claude Sonnet 5.5 / Haiku 5.5 (baseline, LLM judge, free-text answers), Gemini 3.1 Pro and Nemotron 3.5 Super VL (baselines), Codex (cross-audit of the evaluation), Claude Code. Training: local RTX 4070 (detector) and cloud H100s (Verda) for the VLM; live VLM second opinion on a Verda GPU.
 
 ## Links
 
