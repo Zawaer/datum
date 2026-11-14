@@ -4,7 +4,7 @@ Everything reads runs/*.jsonl written by eval.py; nothing here re-runs a solver.
 
 Systems
 -------
-* ours      : the router on the full held-out test split (default runs/router_full_test.jsonl).
+* ours      : the router on the full held-out test split (default runs/router_full_test_v5.jsonl).
 * frontier  : every runs/baseline_*.jsonl whose questions are all in the current test split
               (a stratified sample, e.g. n=400). New baselines dropped in runs/ are picked up
               automatically; give them a label in LABELS below.
@@ -30,7 +30,7 @@ RUNS = ROOT / "runs"
 IMG = ROOT / "docs" / "img"
 OUT = ROOT / "analysis" / "out"
 
-OURS = os.environ.get("BP_OURS_RUN", "router_full_test")
+OURS = os.environ.get("BP_OURS_RUN", "router_full_test_v5")
 PRIOR = os.environ.get("BP_PRIOR_RUN", "prior_full_test")
 # runs to leave out (e.g. a baseline still writing rows): BP_SKIP_RUNS=baseline_x_full400,baseline_y_full400
 SKIP = {n for n in os.environ.get("BP_SKIP_RUNS", "").split(",") if n}
@@ -45,6 +45,7 @@ SEED = 20261113
 LABELS = {
     "router_full_test": "Ours (router)",
     "router_full_test_v4": "Ours (router)",
+    "router_full_test_v5": "Ours (router)",
     "prior_full_test": "Template prior",
     "baseline_sonnet_full400": "Claude Sonnet, direct",
     "baseline_haiku_full400": "Claude Haiku, direct",
@@ -74,7 +75,7 @@ DIV_POS = "#2a78d6"   # over-count arm (blue)
 DIV_MID = "#d6d5ce"   # neutral midpoint (exact)
 
 # fixed slot per entity (colour follows the system, never its rank)
-_SLOT = {"router_full_test": 0, "baseline_sonnet_full400": 1, "baseline_haiku_full400": 2,
+_SLOT = {"router_full_test": 0, "router_full_test_v4": 0, "router_full_test_v5": 0, "baseline_sonnet_full400": 1, "baseline_haiku_full400": 2,
          "generic_cubicasa_300_haiku": 3}
 
 

@@ -30,4 +30,5 @@ ENV BP_DATA=/srv/bundle/dataset CLAUDE_CLI=/usr/local/bin/claude-capped CLAUDE_R
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8000/api/drawings?limit=0 >/dev/null || exit 1
-CMD ["uvicorn", "app.server:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--no-server-header", "--proxy-headers", "--forwarded-allow-ips", "*"]
+# bp/crosscheck.py reads its second-detector thresholds from cache/crosscheck/ (a volume): copy them in at start
+CMD ["sh", "-c", "mkdir -p cache/crosscheck && cp -f /srv/bundle/xcheck/cc_second_thresholds_*.json cache/crosscheck/ 2>/dev/null; exec uvicorn app.server:app --host 0.0.0.0 --port 8000 --workers 1 --no-server-header --proxy-headers --forwarded-allow-ips '*'"]

@@ -1,5 +1,5 @@
 run,system,n,accuracy,ci_lo,ci_hi,ci,api_usd_per_1k,compute_usd_per_1k,mean_latency_s,answered
-router_full_test_v4,Ours (router),25420,0.881825,0.877799,0.885736,Wilson,0.013799,0.004685,0.033733,1.0
+router_full_test_v5,Ours (router),25420,0.89465,0.890816,0.898364,Wilson,0.013799,0.023352,0.168132,1.0
 baseline_sonnet_full400,"Claude Sonnet, direct",400,0.632343,0.543692,0.718396,"re-weighted, stratified bootstrap",13.061452,1.787094,12.867075,0.9875
 baseline_haiku_full400,"Claude Haiku, direct",400,0.606015,0.515421,0.692624,"re-weighted, stratified bootstrap",1.210325,3.971801,28.59697,0.9575
 baseline_gemini_full400,"Gemini 3.1 Pro, direct",400,0.641656,0.558649,0.722723,"re-weighted, stratified bootstrap",52.471636,4.361286,31.401259,0.8475

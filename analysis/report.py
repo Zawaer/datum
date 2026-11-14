@@ -131,15 +131,18 @@ def main():
         _o = {r["id"]: r for r in load(OURS)}
         _c = [_o[r["id"]]["ok"] for r in load(fr[0]) if r["source"] == "cubicasa5k"]
         cub_s = (sum(_c), len(_c))
+        _call = [r["ok"] for r in _o.values() if r["source"] == "cubicasa5k"]
+        cub_all = sum(_call) / max(len(_call), 1)
+        _rel = "below" if ps["ours_reweighted"] < ours["accuracy"] else "above"
         w(f"**Reading.** On the same 400 questions we are right on {ps['only_ours_right']} that {ps['baseline']} misses, "
           f"and it is right on only {ps['only_baseline_right']} that we miss. Re-weighted to the real test mix the frontier "
           f"models look much better ({p(son['accuracy'])}) than their raw sample mean ({p(ps['baseline_raw'])}), because "
           "CubiCasa counting, where they are strongest, is two thirds of the test split; we report the re-weighted "
           "number to be fair to them. Our own re-weighted score on the 400-question sample "
-          f"({p(ps['ours_reweighted'])}) is below our full-split {p(ours['accuracy'])} because we got "
+          f"({p(ps['ours_reweighted'])}) is {_rel} our full-split {p(ours['accuracy'])} mostly because we got "
           f"{cub_s[0]}/{cub_s[1]} of the sampled CubiCasa questions right ({p(cub_s[0] / cub_s[1])}, vs "
-          "80.8 % on all 16,496): 55 questions are a noisy estimate of a 16,496-question group, which is also why the "
-          "frontier error bars are wide. The cost gap is about {son['api_usd_per_1k'] / max(ours['compute_usd_per_1k'], 1e-9):,.0f}x "
+          f"{p(cub_all)} on all {len(_call):,}): 55 questions are a noisy estimate of a 16,496-question group, which is also why the "
+          f"frontier error bars are wide. The cost gap is about {son['api_usd_per_1k'] / max(ours['compute_usd_per_1k'], 1e-9):,.0f}x "
           f"against Sonnet even after charging ourselves for GPU time.")
     w("")
 
@@ -208,15 +211,18 @@ def main():
       f"{fmt_n(sel['all']['n'] - a5['answered'] - a5['wrong_abstained'])} right ones. On CubiCasa "
       f"the same threshold keeps {p(c5['coverage'], 0)} at {p(c5['accuracy_answered'])} (vs {p(sel['cubicasa']['base_acc'])}). "
       "Below 0.95 the bins are roughly calibrated (stated confidence within about ten points of observed accuracy). "
-      f"**The weak spot is the very top:** answers with confidence ≥ 0.99 (all of them CubiCasa) are right "
-      f"{p(rel_all[-1]['accuracy'])} of the time while claiming {rel_all[-1]['mean_conf']:.3f}, below the 0.95–0.99 bin "
-      f"({p(rel_all[-2]['accuracy'])}, mostly Swiss and IFC); that is why the blue curve falls again at the low-coverage (right) end. "
-      f"{cz['high_conf_wrong_pred0']} of the {cz['high_conf_wrong']} wrong top-confidence "
-      "CubiCasa answers are a confident **0**: the detector saw nothing even near its threshold, so the confidence "
-      "formula (which only looks at detections near the threshold) has nothing to doubt. A symbol the detector "
-      "misses entirely cannot lower its confidence; that is the failure mode to fix next (e.g. a prior on \"0\" "
-      "for rooms that almost every plan has). The published 87.2 % is the forced-answer number; the router's "
-      "Sonnet/Haiku fallback below the threshold is off in this run.")
+      + (f"**The weak spot is the very top:** answers with confidence ≥ 0.99 (all of them CubiCasa) are right "
+         f"{p(rel_all[-1]['accuracy'])} of the time while claiming {rel_all[-1]['mean_conf']:.3f}, below the 0.95–0.99 bin "
+         f"({p(rel_all[-2]['accuracy'])}, mostly Swiss and IFC); that is why the blue curve falls again at the low-coverage (right) end. "
+         f"{cz['high_conf_wrong_pred0']} of the {cz['high_conf_wrong']} wrong top-confidence "
+         "CubiCasa answers are a confident **0**: the detector saw nothing even near its threshold, so the confidence "
+         "formula (which only looks at detections near the threshold) has nothing to doubt. "
+         if rel_all[-1]["accuracy"] < rel_all[-2]["accuracy"] else
+         f"At the very top, answers with confidence ≥ 0.99 (all of them CubiCasa) are right "
+         f"{p(rel_all[-1]['accuracy'])} of the time ({fmt_n(rel_all[-1]['n'])} questions). ")
+      + "A symbol the detector misses entirely cannot lower its confidence; that remains the failure mode to watch. "
+      f"The published {p(ours['accuracy'])} is the forced-answer number; the router's Sonnet/Haiku fallback below the "
+      "threshold is off in this run.")
     w("")
 
     # ---------------- 4

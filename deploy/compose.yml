@@ -7,12 +7,16 @@ services:
     env_file: [/opt/bp/app.env]          # ANTHROPIC_API_KEY, BP_* caps; chmod 600, outside the repo
     environment:
       BP_ROOT_PATH: /${PREFIX:?set PREFIX}
+      # cross-check second detector (bp/crosscheck.py); its thresholds are copied into cache/crosscheck at start
+      BP_XCHECK_CC_WEIGHTS: /srv/bundle/xcheck/best.pt
+      BP_XCHECK_CC_TAG: v3s
     volumes:
       - /opt/bp/bundle/dataset:/srv/bundle/dataset:ro
       - /opt/bp/bundle/runs:/app/runs:ro
       - /opt/bp/bundle/analysis:/app/analysis/out:ro
       - cache:/app/cache
       - /opt/bp/bundle/weights:/app/cache/cubicasa/weights:ro
+      - /opt/bp/bundle/xcheck:/srv/bundle/xcheck:ro
     expose: ["8000"]
     mem_limit: 12g
   caddy:

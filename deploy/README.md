@@ -9,7 +9,7 @@ never committed, posted or written into docs.
 
 | file | what |
 |---|---|
-| `build_bundle.py` | builds `deploy/bundle/` (gitignored): tour drawings + a curated sample per source, their questions, each source's `LICENSE.md`, run summaries for `/results`, the CubiCasa YOLO weights. The dataset is non-commercial with per-file licences: the bundle only goes to the demo VM, never into git or anywhere public. |
+| `build_bundle.py` | builds `deploy/bundle/` (gitignored): tour drawings + a curated sample per source, their questions, each source's `LICENSE.md`, run summaries for `/results`, the CubiCasa YOLO weights (primary + calibration) and the cross-check second detector with its thresholds (`xcheck/`). The dataset is non-commercial with per-file licences: the bundle only goes to the demo VM, never into git or anywhere public. |
 | `Dockerfile`, `requirements.txt` | CPU-only app image (torch CPU wheels, Claude Code CLI). No data or secrets inside. |
 | `compose.yml` | `app` (uvicorn, healthcheck, `restart: unless-stopped`) + `caddy` (ports 80/443). |
 | `Caddyfile` | `handle_path /{$PREFIX}/*` → app; `/robots.txt` disallows all; everything else 404; no `Server` header, `X-Robots-Tag: noindex, nofollow`, `Referrer-Policy: no-referrer`, no CORS. |

@@ -8,7 +8,9 @@ deploy/bundle/  (gitignored; never commit or redistribute it: the dataset is non
   dataset/data/<source>/LICENSE.md   each included source's licence/credit file
   runs/*.summary.md                  for /results; runs/baseline_*.jsonl stripped to source/cost/latency
   analysis/                          analysis/out tables (csv/json) behind /api/analysis
-  weights/best.pt, thresholds.json   CubiCasa YOLO detector
+  weights/best.pt, thresholds.json, calib.json   CubiCasa YOLO detector (primary, YOLO11m v4)
+  xcheck/best.pt, cc_second_thresholds_v3s.json   cross-check second detector (YOLO11s v3) + its dev-tuned
+                                                  count thresholds (container env BP_XCHECK_CC_WEIGHTS / _TAG)
 """
 from __future__ import annotations
 
@@ -35,6 +37,9 @@ IFC_MODELS = [  # model stems (IFC <= ~15 MB except molio, which the tour uses)
 IFC_BENCH = ["fzk_house_arc", "duplex_arc", "ac20_arc", "4351_arc", "digital_hub_arc", "fantasy_hotel_1_arc",
              "smiley_west_arc", "dental_clinic_arc", "fantasy_office_building_3_arc"]
 N_RESBIM = 6
+XCHECK_TAG = "v3s"
+XCHECK_WEIGHTS = Path("cache/cubicasa/weights_v3/best.pt")
+XCHECK_THRESH = Path(f"cache/crosscheck/cc_second_thresholds_{XCHECK_TAG}.json")
 
 
 def main(out: Path):
@@ -112,9 +117,17 @@ def main(out: Path):
 
     w = out / "weights"
     w.mkdir(parents=True, exist_ok=True)
-    for name in ("best.pt", "thresholds.json"):
+    for name in ("best.pt", "thresholds.json", "calib.json"):
         if (REPO / "cache/cubicasa/weights" / name).exists():
             shutil.copy2(REPO / "cache/cubicasa/weights" / name, w / name)
+
+    # cross-check: the second, separately trained detector and its own count thresholds (bp/crosscheck.py)
+    x = out / "xcheck"
+    x.mkdir(parents=True, exist_ok=True)
+    for src_, name in ((REPO / XCHECK_WEIGHTS, "best.pt"), (REPO / XCHECK_THRESH, XCHECK_THRESH.name)):
+        if not src_.exists():
+            sys.exit(f"missing {src_} (cross-check second detector)")
+        shutil.copy2(src_, x / name)
 
     per = collections.Counter(src(p) for p in pick)
     nq = sum(len(by_path[p]) for p in pick)

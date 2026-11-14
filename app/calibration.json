@@ -1,5 +1,5 @@
 {
- "run": "router_full_test_v4.jsonl",
+ "run": "router_full_test_v5.jsonl",
  "split": "test",
  "min_n": 200,
  "bins": [
@@ -15,36 +15,36 @@
   "cubicasa": {
    "label": "plan-symbol detector (CubiCasa raster plans)",
    "n": 16496,
-   "right": 13566,
+   "right": 13892,
    "abstained": 0,
    "bins": {
     "0.99": {
-     "n": 1636,
-     "right": 1632
+     "n": 1974,
+     "right": 1974
     },
     "0.95": {
-     "n": 3032,
-     "right": 2954
+     "n": 3068,
+     "right": 2980
     },
     "0.9": {
-     "n": 1516,
-     "right": 1470
+     "n": 1832,
+     "right": 1778
     },
     "0.8": {
-     "n": 1954,
-     "right": 1852
+     "n": 1460,
+     "right": 1340
     },
     "0.6": {
-     "n": 3882,
-     "right": 3478
+     "n": 4176,
+     "right": 3730
     },
     "0.4": {
-     "n": 1938,
-     "right": 1318
+     "n": 1732,
+     "right": 1202
     },
     "0.0": {
-     "n": 2538,
-     "right": 862
+     "n": 2254,
+     "right": 888
     }
    }
   },
@@ -55,12 +55,12 @@
    "abstained": 0,
    "bins": {
     "0.6": {
-     "n": 90,
-     "right": 35
+     "n": 84,
+     "right": 34
     },
     "0.0": {
-     "n": 1,
-     "right": 0
+     "n": 7,
+     "right": 1
     }
    }
   },

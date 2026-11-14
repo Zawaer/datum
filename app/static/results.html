@@ -114,7 +114,7 @@ const usd = v => '$' + (+v).toFixed(2);
   for (let i = SYS.length - 1; i >= 0; i--) if (!runs0.includes(SYS[i][0])) SYS.splice(i, 1);
   $('#legend').innerHTML = SYS.map(([, l, d, c]) => `<span><i style="background:${c}"></i><b>${l}</b> ${d}</span>`).join('');
   const ov = Object.fromEntries((A.overall || []).map(r => [r.run, r]));
-  if (ov.router_full_test) $('#ntest').textContent = num(ov.router_full_test.n);
+  if (ov[SYS[0][0]]) $('#ntest').textContent = num(ov[SYS[0][0]].n);
   $('#hero').innerHTML = SYS.map(([k, l, , c]) => { const r = ov[k]; if (!r) return '';
     return `<div class="tile" style="box-shadow:inset 0 3px ${c}"><h4>${l}</h4><div class="hero">${pct(r.accuracy)}</div>
       <div class="vs">[${pct(r.ci_lo)} – ${pct(r.ci_hi)}] · n=${num(r.n)}<br>${usd(+r.api_usd_per_1k + +r.compute_usd_per_1k)} per 1k questions ·

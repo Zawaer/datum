@@ -103,6 +103,7 @@
 
   ul.points { list-style: none; padding: 0; margin: 0; }
   ul.points li { font-size: var(--fs, 34px); position: relative; padding-left: 52px; margin: 0 0 30px; }
+  ul.points-tight li { margin-bottom: 16px; }
   ul.points li::before { content: ""; position: absolute; left: 0; top: 16px; width: 24px; height: 24px; border-radius: 6px; background: var(--ours); }
 
   .team { display: flex; gap: 60px; margin-top: 40px; }
@@ -119,11 +120,11 @@
   <h1>Blueprints <span>That Talk</span></h1>
   <div class="sub">Ask a construction drawing or a BIM model anything, in any language. Every answer comes with its proof, drawn on the drawing.</div>
   <div class="stats">
-    <div class="stat"><div class="n">88.2&nbsp;%</div><div class="l">correct on all 25,420 held-out<br>test questions</div></div>
-    <div class="stat"><div class="n">69.0&nbsp;%</div><div class="l">Claude Sonnet 5.5 given<br>the same CAD / IFC files</div></div>
+    <div class="stat"><div class="n">89.5&nbsp;%</div><div class="l">correct on all 25,420 held-out<br>test questions</div></div>
+    <div class="stat"><div class="n">69.8&nbsp;%</div><div class="l">Claude Sonnet 5.5 given<br>the same CAD / IFC files</div></div>
     <div class="stat"><div class="n">$0.014</div><div class="l">per 1,000 questions<br>(Sonnet: $25.76)</div></div>
   </div>
-  <div class="foot">Toivo and Rene · held-out test split of the Junction dataset, evaluation independently audited · ours: <code>runs/router_full_test_v4</code>; Sonnet: 400-question stratified sample re-weighted to the test mix, API list price</div>
+  <div class="foot">Toivo and Rene · held-out test split of the Junction dataset, evaluation independently audited · ours: <code>runs/router_full_test_v5</code>; Sonnet: 400-question stratified sample re-weighted to the test mix, API list price</div>
 </section>
 
 <!-- 2 · problem -->
@@ -148,25 +149,25 @@
       <div class="a"><span>Ours, from the IFC model</span><span class="good">353.715 m²</span></div>
     </div>
   </div>
-  <div class="foot">Question ids 122272 and 89286 in <code>runs/baseline_sonnet_full400.jsonl</code>, <code>runs/baseline_sonnetfair_full400.jsonl</code> and <code>runs/router_full_test_v4.jsonl</code>. Drawings: Swiss Dwellings v3.0.0 (Archilyse AG, CC BY 4.0); BIM-Speed Warmond demo site (Garcia &amp; Hartmann 2022, TU Berlin, doi:10.14279/depositonce-16441.2, CC BY 4.0).</div>
+  <div class="foot">Question ids 122272 and 89286 in <code>runs/baseline_sonnet_full400.jsonl</code>, <code>runs/baseline_sonnetfair_full400.jsonl</code> and <code>runs/router_full_test_v5.jsonl</code>. Drawings: Swiss Dwellings v3.0.0 (Archilyse AG, CC BY 4.0); BIM-Speed Warmond demo site (Garcia &amp; Hartmann 2022, TU Berlin, doi:10.14279/depositonce-16441.2, CC BY 4.0).</div>
 </section>
 
 <!-- 3 · frontier fails -->
 <section class="slide">
   <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">3</div>
   <div class="kicker">Measured, not assumed · the fair baseline</div>
-  <h2 style="margin-bottom:26px">Even given the CAD and IFC files, a frontier model gets 69&nbsp;% right.</h2>
-  <div class="legend" style="font-size:24px; margin-bottom:18px"><span style="--c:#f4b183">Claude Sonnet 5.5, drawing only: 63.2&nbsp;% overall</span><span style="--c:var(--frontier)">… plus the sibling CAD / IFC files: 69.0&nbsp;%</span></div>
+  <h2 style="margin-bottom:26px">Even given the CAD and IFC files, a frontier model gets 70&nbsp;% right.</h2>
+  <div class="legend" style="font-size:24px; margin-bottom:18px"><span style="--c:#f4b183">Claude Sonnet 5.5, drawing only: 63.2&nbsp;% overall</span><span style="--c:var(--frontier)">… plus the sibling CAD / IFC files: 69.8&nbsp;%</span></div>
   <div class="chart compact">
     <div class="bar-row"><div class="lab">Swiss plans · counts</div><div class="bars"><div class="bar f2"><i style="width:calc(79.6% * 0.85)"></i><em>79.6&nbsp;%</em></div><div class="bar f"><i style="width:calc(81.5% * 0.85)"></i><em>81.5&nbsp;%</em></div></div></div>
     <div class="bar-row"><div class="lab">Finnish raster plans · counts</div><div class="bars"><div class="bar f2"><i style="width:calc(63.6% * 0.85)"></i><em>63.6&nbsp;%</em></div><div class="bar f"><i style="width:calc(63.6% * 0.85)"></i><em>63.6&nbsp;%</em></div></div></div>
-    <div class="bar-row"><div class="lab">IFC models · counts</div><div class="bars"><div class="bar f2"><i style="width:calc(42.6% * 0.85)"></i><em>42.6&nbsp;%</em></div><div class="bar f"><i style="width:calc(90.7% * 0.85)"></i><em>90.7&nbsp;%</em></div></div></div>
+    <div class="bar-row"><div class="lab">IFC models · counts</div><div class="bars"><div class="bar f2"><i style="width:calc(42.6% * 0.85)"></i><em>42.6&nbsp;%</em></div><div class="bar f"><i style="width:calc(96.3% * 0.85)"></i><em>96.3&nbsp;%</em></div></div></div>
     <div class="bar-row"><div class="lab">Swiss plans · room areas</div><div class="bars"><div class="bar f2"><i style="width:calc(38.9% * 0.85)"></i><em>38.9&nbsp;%</em></div><div class="bar f"><i style="width:calc(79.6% * 0.85)"></i><em>79.6&nbsp;%</em></div></div></div>
-    <div class="bar-row"><div class="lab">IFC models · lengths</div><div class="bars"><div class="bar f2"><i style="width:calc(13.6% * 0.85)"></i><em>13.6&nbsp;%</em></div><div class="bar f"><i style="width:calc(81.8% * 0.85)"></i><em>81.8&nbsp;%</em></div></div></div>
-    <div class="bar-row"><div class="lab">IFC models · room areas</div><div class="bars"><div class="bar f2"><i style="width:calc(9.3% * 0.85)"></i><em>9.3&nbsp;%</em></div><div class="bar f"><i style="width:calc(51.9% * 0.85)"></i><em>51.9&nbsp;%</em></div></div></div>
-    <div class="bar-row"><div class="lab">IFC models · volumes</div><div class="bars"><div class="bar f2"><i style="width:calc(3.8% * 0.85)"></i><em>3.8&nbsp;%</em></div><div class="bar f"><i style="width:calc(82.7% * 0.85)"></i><em>82.7&nbsp;%</em></div></div></div>
+    <div class="bar-row"><div class="lab">IFC models · lengths</div><div class="bars"><div class="bar f2"><i style="width:calc(13.6% * 0.85)"></i><em>13.6&nbsp;%</em></div><div class="bar f"><i style="width:calc(90.9% * 0.85)"></i><em>90.9&nbsp;%</em></div></div></div>
+    <div class="bar-row"><div class="lab">IFC models · room areas</div><div class="bars"><div class="bar f2"><i style="width:calc(9.3% * 0.85)"></i><em>9.3&nbsp;%</em></div><div class="bar f"><i style="width:calc(98.1% * 0.85)"></i><em>98.1&nbsp;%</em></div></div></div>
+    <div class="bar-row"><div class="lab">IFC models · volumes</div><div class="bars"><div class="bar f2"><i style="width:calc(3.8% * 0.85)"></i><em>3.8&nbsp;%</em></div><div class="bar f"><i style="width:calc(98.1% * 0.85)"></i><em>98.1&nbsp;%</em></div></div></div>
   </div>
-  <p style="margin:14px 0 0 548px; font-size:28px">With the files: <b>69.0&nbsp;% [60.9–78.4], $25.76 per 1,000 questions, ~16&nbsp;s each.</b> Wrong answers look as sure as right ones.</p>
+  <p style="margin:14px 0 0 548px; font-size:28px">With the files: <b>69.8&nbsp;% [60.9–78.4], $25.76 per 1,000 questions, ~16&nbsp;s each.</b> The files fix IFC, not scans: Finnish plans stay at 63.6&nbsp;%. Wrong answers look as sure as right ones.</p>
   <div class="foot">400-question sample of the held-out test split, stratified by source × type (~54 per cell, ±~13 pp); overall figures re-weight the cells to the true test-split mix. Counts exact, measures within 2&nbsp;%. Source: <code>runs/baseline_sonnet{,fair}_full400.jsonl</code>, <code>docs/RESULTS.md</code>.</div>
 </section>
 
@@ -181,13 +182,14 @@
     <div class="solvers">
       <div class="solver"><b>CAD plans:</b> geometry read straight from the DXF layers (ezdxf, Shapely)</div>
       <div class="solver"><b>BIM models:</b> IfcOpenShell counts, areas, lengths, volumes per storey</div>
-      <div class="solver"><b>Raster scans:</b> YOLO11 symbol detector, calibrated confidence</div>
-      <div class="solver llm"><b>Free text, anything else:</b> a cheap LLM that must cite fact ids or text segments; a fine-tuned small VLM that boxes each item (in progress)</div>
+      <div class="solver"><b>Raster scans:</b> YOLO11m symbol detector, calibrated confidence; a fine-tuned Qwen3-VL-8B as second opinion</div>
+      <div class="solver llm"><b>Free text, anything else:</b> a cheap LLM that must cite fact ids or text segments; a normaliser maps free wording onto exact queries</div>
     </div>
     <div class="arrow">→</div>
     <div class="node proof"><b>Answer + proof</b>numbered boxes, room polygons with m², elements lit in 3D. The evidence adds up to the answer.</div>
   </div>
-  <p style="margin-top:56px; max-width:1640px">The model only ever chooses <i>what</i> to measure. Geometry does the measuring. When a solver is unsure it says “not sure” instead of guessing.</p>
+  <p style="margin-top:30px; max-width:1640px">The model only ever chooses <i>what</i> to measure. Geometry does the measuring. When a solver is unsure it says “not sure” instead of guessing.</p>
+  <p style="margin-top:10px; max-width:1680px; font-size:26px; color:var(--ink2)">Stoa’s brief asks for approaches next year’s models won’t make obsolete: <i>“hybrids of frontier models + CV + 3D/geometry + small fine-tuned models”</i>. That is this router.</p>
 </section>
 
 <!-- 5 · demo: plans -->
@@ -224,27 +226,27 @@
 <section class="slide">
   <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">7</div>
   <div class="kicker">Results · held-out test split · accuracy and cost</div>
-  <h2 style="margin-bottom:30px">+18 points over the fair frontier baseline, at 1/1,800 of the cost.</h2>
+  <h2 style="margin-bottom:30px">+20 points over the fair frontier baseline, at 1/1,800 of the cost.</h2>
   <div class="row" style="gap:64px">
     <div style="flex:1.9">
       <table class="res">
         <tr><th>source · type</th><th>n</th><th>ours</th><th>Sonnet + files*</th><th>Sonnet*</th></tr>
         <tr><td>Swiss plans · counts</td><td>5,580</td><td class="o">100.0&nbsp;%</td><td>81.5&nbsp;%</td><td>79.6&nbsp;%</td></tr>
         <tr><td>Swiss plans · room areas</td><td>2,634</td><td class="o">99.9&nbsp;%</td><td>79.6&nbsp;%</td><td>38.9&nbsp;%</td></tr>
-        <tr><td>IFC models · counts</td><td>136</td><td class="o">100.0&nbsp;%</td><td>90.7&nbsp;%</td><td>42.6&nbsp;%</td></tr>
-        <tr><td>IFC · areas, volumes, lengths</td><td>464</td><td class="o">100.0&nbsp;%</td><td>52–83&nbsp;%</td><td>4–14&nbsp;%</td></tr>
-        <tr><td>Finnish raster plans · counts</td><td>16,496</td><td class="o">82.2&nbsp;%</td><td>63.6&nbsp;%</td><td>63.6&nbsp;%</td></tr>
+        <tr><td>IFC models · counts</td><td>136</td><td class="o">100.0&nbsp;%</td><td>96.3&nbsp;%</td><td>42.6&nbsp;%</td></tr>
+        <tr><td>IFC · areas, volumes, lengths</td><td>464</td><td class="o">100.0&nbsp;%</td><td>91–98&nbsp;%</td><td>4–14&nbsp;%</td></tr>
+        <tr><td>Finnish raster plans · counts</td><td>16,496</td><td class="o">84.2&nbsp;%</td><td>63.6&nbsp;%</td><td>63.6&nbsp;%</td></tr>
         <tr><td>IFC-Bench · free text**</td><td>110</td><td class="o">36.4&nbsp;%</td><td>9.1&nbsp;%</td><td>9.1&nbsp;%</td></tr>
-        <tr class="tot"><td>All test questions</td><td>25,420</td><td class="o">88.2&nbsp;%</td><td>69.0&nbsp;%</td><td>63.2&nbsp;%</td></tr>
+        <tr class="tot"><td>All test questions</td><td>25,420</td><td class="o">89.5&nbsp;%</td><td>69.8&nbsp;%</td><td>63.2&nbsp;%</td></tr>
       </table>
     </div>
     <div class="tiles" style="flex:1">
-      <div class="tile ours"><div class="n">$0.014</div><div class="l">ours, per 1,000 questions · 0.03&nbsp;s each</div></div>
+      <div class="tile ours"><div class="n">$0.014</div><div class="l">ours, per 1,000 questions · 0.17&nbsp;s each</div></div>
       <div class="tile"><div class="n" style="color:var(--frontier)">$25.76</div><div class="l">Sonnet 5.5 + files, per 1,000 · ~16&nbsp;s each</div></div>
       <div class="tile"><div class="n" style="color:var(--ink2)">$13.06</div><div class="l">Sonnet 5.5, drawing only · Haiku 5.5: $1.21, 60.6&nbsp;%</div></div>
     </div>
   </div>
-  <div class="foot">Ours: all 25,420 test questions, 95&nbsp;% CI 87.8–88.6 (<code>runs/router_full_test_v4</code>). Split by drawing (all formats and language twins together); counts exact, measures within 2&nbsp;%, abstentions wrong.
+  <div class="foot">Ours: all 25,420 test questions, 95&nbsp;% CI 89.1–89.8 (<code>runs/router_full_test_v5</code>). Split by drawing (all formats and language twins together); counts exact, measures within 2&nbsp;%, abstentions wrong.
     * 400-question stratified sample re-weighted to the test-split mix (Sonnet + files CI 60.9–78.4); API list price. Gemini 3.1 Pro: 64.2&nbsp;% at $52.47 per 1,000; Nemotron 3.5 Super VL (open weights): 49.0&nbsp;% at $2.59 per 1,000.
     ** LLM judge with a fixed rubric, same for every system. Only these 110 questions make paid calls on our side (Claude Haiku). Full tables: <code>docs/RESULTS.md</code>.</div>
 </section>
@@ -252,22 +254,23 @@
 <!-- 8 · verified -->
 <section class="slide">
   <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">8</div>
-  <div class="kicker">Verified, not just claimed</div>
-  <h2 style="margin-bottom:34px">Every number is checkable: per answer, per confidence, and for the whole evaluation.</h2>
-  <div class="row" style="gap:60px">
-    <div style="flex:1">
-      <ul class="points" style="--fs:30px">
-        <li><b>Independent audit.</b> Codex (OpenAI) audited the evaluation read-only; each finding re-verified. No split leakage (5,884 drawing groups, 0 straddling), no test data in training or tuning, no gold lookups at inference. Recount reproduces 88.2&nbsp;%.</li>
-        <li><b>Fair baseline.</b> After the audit, Sonnet gets the same sibling CAD / IFC files our solvers read: 63.2 → 69.0&nbsp;%.</li>
-        <li><b>Evidence adds up.</b> Boxes, polygons and GlobalIds sum to the answer; untick one and it recomputes.</li>
+  <div class="kicker">Verified, not just claimed · four layers + an audit</div>
+  <h2 style="margin-bottom:22px">Every answer is checked four ways, and the whole evaluation was audited.</h2>
+  <div class="row" style="gap:56px">
+    <div style="flex:1.1">
+      <ul class="points points-tight" style="--fs:25px">
+        <li><b>1 · Evidence adds up.</b> Boxes, polygons and GlobalIds sum to the answer; untick one and it recomputes. Boxes vs independent gold: &gt;&nbsp;90&nbsp;% precision and recall; only ~2.5&nbsp;% of right counts are right by luck.</li>
+        <li><b>2 · Calibrated confidence.</b> Raster answers at ≥&nbsp;0.95 are right 98.3&nbsp;%. “Not sure” below 0.5 keeps 87.5&nbsp;% of questions at 95.4&nbsp;%.</li>
+        <li><b>3 · Independent cross-check.</b> A second method (PDF re-read, IFC plan sheet, second detector) re-derives the answer. Agree → right on 100&nbsp;% of Swiss and IFC test questions; caught a real Swiss area error. Conflict → confidence halved, both shown.</li>
+        <li><b>4 · Provenance.</b> Every number in an LLM-written answer is traced to the facts it cites, or flagged.</li>
+        <li><b>Robust + audited.</b> Language twins agree 100&nbsp;%; paraphrases 86&nbsp;% (58&nbsp;% before the normaliser); 50/50 must-abstain. Codex (OpenAI) audit: no leakage, recount reproduces.</li>
       </ul>
     </div>
-    <div style="flex:1.05">
+    <div style="flex:0.9">
       <img src="../img/fig-3-accuracy-vs-coverage.png" alt="accuracy vs coverage" style="width:100%; border-radius:14px; border:1px solid var(--line)">
-      <p style="font-size:26px; margin:14px 0 0"><b>Calibrated confidence.</b> Raster answers at ≥&nbsp;0.95 are right 98.2&nbsp;% of the time. Saying “not sure” below 0.5 keeps 86&nbsp;% of questions at 95.5&nbsp;%.</p>
     </div>
   </div>
-  <div class="foot">Audit: <code>docs/STATUS.md</code> (independent audit section). Calibration: <code>docs/RESULTS.md</code> §3, all 25,420 test questions; detector confidence calibrated on dev drawings only.</div>
+  <div class="foot">Sources: <code>docs/EVIDENCE_QUALITY.md</code>, <code>docs/RESULTS.md</code> §3, <code>runs/crosscheck_test.summary.md</code>, <code>docs/PROVENANCE.md</code>, <code>docs/ROBUSTNESS.md</code>, audit in <code>docs/STATUS.md</code>. Detector confidence calibrated on dev drawings only. On CubiCasa the two detectors share training data, so the cross-check is weaker there (90.7&nbsp;% right on agree vs 47.8&nbsp;% on conflict).</div>
 </section>
 
 <!-- 9 · not obsolete -->
@@ -313,7 +316,7 @@
   <div class="links" style="color:#cbd5e1">
     Built at Junction 2026, Espoo, 13–15 Nov, with Claude Code.<br>
     Source: <code style="color:#fff">github.com/Zawaer/datum</code> (MIT)<br>
-    Reproduce: <code style="color:#fff">python eval.py --solver router --split test --judge</code>
+    Reproduce: <code style="color:#fff">python eval.py --solver router --split test --judge</code> · <code style="color:#fff">analysis/run_all.sh</code>
   </div>
   <div class="foot">Drawings: Junction 2026 dataset (non-commercial, per-file licences). Swiss Dwellings v3.0.0 (Archilyse AG, CC BY 4.0) · CubiCasa5K (© 2019 CubiCasa, CC BY-NC-SA 4.0) · Molio Demo-hus (buildingSMART Community Sample-Test-Files, CC BY 4.0) · BIM-Speed Warmond (TU Berlin, CC BY 4.0).</div>
 </section>
