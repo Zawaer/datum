@@ -12,7 +12,8 @@
 3. Other questions on rasters: the VLM answers and boxes where it read the answer.
 
 variant "<text>+<vision>": "haiku+haiku" (default: no GPU needed, ~$0.003-0.01 per question),
-"haiku+sonnet" (better grounding, ~$0.03/q), "haiku+qwen" / "qwen+qwen" (local Qwen3-VL, $0 API; needs
+"haiku+sonnet" (better grounding, ~$0.03/q), "nemotron+nemotron" / "nemotron+haiku" / "haiku+nemotron"
+(NVIDIA Nemotron 3.5 Super VL, open weights, via NVIDIA's endpoint; bp/generic/llm.py), "haiku+qwen" / "qwen+qwen" (local Qwen3-VL, $0 API; needs
 ~4 GB free VRAM, else it falls back to haiku). Paid vision is capped per question: page rendered at <= 2900 px
 so the tiled pass is <= 6 calls, plus one whole-page call (~$0.01 on haiku).
 """
@@ -154,7 +155,7 @@ class GenericSolver:
         op = d.get("op", "read")
         items = d.get("items") or []
         ev, grounded, checked, bad_ids = [], 0, 0, 0
-        values = []
+        values, srcs = [], []
         for i, it in enumerate(items, 1):
             if not isinstance(it, dict):
                 continue
@@ -165,6 +166,7 @@ class GenericSolver:
                 continue
             txt = " ".join(s.text for s in ss)
             v = it.get("value")
+            ok = False
             if op in ("count", "sum"):
                 nv = _num(v)
                 if nv is None:
@@ -172,7 +174,10 @@ class GenericSolver:
                 values.append(nv)
                 if op == "sum" or nv != 1:
                     checked += 1
-                    grounded += T.value_in_text(nv, txt)
+                    ok = T.value_in_text(nv, txt)
+                    grounded += ok
+            srcs.append((f"item{i}", txt))
+            n_ev = len(ev)
             # one evidence item per segment page; the box covers the item's segments on that page
             for pg in sorted({s.page for s in ss}):
                 bb = T._union([s.bbox for s in ss if s.page == pg])
@@ -181,6 +186,10 @@ class GenericSolver:
                            "label": f"{it.get('what') or 'item'} {i}: '{txt[:80]}'"
                            if op != "read" else f"label read: '{txt[:100]}'",
                            "value": _fmt(values[-1]) if op in ("count", "sum") else None})
+            for e in ev[n_ev:]:
+                e["_src"] = f"item{i}"
+                if ok:
+                    e["verified"] = True
         conf = CONF.get(str(d.get("confidence", "")).lower(), 0.5)
         stated = d.get("answer")
         if op in ("count", "sum"):
@@ -208,8 +217,17 @@ class GenericSolver:
             conf *= 0.7
         if not ev:
             conf *= 0.5
-        return {"answer": ans, "confidence": round(conf, 3), "evidence": ev,
-                "explanation": str(d.get("explanation") or "")[:200]}
+        out = {"answer": ans, "confidence": round(conf, 3), "evidence": ev,
+               "explanation": str(d.get("explanation") or "")[:200]}
+        # provenance: numbers / quoted names of the answer must be in the cited segments (or their total)
+        from bp import provenance
+
+        prov = provenance.check(ans, srcs, computed=[sum(values)] if values else ())
+        ok_src = provenance.verified_sources(prov)
+        for e in ev:
+            if e.pop("_src") in ok_src:
+                e["verified"] = True
+        return provenance.apply(out, prov)
 
     # ------------------------------------------------------------------------------ vision path
     SCALE_RX = re.compile(r"\d\s*/?\s*\d*\s*\"\s*=\s*1\s*'|\bscale\b|\b1\s*:\s*\d{1,4}\b", re.I)
