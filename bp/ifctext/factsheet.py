@@ -191,7 +191,17 @@ def build(m: dict) -> list[dict]:
               f"author: {', '.join(x for x in hdr.get('author') or [] if x)}; "
               f"organization: {', '.join(x for x in hdr.get('organization') or [] if x)}")
     for cls in ("IfcProject", "IfcSite", "IfcBuilding"):
-        for x in meta.get(cls) or []:
+        xs = meta.get(cls) or []
+        common = set()
+        if len(xs) >= 5:  # many buildings (a city / campus model): count them, drop properties they all share
+            S.line(b, f"{cls[3:]} count ({cls}): {len(xs)}", [x["guid"] for x in xs])
+            seen = {}
+            for x in xs:
+                for props in (x.get("psets") or {}).values():
+                    for k, v in props.items():
+                        seen[(k, str(v))] = seen.get((k, str(v)), 0) + 1
+            common = {kv for kv, n in seen.items() if n > len(xs) / 2}
+        for x in xs:
             parts = [f"{cls[3:]}: name '{x.get('name')}'"]
             for k in ("long_name", "description", "obj_type"):
                 if x.get(k):
@@ -201,7 +211,11 @@ def build(m: dict) -> list[dict]:
                 if len(props) > 25:
                     continue
                 for k, v in props.items():
-                    if v not in (None, "", 0, 0.0) and not isinstance(v, (list, dict)) and f"{k}={v}" not in ps:
+                    if v in (None, "", 0, 0.0) or isinstance(v, (list, dict)) or (k, str(v)) in common:
+                        continue
+                    if isinstance(v, str) and v.startswith("{'"):  # a serialised complex property (e.g. Color)
+                        continue
+                    if f"{k}={v}" not in ps:
                         ps.append(f"{k}={v}")
             if ps:
                 parts.append("properties: " + "; ".join(ps[:25]))
