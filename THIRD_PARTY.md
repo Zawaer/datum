@@ -28,14 +28,14 @@ drawing it shows.
 
 | image | drawing | licence of the image |
 |---|---|---|
-| `docs/img/tour-1.png`, `tour-2.png`, `tour-3.png`, `phone.png`, `design-{before,after}-1440-{empty,count,tour}.png`, `design-{before,after}-1920-area.png`, `design-{before,after}-390-count.png`, `app/static/og.png`, `docs/deck/img/step-1.jpg`, `step-2.jpg`, `step-3.jpg`, `landing.jpg`, `deck-swiss-doors.jpg`, `deck-german-area.jpg`, `deck-correction.jpg`, `feat-3d.jpg`, `feat-3d-card.jpg`, `feat-3d-rise.jpg`, `feat-xray.jpg`, `feat-xray-card.jpg`, `feat-heatmap.jpg`, `feat-takeoff.jpg` | Swiss Dwellings floor plan | CC BY 4.0, credit above |
+| `docs/img/tour-1.png`, `tour-2.png`, `tour-3.png`, `phone.png`, `design-{before,after}-1440-{empty,count,tour}.png`, `design-{before,after}-1920-area.png`, `design-{before,after}-390-count.png`, `app/static/og.png`, `docs/deck/img/step-1.jpg`, `step-2.jpg`, `step-3.jpg`, `landing.jpg`, `deck-swiss-doors.jpg`, `deck-german-area.jpg`, `deck-correction.jpg`, `feat-3d.jpg`, `feat-3d-card.jpg`, `feat-3d-rise.jpg`, `feat-3d-area.jpg`, `feat-xray.jpg`, `feat-xray-card.jpg`, `feat-heatmap.jpg`, `feat-takeoff.jpg`, `phone-landing.jpg`, `phone-answer.jpg`, `phone-card.jpg`, `phone-trio.jpg` | Swiss Dwellings floor plan | CC BY 4.0, credit above |
 | `docs/img/tour-4.png`, `docs/img/design-{before,after}-1920-cubicasa.png`, `docs/deck/img/step-4.jpg`, `finnish.jpg`, `deck-finnish-vlm.jpg`, `feat-voice.jpg` | CubiCasa5K plan | **CC BY-NC-SA 4.0**, credit above; non-commercial only, adaptations under the same licence |
-| `docs/img/tour-5.png`, `tour-6.png`, `tour-7.png`, `docs/deck/img/step-5b.jpg`, `step-5.jpg`, `step-6.jpg`, `step-7.jpg`, `deck-ifc-walls.jpg` | Molio Demo-hus IFC model (buildingSMART Community Sample-Test-Files) | CC BY 4.0, credit above |
-| `docs/deck/deck.pdf`, `docs/deck/deck.html` | embeds the step images above | each embedded image keeps its licence (above); the rest of the deck is MIT |
-| `docs/img/scoreboard.png`, `docs/img/design-{before,after}-1440-results.png`, `docs/img/fig-*.png` / `.svg`, `docs/deck/img/feat-ghost.jpg` (answer card only; the question text is from a Swiss Dwellings question, CC BY 4.0), `docs/deck/img/feat-how.jpg` | no drawing (our UI and charts) | MIT |
+| `docs/img/tour-5.png`, `tour-6.png`, `tour-7.png`, `docs/deck/img/step-5b.jpg`, `step-5.jpg`, `step-6.jpg`, `step-7.jpg`, `deck-ifc-walls.jpg`, `deck-ifc-rooms.jpg` | Molio Demo-hus IFC model (buildingSMART Community Sample-Test-Files) | CC BY 4.0, credit above |
+| `docs/deck/deck.pdf`, `docs/deck/deck.html` | embeds the screenshots above | each embedded image keeps its licence (above); the rest of the deck is MIT |
+| `docs/img/scoreboard.png`, `docs/img/design-{before,after}-1440-results.png`, `docs/img/fig-*.png` / `.svg`, `docs/deck/img/feat-ghost.jpg` (answer card only; the question text is from a Swiss Dwellings question, CC BY 4.0), `docs/deck/img/feat-how.jpg`, `docs/deck/img/feat-accuracy.jpg` | no drawing (our UI and charts) | MIT |
 
 Every screenshot above shows the drawing's credit line (licence + source) under the drawing; long author lists
-are cut with "…" in narrow layouts, and the cropped `feat-*-card.jpg`, `feat-3d-rise.jpg`, `feat-heatmap.jpg`, `feat-takeoff.jpg` and `feat-voice.jpg` carry the short credit line added under the crop; the full credits are in the table above and in `README.md`.
+are cut with "…" in narrow layouts, and the cropped `feat-*-card.jpg`, `feat-3d-rise.jpg`, `feat-heatmap.jpg`, `feat-takeoff.jpg`, `feat-voice.jpg` and `phone-trio.jpg` carry the short credit line added under the crop; the full credits are in the table above and in `README.md`.
 
 The question texts quoted in `app/tour.json`, `app/server.py` and the docs are short examples from the dataset
 and carry the licence of their drawing (above). The result files we commit (`app/frontier.json`,

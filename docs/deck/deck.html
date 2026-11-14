@@ -139,8 +139,8 @@
       <div class="vstat"><div class="n" style="color:#fdba74">69.8&nbsp;%</div><div class="l">best frontier model<br>(Claude Sonnet 5.5) given the same files</div></div>
       <div class="vstat"><div class="n">$0.013</div><div class="l">API per 1,000 questions, + ~$0.006 local<br>compute (Sonnet with the files: $25.76)</div></div>
     </div>
-    <div class="shot" style="flex:0 0 720px"><img src="img/feat-3d.jpg" alt="A Swiss plan risen into a 3D model, the 20 counted doors lit and numbered, next to the answer 20" style="border-color:#334155">
-      <div class="cap" style="color:#cbd5e1; font-size:22px; margin-top:12px">“How many doors?” 20, each one lit and numbered in 3D.</div></div>
+    <div class="shot" style="flex:0 0 720px"><img src="img/feat-3d.jpg" alt="The Swiss plan tilted up into a cut-away 3D model, the 20 counted doors painted on the floor with a numbered pin each, next to the answer 20" style="border-color:#334155">
+      <div class="cap" style="color:#cbd5e1; font-size:22px; margin-top:12px">“How many doors?” 20, painted on the floor and pinned in 3D.</div></div>
   </div>
   <div class="foot">Toivo and Rene · held-out test split of the Junction dataset (split by whole drawing), evaluation cross-audited by a second AI agent (Codex) · ours: <code>runs/router_full_test_v7</code>; Sonnet: 400-question sample re-weighted to the test mix, API list price · Drawing: Swiss Dwellings v3.0.0 (Archilyse AG), CC BY 4.0</div>
 </section>
@@ -217,10 +217,10 @@
   <div class="kicker">Demo · verify in seconds</div>
   <h2 style="margin-bottom:34px">The answer is counted out on the drawing.</h2>
   <div class="shots">
-    <div class="shot"><img src="img/deck-swiss-doors.jpg" alt="20 doors numbered on a Swiss plan, two independent methods agree">
+    <div class="shot"><img src="img/deck-swiss-doors.jpg" alt="20 doors numbered on a Swiss plan with door #8’s card open beside it; two independent methods agree">
       <div class="cap"><b>“How many doors?”</b> 20, each numbered on the plan, read from the CAD layers. “Very likely right”, and reading the PDF itself agrees. No model call, $0.
         <small>Swiss Dwellings v3.0.0, M. Standfest et al. (Archilyse AG), doi:10.5281/zenodo.7788422, CC BY 4.0</small></div></div>
-    <div class="shot"><img src="img/deck-german-area.jpg" alt="Apartment area as the sum of 6 room polygons, next to five frontier models">
+    <div class="shot"><img src="img/deck-german-area.jpg" alt="Apartment area as the sum of 6 room outlines with their m², the frontier-model section opened beside it">
       <div class="cap"><b>Asked in German:</b> net area of apartment A, 6 rooms outlined and summed to 62.74 m². Five frontier baselines on the same question: 5 of 5 wrong.
         <small>Swiss Dwellings v3.0.0, M. Standfest et al. (Archilyse AG), doi:10.5281/zenodo.7788422, CC BY 4.0</small></div></div>
   </div>
@@ -235,8 +235,8 @@
     <div class="shot"><img src="img/deck-finnish-vlm.jpg" alt="Finnish plan with 13 detected doors boxed; the fine-tuned vision model also says 13">
       <div class="cap"><b>Finnish plan, asked in Finnish:</b> the detector boxes each of the 13 doors; our fine-tuned vision model also says 13. When both agree: 94.9&nbsp;% right.
         <small>CubiCasa5K, © 2019 CubiCasa; Kalervo, Ylioinas, Häikiö, Karhu, Kannala, SCIA 2019; CC BY-NC-SA 4.0</small></div></div>
-    <div class="shot"><img src="img/deck-ifc-walls.jpg" alt="21 walls lit up in a 3D IFC model with the arithmetic summing to 185.13 m">
-      <div class="cap"><b>BIM model, asked in Danish:</b> total wall length. The 21 walls light up in 3D and “Why this answer” shows the sum: 185.13&nbsp;m, exact.
+    <div class="shot"><img src="img/deck-ifc-rooms.jpg" alt="A BIM model in 3D: the 13 rooms of the ground floor painted on their floor, a numbered pin on each, answer 13">
+      <div class="cap"><b>BIM model, asked in Danish:</b> how many rooms? The 13 rooms are painted on their floor in 3D, a numbered pin on each: 13, exact.
         <small>Molio Demo-hus, buildingSMART Community Sample-Test-Files contributors, CC BY 4.0</small></div></div>
   </div>
 </section>
@@ -247,8 +247,8 @@
   <div class="kicker">Beyond the answer</div>
   <h2 style="font-size:58px; margin-bottom:34px">See it, watch it counted, check it against others.</h2>
   <div class="feats">
-    <div class="feat"><div class="fimg"><img src="img/feat-3d-card.jpg" alt="A Swiss plan risen into 3D, counted doors lit in blue and numbered"></div>
-      <div class="ft"><b>See it in 3D</b>One click and the plan rises into a building; every counted door glows with its number. <em>Check where each counted door is, room by room.</em></div></div>
+    <div class="feat"><div class="fimg"><img src="img/feat-3d-card.jpg" alt="A Swiss plan tilted up into 3D, counted doors painted in blue with numbered pins"></div>
+      <div class="ft"><b>See it in 3D</b>One click and the plan tilts up into a cut-away model; every counted door is painted on the floor with a numbered pin. <em>Check where each counted door is, room by room.</em></div></div>
     <div class="feat"><div class="fimg"><img src="img/feat-xray-card.jpg" alt="X-ray count: the drawing greyed out, doors lighting up one by one, 16 of 20 counted"></div>
       <div class="ft"><b>X-ray count</b>The drawing fades back and each door lights up as the number ticks up: 16 of 20 here. <em>Watch the count happen instead of trusting a total.</em></div></div>
     <div class="feat"><div class="fimg" style="background:#fff"><img src="img/feat-ghost.jpg" alt="Our 62.74 m² against five frontier models, each with how far it is off the dataset answer"></div>
@@ -359,8 +359,9 @@
     Reproduce:<br><code style="color:#fff; font-size:20px">python eval.py --solver router --split test --judge</code><br><code style="color:#fff; font-size:20px">analysis/run_all.sh</code>
   </div>
   </div>
-  <div class="shot" style="flex:1"><img src="img/landing.jpg" alt="The demo's landing page: the headline numbers, a one-line pitch and a 60-second tour" style="border-color:#334155">
-    <div class="cap" style="color:#cbd5e1; font-size:24px">Try it: open the demo, press <b style="color:#fff">▶ Start the 60-second tour</b>, then ask your own question.
+  <div class="shot" style="flex:1; position:relative"><img src="img/landing.jpg" alt="The demo's landing page: the drawing, a one-line pitch, the 60-second tour and the ask box" style="border-color:#334155">
+    <img src="img/phone-answer.jpg" alt="The phone quick-ask view: the drawing with numbered pins, the answer 20 in a bottom sheet" style="position:absolute; right:-14px; top:96px; width:200px; border-radius:22px; border:3px solid #475569; box-shadow:0 16px 40px rgba(0,0,0,.5)">
+    <div class="cap" style="color:#cbd5e1; font-size:24px">Try it: open the demo, press <b style="color:#fff">▶ Take the 60-second tour</b>, then ask your own question. On a phone it is a quick-ask view (inset).
       <small style="color:#94a3b8; font-size:19px">Tabs: “IFC text Q&amp;A” is the free-text family (IFC-Bench, 38.2&nbsp;%). “US drawing sets” are 3 real drawing sets from a US practice, answered by the same general path your uploads take; they have no held-out split, so they are not in the results.</small>
       <small style="color:#64748b">Drawing: Swiss Dwellings v3.0.0 (Archilyse AG), CC BY 4.0</small></div></div>
   </div>

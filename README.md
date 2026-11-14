@@ -26,7 +26,7 @@ our own CV detector (trained on a local RTX 4070), our fine-tuned 8B VLM as seco
 a small frontier LLM, only for free text. Share of the 25,420 test questions per route: CAD / IFC geometry 34.7 %,
 detector 64.9 %, Haiku 0.4 % (the 110 free-text questions).
 
-![Counting doors on a Swiss apartment plan: the plan risen into a 3D model with the 20 counted doors lit in blue and numbered, next to the answer 20, "Very likely right", and a second, independent method that agrees](docs/deck/img/feat-3d.jpg)
+![Counting doors on a Swiss apartment plan: the plan tilted up into a cut-away 3D model with the 20 counted doors painted on the floor and a numbered pin on each, next to the answer 20, "Verified by geometry", and a second, independent method that agrees](docs/deck/img/feat-3d.jpg)
 <sub>Drawing: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0 (rendered by the Junction dataset authors).</sub>
 
 - **Demo:** TODO public URL &nbsp;·&nbsp; **Video (2 min):** TODO link &nbsp;·&nbsp; **Deck:** [docs/deck/deck.pdf](docs/deck/deck.pdf)
@@ -40,11 +40,15 @@ detector 64.9 %, Haiku 0.4 % (the 110 free-text questions).
 | **X-ray count.** The drawing fades back and each door lights up as the number ticks up, so you watch the count happen instead of trusting a total. | **Side by side with frontier models.** Our number next to what five frontier models answered on the same drawing, and how far each one is off. |
 | ![Room heat-map: every room of a Swiss apartment floor shaded by its net area, with a legend and each apartment's total](docs/deck/img/feat-heatmap.jpg) | ![Asking by voice in Finnish: the listening strip under the ask box shows the question being heard, next to a Finnish plan with boxed doors](docs/deck/img/feat-voice.jpg) |
 | **Heat-map and takeoff sheet.** Every room shaded by its area, and a printable room schedule with door, window and fixture counts, ready to check and sign off. | **Ask by voice.** Press the mic and say the question in the language spoken on site; it is turned into text and asked straight away. |
+| ![The German area question in 3D: the six rooms of apartment A painted on their floor in blue, each with its m² label, summing to 62.74 m²](docs/deck/img/feat-3d-area.jpg) | ![A BIM model asked in Danish how many rooms: the 13 rooms of the ground floor painted on their floor in 3D, a numbered pin on each, answer 13](docs/deck/img/deck-ifc-rooms.jpg) |
+| **The answer painted in 3D.** The 2D plan tilts up into a low cut-away model; measured rooms are painted on the floor with their m², counted symbols get a numbered pin. A click on a pin opens its card. | **BIM models, floor first.** An IFC model opens on the storey the question is about, with the rooms painted on their floor and a pin on each counted element. |
+| ![The phone quick-ask view: the landing with the ask bar at the bottom, the answer 20 as a bottom sheet over the pinned drawing, and door #7's card open beside its pin](docs/deck/img/phone-trio.jpg) | ![The Accuracy page: how often the answers are right on 25,420 held-out test questions, against frontier models, and by drawing type](docs/deck/img/feat-accuracy.jpg) |
+| **On a phone.** The drawing comes first, the ask bar sits at the bottom, the answer is a bottom sheet; tap a pin (or step through them) for its card. | **Accuracy page.** One chart against the frontier models, three facts, accuracy by drawing type, and every other number one click away. |
 
-Also: **See it in 3D** (top image) raises a Swiss plan into a building with the counted doors lit and numbered
-([how it rises](docs/deck/img/feat-3d-rise.jpg)), BIM models open in 3D with the measured elements lit, and the
+Also: **See it in 3D** (top image) tilts a Swiss plan up into a cut-away model with the counted doors painted and pinned
+([how it tilts](docs/deck/img/feat-3d-rise.jpg)), and the
 **How it works** page (`/how`) walks through routing, the proof on the drawing, the four checks and the cost.
-<sub>Drawings: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0 (X-ray, heat-map, 3D); CubiCasa5K, © 2019 CubiCasa, CC BY-NC-SA 4.0 (voice). Each image shows its credit line.</sub>
+<sub>Drawings: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0 (X-ray, heat-map, 3D, phone); CubiCasa5K, © 2019 CubiCasa, CC BY-NC-SA 4.0 (voice); Molio Demo-hus, buildingSMART Community Sample-Test-Files, CC BY 4.0 (BIM). Each image shows its credit line.</sub>
 
 ## Results
 
