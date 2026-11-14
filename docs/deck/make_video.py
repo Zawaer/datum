@@ -60,8 +60,6 @@ LIMIT = {"full": 120.0, "short": 60.0}
 FPS = 30
 VIEW = (1536, 864)          # CSS px; at DPR 1.25 that is exactly 1920x1080, so app text reads like a 1080p screen
 REPO_URL = "github.com/Zawaer/datum"
-ELEVEN_VOICE = os.environ.get("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")   # "Rachel", a stock voice
-ELEVEN_MODEL = os.environ.get("ELEVENLABS_TTS_MODEL", "eleven_multilingual_v2")
 
 SWISS_DOORS = "data/swiss_dwellings/site3387_bldg5238_floor23498.pdf"
 Q_DOORS = "How many doors (interior doors and entrance doors together) are drawn on this floor plan?"
@@ -74,74 +72,113 @@ Q_DOORS_FI = "Kuinka monta ovea pohjapiirustuksessa on?"
 IFC_PLAN = "data/ifc_models/bsc-molio_molio-with-uris_plan-03-grundplan.pdf"
 Q_IFC_WALLS = "How many doors are shown on the floor plan of 'Grundplan'?"
 
-# A line is (caption, spoken) or just text when both are the same. Numbers are spelled out where the TTS could
-# misread them. Sources for every number: README.md, docs/RESULTS.md, docs/COSTS.md (listed in docs/video.md).
+# A line is L(speaker, caption, spoken): T = Toivo, R = Rene (two cloned ElevenLabs voices, eleven_v3). The spoken
+# form spells numbers out and carries v3 audio tags ([confident], [leaning in], ...); the caption is the plain text.
+# Sources for every number: README.md, docs/RESULTS.md, docs/COSTS.md (listed in docs/video.md).
 # "cuts": which cut a scene is in; "short": the lines it speaks in the 60 s cut (default: the same lines).
+
+
+def L(spk, cap, say=None):
+    return (spk, cap, say or cap)
+
+
+FI_Q = L("T", "Kuinka monta ovea pohjapiirustuksessa on?", "[curious] Kuinka monta ovea pohjapiirustuksessa on?")
+
 SCENES = [
     {"id": "hook", "kind": "shot", "cuts": "full short", "min": 8.5, "lines": [  # min: room for both chips
-        "Ask a floor plan how many doors it has.",
-        ("Twenty. And here is every single one.", "Twenty. And here is every single one."),
+        L("T", "Ask a floor plan how many doors it has.", "[confident] Ask a floor plan how many doors it has."),
+        L("R", "Twenty. And here is every single one.", "Twenty. And here's every single one."),
     ]},
     {"id": "problem", "kind": "card", "cuts": "full short", "lines": [
-        "Quantity takeoff is still done by hand.",
-        ("Frontier AI, given the very same files, gets seven answers in ten right,",
-         "Frontier A.I., given the very same files, gets seven answers in ten right,"),
-        "and sounds just as sure when it's wrong.",
+        L("R", "Takeoffs are still counted by hand.", "Takeoffs are still counted by hand."),
+        L("T", "And general AI, given the very same files? Seven answers in ten,",
+          "[leaning in] And general A.I., given the very same files? Seven answers in ten."),
+        L("T", "and just as sure when it's wrong.", "[serious] And just as sure when it's wrong."),
     ], "short": [
-        ("Frontier AI gets seven answers in ten right, and sounds just as sure when it's wrong.",
-         "Frontier A.I. gets seven answers in ten right, and sounds just as sure when it's wrong."),
-    ]},
-    {"id": "how", "kind": "shot", "cuts": "full", "lines": [
-        "So we don't guess. Every question goes to an exact method:",
-        "the CAD geometry, the BIM model, or a small detector we trained.",
-    ]},
-    {"id": "xray", "kind": "shot", "cuts": "full short", "lines": [
-        "Ask in plain words, and the X-ray counts every door on the drawing.",
-        "A second, independent method agrees. No model call, zero cost.",
-    ], "short": [
-        "Ask in plain words. The X-ray counts every door on the drawing.",
+        L("T", "General AI gets seven answers in ten right, and is just as sure when it's wrong.",
+          "[leaning in] General A.I. gets seven answers in ten right. [serious] And it's just as sure when it's wrong."),
     ]},
     {"id": "ghost", "kind": "shot", "cuts": "full short", "lines": [
-        "Asked in German: the net living area of apartment A.",
-        "Every room carries its own square metres, and they add up to the answer.",
-        "Five frontier models, same drawing: all five wrong.",
+        L("T", "Datum shows its work. Ask, in German, for the living area,",
+          "[confident] Datum shows its work. Ask, in German, for the living area,"),
+        L("R", "and every room is outlined with its square metres, adding up on the drawing.",
+          "and every room is outlined with its square metres, adding up on the drawing."),
+        L("T", "Five AI models, same drawing: all five wrong.",
+          "Five A.I. models, same drawing. [chuckles] All five wrong."),
     ], "short": [
-        "In German: every room's square metres add up to the answer.",
-        "Five frontier models, same drawing: all five wrong.",
+        L("T", "Datum shows its work. Ask, in German, for the living area:",
+          "[confident] Datum shows its work. Ask, in German, for the living area,"),
+        L("R", "every room outlined, adding up on the drawing. Five AI models: all five wrong.",
+          "and every room is outlined, adding up on the drawing. Five A.I. models? All five wrong."),
     ]},
-    {"id": "correct", "kind": "shot", "cuts": "full short", "lines": [
-        "Disagree? Untick an item, or click one we missed. The total follows.",
+    {"id": "xray", "kind": "shot", "cuts": "", "lines": [   # out of the 2:00 cut since the project beat
+        L("T", "Every answer shows its proof: the X-ray counts each door,",
+          "[confident] Every answer shows its proof. The X-ray counts each door,"),
+        L("R", "and a second, independent method agrees.", "and a second, independent method agrees."),
     ]},
-    {"id": "heat", "kind": "shot", "cuts": "full", "lines": [
-        "One click shades every room by its area, and prints the takeoff sheet.",
+    {"id": "correct", "kind": "shot", "cuts": "full", "lines": [
+        L("R", "Check it in seconds: untick one, or click one in. The total follows.",
+          "Check it in seconds. Untick one, or click one in. The total follows."),
     ]},
     {"id": "voice", "kind": "shot", "cuts": "full short", "lines": [
-        "Or just ask out loud, in Finnish.",
-        "Our detector boxes every door it counts.",
+        L("T", "On site? Just ask out loud, in Finnish.", "[leaning in] On site? Just ask out loud. In Finnish."),
+        FI_Q,
+        L("R", "Every door is boxed on the scan, and the plan rises into 3D.",
+          "Every door is boxed on the scan, and the plan rises into 3D."),
     ], "short": [
-        "Or ask out loud, in Finnish.",
+        L("T", "Or ask out loud, in Finnish.", "[leaning in] Or ask out loud. In Finnish."),
+        FI_Q,
     ]},
     {"id": "ifc", "kind": "shot", "cuts": "full", "lines": [
-        ("BIM models are answered from the model itself.", "Bim models are answered from the model itself."),
-        "Explode the storeys, X-ray the rest, and the evidence glows.",
+        L("T", "From a BIM model, the answer comes from the model itself.",
+          "[confident] From a BIM model, the answer comes from the model itself."),
+        L("R", "Explode the storeys, and the evidence glows.", "Explode the storeys, and the evidence glows."),
+    ]},
+    {"id": "sheet", "kind": "shot", "cuts": "full short", "min": 16.0, "min_short": 8.5, "lines": [
+        L("R", "And a sheet it has never seen? Here's a school plan, uploaded.",
+          "And a sheet it has never seen? Here's a school plan, uploaded."),
+        L("T", "Upload it, ask, and watch it count the group rooms on the drawing.",
+          "[confident] Upload it, ask, and watch it count the group rooms, right on the drawing."),
+        L("R", "Then tilt it up into 3D.", "Then tilt it up into 3D."),
+    ], "short": [
+        L("R", "And a school sheet it has never seen: upload, ask, watch it count.",
+          "And a school sheet it has never seen? Upload, ask, and watch it count."),
+    ]},
+    {"id": "project", "kind": "shot", "cuts": "full", "min": 9.5, "lines": [
+        L("T", "A whole project? Drop in both floors and ask for every door in the school.",
+          "[leaning in] And the whole project? Drop in both floors, and ask for every door in the school."),
+        L("R", "171, floor by floor. Tap one to see its doors.",
+          "One hundred seventy-one, floor by floor. Tap one to see its doors."),
     ]},
     {"id": "results", "kind": "card", "cuts": "full short", "lines": [
-        ("90.7 % right on all 25,420 held-out test questions.",
-         "Ninety percent right, on all twenty-five thousand held-out test questions."),
-        ("Claude Sonnet 5.5, given the same files: 69.8 %.",
-         "Claude Sonnet, given the same files: seventy."),
+        L("T", "90.7 % right on all 25,420 held-out test questions.",
+          "[confident] Ninety point seven percent right, on all twenty-five thousand held-out questions."),
+        L("R", "A leading AI model, given the same files: 69.8 %.",
+          "A leading A.I. model, given the same files: sixty-nine point eight."),
+    ], "short": [
+        L("T", "90.7 % right on all 25,420 held-out test questions.",
+          "[confident] Ninety point seven percent right, on all twenty-five thousand held-out questions."),
     ]},
     {"id": "cost", "kind": "card", "cuts": "full short", "lines": [
-        ("$0.013 per 1,000 questions. Sonnet: $25.76.",
-         "One point three cents per thousand questions. Sonnet: twenty-five dollars seventy-six."),
+        L("T", "$0.013 per 1,000 questions.", "[persuasive] At one point three cents per thousand questions."),
+        L("R", "The AI model: $25.76.", "The A.I. model? Twenty-five dollars seventy-six."),
+    ], "short": [
+        L("T", "$0.013 per 1,000 questions.", "[persuasive] At one point three cents per thousand questions."),
     ]},
     {"id": "end", "kind": "card", "cuts": "full short", "min": 3.5, "lines": [
-        "Exact. Verifiable. Cheap. Datum: blueprints that talk.",
+        L("R", "Not sure? It says so instead of guessing. Low-res scans are its weak spot.",
+          "Not sure? It says so, instead of guessing. Low-res scans are its weak spot."),
+        L("T", "Exact. Verifiable. Cheap. Datum: blueprints that talk.",
+          "[confident] Exact. Verifiable. Cheap. [warmly] Datum: blueprints that talk."),
+    ], "short": [
+        L("T", "Exact. Verifiable. Cheap. Datum: blueprints that talk.",
+          "[confident] Exact. Verifiable. Cheap. [warmly] Datum: blueprints that talk."),
     ]},
 ]
 
 CREDITS = ("Drawings: Swiss Dwellings v3.0.0 (Archilyse AG, CC BY 4.0) · CubiCasa5K (CubiCasa, CC BY-NC-SA 4.0) · "
-           "Molio Demo-hus (buildingSMART sample files, CC BY 4.0) · questions from the Junction 2026 Stoa dataset")
+           "Molio Demo-hus (buildingSMART sample files, CC BY 4.0) · DfE model special school, Level 01 (Open Government "
+           "Licence v3.0) · questions from the Junction 2026 Stoa dataset")
 
 
 def scenes_of(cut):
@@ -149,8 +186,9 @@ def scenes_of(cut):
 
 
 def lines_of(scene, cut="full"):
+    """-> [(caption, spoken, speaker)]"""
     ls = scene.get("short", scene["lines"]) if cut == "short" else scene["lines"]
-    return [l if isinstance(l, tuple) else (l, l) for l in ls]
+    return [(cap, say, spk) for spk, cap, say in ls]
 
 
 # ---------------------------------------------------------------- voice
@@ -168,78 +206,96 @@ def tts_worker():
         print(f"tts {len(audio) / SR:5.2f} s  {it['text'][:70]}", flush=True)
 
 
-ENGINE = "kokoro"
+ENGINE = "elevenlabs"
+# Two cloned voices (Toivo's decision): T = Toivo, R = Rene, both on eleven_v3. Keys, voice ids and models come from
+# a root-only env file (--voices-env, default below); they only ever go into request headers / URLs, never printed.
+# Each key is used for its own speaker's text-to-speech only.
+VOICES_ENV = Path("/data/attachments/s_G5o6eFRtoL/secrets/elevenlabs.env")
+SPEAKERS = {"T": ("TOIVO_ELEVENLABS_KEY", "TOIVO_VOICE_ID", "TOIVO_MODEL_ID"),
+            "R": ("RENE_ELEVENLABS_KEY", "RENE_VOICE_ID", "RENE_MODEL_ID")}
+SPEAKER_NAME = {"T": "Toivo", "R": "Rene"}
+V3_STABILITY = 0.5   # eleven_v3 takes 0.0 (creative), 0.5 (natural) or 1.0 (robust); tags work in 0.0 / 0.5
 
 
-def clip_path(text):
-    tag = f"{VOICE}|{SPEED}|{text}" if ENGINE == "kokoro" else f"eleven|{ELEVEN_VOICE}|{ELEVEN_MODEL}|{text}"
+def voices_env():
+    env = {}
+    if VOICES_ENV.exists():
+        for ln in VOICES_ENV.read_text().splitlines():
+            k, _, v = ln.strip().partition("=")
+            if k and not k.startswith("#"):
+                env[k.strip()] = v.strip().strip('"').strip("'")
+    return env
+
+
+def voice_of(spk):
+    env = voices_env()
+    kk, vk, mk = SPEAKERS[spk]
+    if not env.get(kk) or not env.get(vk):
+        raise SystemExit(f"voice {SPEAKER_NAME[spk]}: key or voice id missing in {VOICES_ENV}")
+    return env[kk], env[vk], env.get(mk) or "eleven_v3"
+
+
+def clip_path(text, spk="T"):
+    if ENGINE == "kokoro":
+        tag = f"{VOICE}|{SPEED}|{text}"
+    else:
+        _, vid, model = voice_of(spk)
+        tag = f"eleven|{vid}|{model}|{V3_STABILITY}|{text}"
     return TTS_CACHE / f"{hashlib.sha1(tag.encode()).hexdigest()[:16]}.wav"
 
 
-def eleven_key():
-    if os.environ.get("ELEVENLABS_API_KEY"):
-        return os.environ["ELEVENLABS_API_KEY"].strip()
-    f = ROOT / "data/secrets/elevenlabs.env"
-    if f.exists():
-        for ln in f.read_text().splitlines():
-            k, _, v = ln.partition("=")
-            if k.strip() == "ELEVENLABS_API_KEY" and v.strip():
-                return v.strip().strip('"').strip("'")
-    return None
-
-
-def eleven_tts(text, key):
+def eleven_tts(text, spk):
     """-> 16-bit mono PCM at SR, or raises urllib.error.HTTPError. The key only ever goes into the request header."""
-    url = (f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_VOICE}?output_format=pcm_{SR}")
-    body = json.dumps({"text": text, "model_id": ELEVEN_MODEL,
-                       "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}}).encode()
+    key, vid, model = voice_of(spk)
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{vid}?output_format=pcm_{SR}"
+    body = json.dumps({"text": text, "model_id": model, "voice_settings": {"stability": V3_STABILITY}}).encode()
     req = urllib.request.Request(url, data=body, method="POST",
                                  headers={"xi-api-key": key, "Content-Type": "application/json", "Accept": "audio/pcm"})
-    with urllib.request.urlopen(req, timeout=60) as r:
+    with urllib.request.urlopen(req, timeout=120) as r:
         return r.read()
 
 
+def trim_pcm(pcm, thr=300, keep=0.06):
+    """Cut leading/trailing near-silence (v3 often pads a clip), keeping `keep` s on each side."""
+    import array
+    a = array.array("h", pcm)
+    win = int(0.01 * SR)
+    loud = [i for i in range(0, len(a), win) if max((abs(x) for x in a[i:i + win]), default=0) > thr]
+    if not loud:
+        return pcm
+    i0 = max(0, loud[0] - int(keep * SR))
+    i1 = min(len(a), loud[-1] + win + int(keep * SR))
+    return a[i0:i1].tobytes()
+
+
 def pick_engine(want):
-    """'kokoro' | 'elevenlabs' | 'auto' -> the engine that will actually speak (probes ElevenLabs once)."""
     global ENGINE
-    ENGINE = "kokoro"
-    if want == "kokoro":
-        return ENGINE
-    key = eleven_key()
-    if not key:
-        print("ElevenLabs TTS: no key found; using Kokoro")
-        return ENGINE
-    try:
-        eleven_tts("Test.", key)
-        ENGINE = "elevenlabs"
-        print(f"ElevenLabs TTS: available (voice {ELEVEN_VOICE}, {ELEVEN_MODEL})")
-    except urllib.error.HTTPError as e:
-        why = {401: "key not accepted for text-to-speech (it may be a speech-to-text-only key)",
-               403: "key lacks the text-to-speech permission"}.get(e.code, "request failed")
-        print(f"ElevenLabs TTS: HTTP {e.code}, {why}; falling back to Kokoro")
-    except Exception as e:  # network
-        print(f"ElevenLabs TTS: unreachable ({type(e).__name__}); falling back to Kokoro")
+    ENGINE = "kokoro" if want == "kokoro" else "elevenlabs"
+    if ENGINE == "elevenlabs":
+        for spk in SPEAKERS:
+            voice_of(spk)     # fails early if the env file lacks a voice
+        print("voice: ElevenLabs eleven_v3, Toivo + Rene")
     return ENGINE
 
 
 def synthesize(scenes, cut):
     TTS_CACHE.mkdir(parents=True, exist_ok=True)
-    todo = [{"text": say, "path": str(clip_path(say))} for s in scenes for _, say in lines_of(s, cut)
-            if not clip_path(say).exists()]
+    todo = [{"text": say, "spk": spk, "path": str(clip_path(say, spk))} for s in scenes for _, say, spk in lines_of(s, cut)
+            if not clip_path(say, spk).exists()]
     if not todo:
         return
     if ENGINE == "elevenlabs":
-        key = eleven_key()
         for it in todo:
-            pcm = eleven_tts(it["text"], key)
+            pcm = trim_pcm(eleven_tts(it["text"], it["spk"]))
             with wave.open(it["path"], "wb") as w:
                 w.setnchannels(1), w.setsampwidth(2), w.setframerate(SR)
                 w.writeframes(pcm)
-            print(f"tts {len(pcm) / 2 / SR:5.2f} s  {it['text'][:70]}")
+            print(f"tts {SPEAKER_NAME[it['spk']]:5s} {len(pcm) / 2 / SR:5.2f} s  {it['text'][:80]}")
         return
     env = {**os.environ, "HF_HOME": str(ROOT / "cache/tts/hf")}
     subprocess.run([str(TTS_PY), "-I", __file__, "--tts-worker"], input=json.dumps(
-        {"voice": VOICE, "speed": SPEED, "items": todo}), text=True, check=True, env=env)
+        {"voice": VOICE, "speed": SPEED, "items": [{"text": re.sub(r"\[[^\]]*\]\s*", "", t["text"]), "path": t["path"]}
+                                                   for t in todo]}), text=True, check=True, env=env)
 
 
 def wav_dur(p):
@@ -254,12 +310,12 @@ def timeline(scenes, cut):
     for s in scenes:
         ls = lines_of(s, cut)
         c = t + (LEAD if ls else 0)
-        for cap, say in ls:
-            d = wav_dur(clip_path(say))
-            caps.append((c, c + d, cap, clip_path(say)))
+        for cap, say, spk in ls:
+            d = wav_dur(clip_path(say, spk))
+            caps.append((c, c + d, cap, clip_path(say, spk), spk))
             c += d + GAP
         dur = (c - GAP + TAIL - t) if ls else 0
-        dur = max(dur, s.get("min", 0))
+        dur = max(dur, s.get("min_short", s.get("min", 0)) if cut == "short" else s.get("min", 0))
         dur = round(dur / fr + 0.4999) * fr
         plan.append((s, t, dur))
         t += dur
@@ -268,7 +324,7 @@ def timeline(scenes, cut):
 
 def write_voice(caps, total, path, t0=0.0):
     pcm = bytearray(int(total * SR) * 2)
-    for a, _, _, clip in caps:
+    for a, _, _, clip, *_ in caps:
         with wave.open(str(clip)) as w:
             data = w.readframes(w.getnframes())
         i = int((a - t0) * SR) * 2
@@ -279,6 +335,46 @@ def write_voice(caps, total, path, t0=0.0):
         w.writeframes(bytes(pcm))
 
 
+LUFS = -14.0
+
+
+def loudnorm_2pass(wav, target):
+    """A measured (two-pass, linear) loudnorm filter that brings the voice track to `target` LUFS integrated."""
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(wav), "-af",
+                        f"loudnorm=I={target}:TP=-1.0:LRA=11:print_format=json", "-f", "null", "-"],
+                       capture_output=True, text=True)
+    m = json.loads(r.stderr[r.stderr.rindex("{"):r.stderr.rindex("}") + 1])
+    return (f"loudnorm=I={target}:TP=-1.0:LRA=11:measured_I={m['input_i']}:measured_TP={m['input_tp']}:"
+            f"measured_LRA={m['input_lra']}:measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true,"
+            "aresample=48000")
+
+
+def short_caps(caps, most=54):
+    """Split each line into short phrases (at punctuation, else words, <= `most` chars), timed by their length."""
+    out = []
+    for a, e, text, *rest in caps:
+        parts, cur = [], ""
+        for tok in re.split(r"(?<=[,;:?.!])\s+", text):   # only at punctuation then a space: not in 25,420 or 90.7
+            for w in tok.split(" "):
+                if cur and len(cur) + 1 + len(w) > most:
+                    parts.append(cur.strip())
+                    cur = ""
+                cur += (" " if cur else "") + w
+            if len(cur.strip()) > 18 and re.search(r"[,;:?.!]$", cur.strip()):
+                parts.append(cur.strip())
+                cur = ""
+        if cur.strip():
+            parts.append(cur.strip())
+        parts = [re.sub(r"\s+", " ", p) for p in parts]
+        tot = sum(len(p) for p in parts) or 1
+        t = a
+        for p in parts:
+            d = (e - a) * len(p) / tot
+            out.append((t, t + d - 0.25, p, *rest))   # write_srt adds 0.25 s back
+            t += d
+    return out
+
+
 def ts(x):
     ms = int(round(x * 1000))
     return f"{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
@@ -286,7 +382,7 @@ def ts(x):
 
 def write_srt(caps, path, t0=0.0):
     path.write_text("\n".join(f"{k + 1}\n{ts(a - t0)} --> {ts(e - t0 + 0.25)}\n{text}\n"
-                              for k, (a, e, text, _) in enumerate(caps)), encoding="utf-8")
+                              for k, (a, e, text, *_) in enumerate(caps)), encoding="utf-8")
 
 
 # ---------------------------------------------------------------- slow-motion recorder
@@ -341,6 +437,19 @@ body.vidhero #list, body.vidhero #side { display: none !important; }
 """
 
 
+# A visible mouse cursor (headless Chromium draws none): an arrow that follows real mouse events, with a click ring.
+CURSOR_JS = """document.addEventListener('DOMContentLoaded', () => {
+  const c = document.createElement('div'); c.id = 'vcur';
+  c.innerHTML = '<svg width="26" height="30" viewBox="0 0 26 30"><path d="M2 2 L2 24 L8 18.5 L12.5 28 L16.5 26.2 L12.2 17 L20 17 Z" fill="#111418" stroke="#fff" stroke-width="2" stroke-linejoin="round"/></svg><i></i>';
+  c.style.cssText = 'position:fixed;left:0;top:0;z-index:2147483647;pointer-events:none;opacity:0;transition:opacity .2s;will-change:transform';
+  const st = document.createElement('style');
+  st.textContent = '#vcur i{position:absolute;left:-14px;top:-14px;width:28px;height:28px;border-radius:50%;border:2px solid #0072b2;opacity:0}#vcur.down i{animation:vcring .5s ease-out}@keyframes vcring{from{opacity:.9;transform:scale(.3)}to{opacity:0;transform:scale(1.4)}}';
+  document.head.appendChild(st); document.body.appendChild(c);
+  addEventListener('mousemove', e => { c.style.opacity = 1; c.style.transform = `translate(${e.clientX - 2}px, ${e.clientY - 2}px)`; }, true);
+  addEventListener('mousedown', () => { c.classList.remove('down'); void c.offsetWidth; c.classList.add('down'); }, true);
+});"""
+
+
 class Rec:
     """Grabs frames from one page (CDP screenshots) stamped with page time; camera moves for punch-ins."""
 
@@ -352,6 +461,7 @@ class Rec:
         self.frames, self.cams, self.marks = [], [(0.0, None, 0.0)], {}
         self.t0 = None
         self.task = None
+        self.dpr = 1.0
 
     def now(self):  # page-time seconds since the recording started
         return (time.monotonic() - self.t0) / self.slow
@@ -408,6 +518,43 @@ class Rec:
     def mark(self, k):
         self.marks[k] = self.now()
 
+    async def at(self, t):
+        """Wait until page time t (s since start): to land an action on its spoken cue."""
+        if t > self.now():
+            await self.sleep(t - self.now())
+
+    async def point(self, target, over=0.6):
+        """Glide the visible cursor to an element (selector) or (x, y), ease-in-out, on the page clock."""
+        if isinstance(target, str):
+            target = await self.pg.evaluate("""s => { const e = document.querySelector(s); if (!e) return null;
+              const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }""", target)
+            if not target:
+                return None
+        x0, y0 = getattr(self, "mxy", (self.view[0] * 0.62, self.view[1] * 0.78))
+        n = max(4, int(over * 24))
+        for k in range(1, n + 1):
+            e = _ease(k / n)
+            await self.move(x0 + (target[0] - x0) * e, y0 + (target[1] - y0) * e)
+            await self.sleep(over / n)
+        self.mxy = tuple(target)
+        return target
+
+    async def move(self, x, y):
+        # with the CDP device-metrics override, Input events land at (x, y) / DPR: hand them device pixels
+        await self.pg.mouse.move(x * self.dpr, y * self.dpr)
+
+    async def ring(self):
+        """The click ring alone (no real click: e.g. on the mic, whose real flow needs a microphone)."""
+        await self.pg.evaluate("(() => { const c = document.getElementById('vcur'); if (c) { c.classList.remove('down'); void c.offsetWidth; c.classList.add('down'); } })()")
+
+    async def click(self, target, over=0.6):
+        xy = await self.point(target, over)
+        if xy:
+            await self.sleep(0.12)
+            await self.pg.mouse.down()
+            await self.pg.mouse.up()
+        return xy
+
     async def say(self, title, sub=""):
         await self.pg.evaluate("""([t, s]) => { let o = document.getElementById('vidtx');
           if (!o) { o = document.createElement('div'); o.id = 'vidtx'; document.body.appendChild(o); }
@@ -419,6 +566,8 @@ async def new_page(browser, slow, dpr, url=None, extra_ctx=None, view=VIEW, mobi
     ctx = await browser.new_context(viewport={"width": view[0], "height": view[1]}, device_scale_factor=dpr,
                                     is_mobile=mobile, has_touch=mobile, **(extra_ctx or {}))
     await ctx.add_init_script(CLOCK_SHIM % {"slow": slow})
+    if not mobile:
+        await ctx.add_init_script(CURSOR_JS)
     await ctx.add_init_script("document.addEventListener('DOMContentLoaded', () => { const s = document.createElement('style');"
                               f" s.textContent = {json.dumps(OVERLAY_CSS)}; document.head.appendChild(s); }});")
     pg = await ctx.new_page()
@@ -446,11 +595,15 @@ ANSWERED = "(q => typeof res !== 'undefined' && res && res.question === q && !an
 
 
 async def type_and_ask(rec, q, wait=True):
-    """Types the question into the ask box (on the page clock) and asks, like the demo tour does."""
+    """Clicks into the ask box, types the question (on the page clock) and clicks Ask."""
+    await rec.click("#q", 0.5)
     await rec.pg.evaluate("""async q => { const el = document.querySelector('#q'); el.value = ''; el.focus();
       const dt = Math.max(12, Math.min(40, 1400 / q.length));
       for (const ch of q) { el.value += ch; await new Promise(r => setTimeout(r, dt)); } }""", q)
-    await rec.sleep(0.25)
+    await rec.sleep(0.2)
+    await rec.point("#go", 0.35)                    # the cursor goes to Ask; ask() itself is called (deterministic)
+    await rec.sleep(0.1)
+    await rec.ring()
     await rec.pg.evaluate("ask()")
     if wait:
         await wait_js(rec.pg, f"{ANSWERED}({json.dumps(q)})")
@@ -463,6 +616,14 @@ async def wait_ready(pg):
 
 # ---- the shots. Each gets a fresh page and a Rec; they mirror the storyboard in docs/video.md.
 
+CUES = {}   # scene id -> start of each spoken line (s from the scene start), so actions land on their words
+
+
+def cue(rec, i, default):
+    c = CUES.get(rec.name, [])
+    return c[i] if i < len(c) else default
+
+
 async def shot_hook(rec, base):
     """Flat plan seen from above -> walls rise -> the 20 counted doors light up one by one, numbered."""
     pg = rec.pg
@@ -471,12 +632,15 @@ async def shot_hook(rec, base):
     await pg.evaluate("document.body.classList.add('vidhero')")
     await asyncio.sleep(1.0)                      # layout settles; geometry was prefetched by plan3d.js
     await rec.start()
-    await rec.sleep(0.3)
-    await pg.evaluate("window.__p3riseMs = 2600; window.__p3.open()")
+    await rec.point((900, 600), 0.1)
+    await rec.click("#p3go", 0.45)
+    await pg.evaluate("window.__p3riseMs = 2600; if (!window.__p3.opened) window.__p3.open()")
+    await rec.point((1400, 820), 0.5)
     await wait_js(pg, "window.__p3.ready")
     rec.mark("risen")
-    await rec.sleep(1.3)                           # doors pop in (~0.9 s on the page clock)
-    await rec.say("<em>20</em> doors, every one numbered", "Read from the CAD layers. No AI model call.")
+    rec.cam((150, 60, 1300), 4.0)                  # slow push-in while the doors pop in
+    await rec.sleep(1.3)
+    await rec.say("<em>20</em> doors, every one numbered", "Each one marked on the drawing.")
     await rec.sleep(2.2)
     await rec.say("Datum: blueprints that talk", "Junction 2026, Stoa: Make Blueprints Talk")
     await rec.sleep(2.0)
@@ -501,16 +665,16 @@ async def shot_xray(rec, base):
     pg = rec.pg
     await wait_ready(pg)
     await rec.start()
-    await rec.sleep(0.3)
     await type_and_ask(rec, Q_DOORS, wait=False)
     await wait_js(pg, "typeof animating !== 'undefined' && animating")
     await rec.cam_on("#viewer", 960, 0.8)          # punch in on the drawing while the count runs
     await wait_js(pg, f"{ANSWERED}({json.dumps(Q_DOORS)})")
-    await rec.sleep(0.8)
-    await rec.cam_on("#answer", 720, 0.9, top=True)  # then over to the answer card: 20, "two methods agree"
-    await rec.sleep(3.2)
-    rec.cam(None, 0.8)
-    await rec.sleep(1.0)
+    await rec.at(cue(rec, 1, 4.0) - 0.4)
+    await rec.cam_on("#answer", 720, 0.6, top=True)  # "a second method agrees": over to the answer card
+    await rec.point("#answer", 0.6)
+    await rec.sleep(2.6)
+    rec.cam(None, 0.6)
+    await rec.sleep(0.6)
     await rec.stop()
 
 
@@ -518,32 +682,37 @@ async def shot_ghost(rec, base):
     pg = rec.pg
     await wait_ready(pg)
     await rec.start()
-    await rec.sleep(0.3)
-    await type_and_ask(rec, Q_AREA_DE)
+    await type_and_ask(rec, Q_AREA_DE, wait=False)
+    await wait_js(pg, "typeof animating !== 'undefined' && animating")
+    await rec.cam_on("#viewer", 1250, 3.0)         # slow push-in while the rooms add up (the replay)
+    await wait_js(pg, f"{ANSWERED}({json.dumps(Q_AREA_DE)})")
     await pg.evaluate("rowHot(0, true, true); hotItem(0, true)")
-    await rec.sleep(3.0)                            # "every room carries its own m²": stay on the rooms
+    await rec.at(cue(rec, 2, 9.0) - 1.2)
     await pg.evaluate("rowHot(0, false); hotItem(0, false)")
+    rec.cam(None, 0.4)
     await pg.evaluate("doAction('scroll:.vs')")
-    await rec.sleep(1.0)
-    await rec.cam_on("#answer .ghostcmp", 640, 1.0)
-    await rec.sleep(4.0)                            # the app's own "5 of 5 wrong" says it: no chip
-    rec.cam(None, 0.8)
-    await rec.sleep(0.9)
-    await rec.stop()
+    await rec.sleep(0.8)
+    await rec.cam_on("#answer .ghostcmp", 640, 0.7)
+    await rec.point("#answer .ghostcmp", 0.6)
+    await rec.sleep(3.6)                            # the app's own "5 of 5 wrong" says it: no chip
+    await rec.stop(0.2)
 
 
 async def shot_correct(rec, base):
     pg = rec.pg
     await wait_js(pg, f"{ANSWERED}({json.dumps(Q_WINDOWS)})")
+    await pg.evaluate("openSec('ev')")
+    await asyncio.sleep(0.5 * rec.slow)
     await rec.start()
-    await rec.sleep(0.6)
-    await rec.cam_on("#side", 1100, 0.8, top=True)
-    await rec.sleep(0.8)
+    await rec.cam_on("#side", 1100, 0.6, top=True)
+    await rec.point('#ev div[data-i="3"]', 0.8)
     await pg.evaluate("doAction('toggle:3')")
-    await rec.sleep(2.2)
-    rec.cam(None, 0.8)
-    await rec.sleep(1.0)
-    await rec.stop()
+    await rec.sleep(0.5)
+    await rec.ring()     # the click ring, on the row being unticked
+    await rec.sleep(2.0)
+    rec.cam(None, 0.6)
+    await rec.sleep(0.8)
+    await rec.stop(0.2)
 
 
 async def shot_heat(rec, base):
@@ -562,39 +731,52 @@ async def shot_heat(rec, base):
     await rec.stop()
 
 
-# the voice strip's states (Listening -> Transcribing -> Asking), then the question is asked as text
-STAGE_VOICE = """async q => {
+# the voice strip's states (Listening -> Transcribing -> Asking), then the question is asked as text; the listening
+# time matches the spoken Finnish question, which is in the soundtrack at that moment
+STAGE_VOICE = """async ([q, listen]) => {
           const s = document.querySelector('#voice'), m = document.querySelector('#mic'), w = ms => new Promise(r => setTimeout(r, ms));
           const st = (state, msg) => { s.hidden = false; s.dataset.state = state; m.classList.toggle('on', state === 'listening');
             s.querySelector('.vstate').textContent = msg; s.querySelector('.vstop').hidden = state !== 'listening'; };
           st('listening', 'Listening'); s.querySelector('.vfin').textContent = ''; s.querySelector('.vint').textContent = 'Listening… stops when you pause';
-          await w(1500); st('transcribing', 'Transcribing'); s.querySelector('.vint').textContent = 'Turning speech into text…';
-          await w(700); st('asking', 'Asking'); s.querySelector('.vfin').textContent = q; s.querySelector('.vint').textContent = '';
+          await w(listen); st('transcribing', 'Transcribing'); s.querySelector('.vint').textContent = 'Turning speech into text…';
+          await w(600); st('asking', 'Asking'); s.querySelector('.vfin').textContent = q; s.querySelector('.vint').textContent = '';
           document.querySelector('#q').value = q; await w(500); s.hidden = true; m.classList.remove('on'); ask(); }"""
 
 
 async def shot_voice(rec, base, wav=None):
-    """With --voice-wav, Chromium's fake microphone plays that file into the real voice flow (ElevenLabs STT on
-    the server). Without it the voice strip is staged with the same states the app shows, then the question is
-    asked as typed text: say so if the cut is used publicly."""
+    """The Finnish question is spoken (Toivo's voice, in the soundtrack) while the strip listens; the app's voice
+    strip is staged with the same states it shows (the real path, ElevenLabs Scribe on the server, is the same
+    question as audio: checked separately on the same clip). Then the detector's boxes and the plan rises into 3D."""
     pg = rec.pg
     await wait_ready(pg)
     await wait_js(pg, "document.querySelector('#mic')", 30)
     await rec.start()
-    await rec.sleep(0.5)
     await rec.cam_on(".ask", 900, 0.8, top=True)
+    await rec.point("#mic", 1.0)
+    c_fi, c_r = cue(rec, 1, 4.0), cue(rec, 2, 7.0)
+    durs = CUES.get(rec.name + ":dur", [])
+    listen = durs[1] if len(durs) > 1 else 2.5
+    await rec.at(c_fi - 0.25)
+    await rec.ring()
     if wav:
         await pg.click("#mic")
         await wait_js(pg, "typeof res !== 'undefined' && res && !animating", 120)
     else:
-        await pg.evaluate(STAGE_VOICE, Q_DOORS_FI)
+        await pg.evaluate("([a, b]) => { (" + STAGE_VOICE + ")([a, b]); }", [Q_DOORS_FI, int((listen + 0.35) * 1000)])
         await wait_js(pg, f"{ANSWERED}({json.dumps(Q_DOORS_FI)})")
-    await rec.sleep(0.5)
-    await rec.cam_on("#viewer", 1000, 0.9)         # over to the boxed doors on the scan
-    await rec.sleep(3.0)
-    rec.cam(None, 0.8)
-    await rec.sleep(0.8)
-    await rec.stop()
+    await rec.cam_on("#viewer", 1100, 0.7)          # over to the boxed doors on the scan
+    await rec.point((1000, 500), 0.6)
+    await rec.at(c_r + 1.4)
+    rec.cam(None, 0.6)
+    await wait_js(pg, "window.__p3 && document.querySelector('#p3go') && (typeof xr === 'undefined' || !xr)", 60)
+    await pg.evaluate("window.__p3riseMs = 2200")
+    await rec.click("#p3go", 0.5)
+    await rec.sleep(0.3)
+    await pg.evaluate("if (!window.__p3.opened) window.__p3.open()")
+    await rec.point((1300, 800), 0.5)
+    await wait_js(pg, "window.__p3.ready", 120)
+    await rec.sleep(1.6)
+    await rec.stop(0.2)
 
 
 async def shot_ifc(rec, base):
@@ -603,31 +785,126 @@ async def shot_ifc(rec, base):
     await pg.evaluate("setMode('3d')")              # loading the model in software GL is slow: do it off camera
     await wait_js(pg, "document.querySelector('#three .v3bar button')", 300)
     await asyncio.sleep(2 * rec.slow)
-    btn = ("(re => { const b = [...document.querySelectorAll('#viewer button')].find(b => !b.hidden"
-           " && re.test(b.textContent)); if (b) b.click(); return b ? b.textContent.trim() : null; })")
+    sel = ("(re => { const b = [...document.querySelectorAll('#viewer button')].find(b => !b.hidden"
+           " && re.test(b.textContent)); if (!b) return null; b.dataset.vid = re.source.replace(/\\W/g, ''); "
+           "return '[data-vid=\"' + b.dataset.vid + '\"]'; })")
+    async def press(rx):
+        q = await pg.evaluate(sel + f"(/{rx}/i)")
+        if q:
+            await rec.click(q, 0.5)
     await rec.start()
+    await press("whole building")                   # all storeys, not just the asked one
+    await rec.sleep(0.8)
+    await rec.cam_on("#viewer", 1150, 1.2)
+    await rec.at(cue(rec, 1, 3.0) - 0.3)
+    await press("explode")                          # Explode storeys, on "explode the storeys"
+    await rec.sleep(1.6)
+    await press("x-ray")
     await rec.sleep(0.6)
-    await pg.evaluate(btn + "(/whole building/i)")                              # all storeys, not just the asked one
-    await rec.sleep(1.4)
-    await rec.cam_on("#viewer", 1100, 0.9)
-    await pg.evaluate(btn + "(/explode/i)")                                     # Explode storeys
-    await rec.sleep(2.2)
-    await pg.evaluate(btn + "(/x-ray/i)")                                         # X-ray
-    await rec.sleep(1.2)
     # a slow orbit by dragging the canvas (OrbitControls), on the page clock
     vx = await pg.evaluate("(() => { const r = document.querySelector('#viewer').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()")
-    await pg.mouse.move(vx[0], vx[1])
+    await rec.point(vx, 0.4)
     await pg.mouse.down()
     for k in range(20):
-        await pg.mouse.move(vx[0] - 12 * k, vx[1] + 1.2 * k)
+        await rec.move(vx[0] - 12 * k, vx[1] + 1.2 * k)
         await rec.sleep(0.05)
     await pg.mouse.up()
-    await rec.sleep(1.5)
-    await rec.stop()
+    rec.mxy = (vx[0] - 228, vx[1] + 23)
+    await rec.sleep(1.2)
+    await rec.stop(0.2)
+
+
+SCHOOL = Path("/data/attachments/s_YTlo5xSrle/stoa-examples/sources/uk_dfe_sen_special_school")
+Q_PROJECT = "How many doors in the whole school?"
+
+
+async def shot_project(rec, base):
+    """Both DfE school floors dropped in at once become one project; the whole-school door count is the sum of the
+    floors, listed per floor, and a tap on a floor shows its marks."""
+    pg = rec.pg
+    files = []
+    for lv, f in (("00", "SEN-DFE-XX-00-D-X-0201-Special_School_Plan_Level_00-A-C01.pdf"),
+                  ("01", "SEN-DFE-XX-01-D-X-0202-Special_School_Plan_Level_01-A-C01.pdf")):
+        up = WORK / "upload" / f"Special_School_Plan_Level_{lv}.pdf"
+        up.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(SCHOOL / f, up)
+        files.append(str(up))
+    await wait_ready(pg)
+    await rec.start()
+    await rec.click("#drawerbtn", 0.7)
+    await rec.sleep(0.3)
+    await rec.point("#uploadbox", 0.5)
+    await rec.ring()
+    await pg.set_input_files("#file", files)
+    await wait_js(pg, "window.bpProject && window.bpProject() && (window.bpProject().sheets || []).length >= 2", 180)
+    rec.mark("project")
+    await rec.point((1300, 380), 0.6)
+    await type_and_ask(rec, Q_PROJECT, wait=False)
+    await wait_js(pg, f"{ANSWERED}({json.dumps(Q_PROJECT)})", 300)
+    rec.mark("answered")
+    await rec.cam_on("#side", 1000, 0.7, top=True)
+    await rec.at(cue(rec, 1, 5.0) + 1.6)
+    await rec.point('.ppart[data-i="1"]', 0.5)       # Level 01: its own door marks
+    await rec.ring()
+    await pg.evaluate("document.querySelector('.ppart[data-i=\"1\"]').click()")
+    await rec.sleep(0.6)
+    rec.cam(None, 0.7)
+    await rec.sleep(2.2)
+    await rec.stop(0.2)
+
+
+SHEET_PDF = Path("/data/attachments/s_YTlo5xSrle/stoa-examples/sources/uk_dfe_sen_special_school/"
+                 "SEN-DFE-XX-01-D-X-0202-Special_School_Plan_Level_01-A-C01.pdf")
+Q_SHEET = "How many group rooms are on this level?"
+
+
+async def shot_sheet(rec, base):
+    """A held-out sheet: the DfE special school Level 01 plan (vector PDF), uploaded through the real upload input,
+    asked, its replay played at page speed (no click or key: either would skip it), then See it in 3D."""
+    pg = rec.pg
+    up = WORK / "upload" / "Special_School_Plan_Level_01.pdf"
+    up.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(SHEET_PDF, up)
+    await wait_ready(pg)
+    await rec.start()
+    await rec.sleep(0.3)
+    await rec.click("#drawerbtn", 0.9)              # the drawing picker: "Upload your own" sits at its top
+    await rec.sleep(0.5)
+    await rec.point("#uploadbox", 0.6)
+    await rec.sleep(0.2)
+    await rec.ring()
+    rec.mark("upload")
+    await pg.set_input_files("#file", str(up))
+    await wait_js(pg, "typeof cur !== 'undefined' && cur && cur.path.startsWith('uploads/') && "
+                      "document.querySelector('#img').naturalWidth > 0", 120)
+    await rec.point((1000, 450), 0.8)
+    await rec.at(cue(rec, 1, 6.5) - 0.2)
+    rec.mark("ask")
+    await type_and_ask(rec, Q_SHEET, wait=False)
+    await rec.point((1460, 820), 0.5)
+    await rec.cam_on("#viewer", 1200, 2.5)          # slow push-in while the replay works the count out
+    await wait_js(pg, f"{ANSWERED}({json.dumps(Q_SHEET)})", 120)
+    rec.mark("answered")
+    await rec.at(cue(rec, 2, 13.0) - 1.0)
+    rec.cam(None, 0.5)
+    await wait_js(pg, "window.__p3 && document.querySelector('#p3go') && !document.querySelector('#p3go').closest('[hidden]')", 60)
+    await wait_js(pg, "typeof xr === 'undefined' || !xr", 120)   # a click while the replay runs would only skip it
+    rec.mark("p3go")
+    await pg.evaluate("window.__p3riseMs = 2200")
+    await rec.click("#p3go", 0.5)
+    rec.mark("clicked")
+    await rec.sleep(0.3)
+    await pg.evaluate("if (!window.__p3.opened) window.__p3.open()")
+    await rec.point((1450, 820), 0.5)
+    await wait_js(pg, "window.__p3.ready", 120)
+    await rec.sleep(1.2)
+    await rec.cam_on("#answer", 760, 0.8, top=True)   # the answer card: how it was read
+    await rec.sleep(1.8)
+    await rec.stop(0.2)
 
 
 PHONE_VIEW, PHONE_DPR = (390, 844), 3.0
-SHOT_SLOW = {"ifc": 2.5}   # the whole IFC model in software GL renders ~4x slower than the Swiss plan: more slow-motion
+SHOT_SLOW = {"ifc": 2.5, "sheet": 1.5}   # the whole IFC model in software GL renders ~4x slower than the Swiss plan: more slow-motion
 
 
 async def shot_phone(rec, base):
@@ -666,6 +943,8 @@ SHOTS = {
     "heat": (shot_heat, lambda b: app_url(b, SWISS_AREA, "swiss_dwellings")),
     "voice": (shot_voice, lambda b: app_url(b, CUBI, "cubicasa5k")),
     "ifc": (shot_ifc, lambda b: app_url(b, IFC_PLAN, "ifc_models", Q_IFC_WALLS)),
+    "sheet": (shot_sheet, lambda b: f"{b}/?tab=upload"),
+    "project": (shot_project, lambda b: f"{b}/?tab=upload"),
     "phone": (shot_phone, lambda b: app_url(b, SWISS_DOORS, "swiss_dwellings")),
 }
 
@@ -711,11 +990,16 @@ async def record(names, base, slow, dpr, gpu, voice_wav=None):
                                           {"permissions": ["microphone"]} if voice_wav else None,
                                           PHONE_VIEW if phone else VIEW, phone)
             rec = Rec(pg, cdp, sl, name, PHONE_VIEW if phone else VIEW)
+            rec.dpr = PHONE_DPR if phone else dpr
             t = time.time()
             try:
                 await (fn(rec, base, voice_wav) if name == "voice" else fn(rec, base))
             except Exception as e:
-                print(f"  shot {name} failed: {e}")
+                print(f"  shot {name} failed: {e}; marks {rec.marks}")
+                try:
+                    await pg.screenshot(path=str(WORK / f"fail-{name}.png"))
+                except Exception:
+                    pass
                 if rec.task:
                     rec.on = False
                     try:
@@ -748,9 +1032,9 @@ def cam_at(cams, t, full):  # punch-ins keep 16:9 (the desktop shots); the phone
     return cur
 
 
-def frames_clip(name, dur, out, dpr, size=(1920, 1080)):
-    """Resample a shot's frames to FPS over exactly `dur` s: played at real speed if it fits, sped up (to at most
-    1.6x) when the recording is longer, then trimmed; held on its last frame when it is shorter."""
+def scene_frames(name, dur, size=(1920, 1080), info=None):
+    """Yield a shot's frames (RGB bytes) resampled to FPS over exactly `dur` s: played at real speed if it fits, sped
+    up (to at most 1.6x) when the recording is longer, then trimmed; held on its last frame when it is shorter."""
     from PIL import Image
     d = WORK / f"shot-{name}"
     meta = json.loads((d / "meta.json").read_text())
@@ -758,13 +1042,12 @@ def frames_clip(name, dur, out, dpr, size=(1920, 1080)):
     if not frames:
         raise SystemExit(f"shot {name}: no frames recorded")
     speed = min(1.6, have / dur) if have > dur else 1.0
+    if info is not None:
+        info.update(have=have, speed=speed)
     V = meta.get("view", VIEW)
     full = (0.0, 0.0, float(V[0]), float(V[1]))
     W, H = size
-    p = subprocess.Popen(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
-                          "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-", "-c:v", "libx264", "-preset", "medium",
-                          "-crf", "16", "-pix_fmt", "yuv420p", str(out)], stdin=subprocess.PIPE)
-    j, last, cache = 0, None, {}
+    j, last, cache, buf = 0, None, {}, None
     for n in range(int(round(dur * FPS))):
         t = min(n / FPS * speed, frames[-1][0])
         while j + 1 < len(frames) and frames[j + 1][0] <= t:
@@ -777,10 +1060,77 @@ def frames_clip(name, dur, out, dpr, size=(1920, 1080)):
             s = im.width / V[0]
             buf = im.resize((W, H), Image.LANCZOS, box=(x * s, y * s, (x + w) * s, (y + h) * s)).tobytes()
             last = key
-        p.stdin.write(buf)
+        yield buf
+
+
+def ff_writer(out, size=(1920, 1080)):
+    return subprocess.Popen(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
+                             "-s", f"{size[0]}x{size[1]}", "-r", str(FPS), "-i", "-", "-c:v", "libx264", "-preset", "medium",
+                             "-crf", "16", "-pix_fmt", "yuv420p", str(out)], stdin=subprocess.PIPE)
+
+
+def frames_clip(name, dur, out, dpr, size=(1920, 1080)):
+    info = {}
+    p = ff_writer(out, size)
+    for fr in scene_frames(name, dur, size, info):
+        p.stdin.write(fr)
     p.stdin.close()
     p.wait()
-    return have, speed
+    return info["have"], info["speed"]
+
+
+WHIP = 5   # frames each side of a cut: a 10-frame (0.33 s) whip-pan to the left, horizontal motion blur at peak speed
+
+
+def whip_frames(a_frames, b_frames, size=(1920, 1080)):
+    """The outgoing frames slide out left as the incoming slide in, ease-in-out (quint), blurred along x by speed."""
+    from PIL import Image
+    W, H = size
+    n = len(a_frames) + len(b_frames)
+    ease = lambda k: 16 * k ** 5 if k < .5 else 1 - (-2 * k + 2) ** 5 / 2
+    out = []
+    for i in range(n):
+        k0, k1 = i / n, (i + 1) / n
+        off = int(round(ease((k0 + k1) / 2) * W))
+        v = (ease(k1) - ease(k0)) * W            # px moved this frame: the blur length
+        A = Image.frombytes("RGB", size, a_frames[min(i, len(a_frames) - 1)])
+        B = Image.frombytes("RGB", size, b_frames[max(0, i - len(a_frames))])
+        im = Image.new("RGB", size, "white")
+        im.paste(A, (-off, 0))
+        im.paste(B, (W - off, 0))
+        f = max(1, int(v / 6))
+        if f > 1:   # horizontal-only blur: squeeze along x and stretch back
+            im = im.resize((max(8, W // f), H), Image.BILINEAR).resize((W, H), Image.BILINEAR)
+        out.append(im.tobytes())
+    return out
+
+
+def compose_picture(plan, out, size=(1920, 1080), whip=True):
+    """All scenes into one silent picture; every cut between scenes is a whip-pan (same total length: the
+    transition takes the last WHIP frames of one scene and the first WHIP of the next)."""
+    from collections import deque
+    p = ff_writer(out, size)
+    tail = None
+    for i, (s, t0, dur) in enumerate(plan):
+        info = {}
+        gen = scene_frames(s["id"], dur, size, info)
+        if tail is not None:
+            head = [next(gen) for _ in range(WHIP)]
+            for fr in whip_frames(list(tail), head, size):
+                p.stdin.write(fr)
+        last = i == len(plan) - 1
+        hold = deque(maxlen=WHIP if (whip and not last) else 0)
+        for fr in gen:
+            if hold.maxlen:
+                if len(hold) == hold.maxlen:
+                    p.stdin.write(hold[0])
+                hold.append(fr)
+            else:
+                p.stdin.write(fr)
+        print(f"scene {s['id']}: recorded {info.get('have', 0):.1f} s -> {dur:.2f} s (x{info.get('speed', 1):.2f})")
+        tail = hold if hold.maxlen else None
+    p.stdin.close()
+    p.wait()
 
 
 # ---------------------------------------------------------------- cards
@@ -826,42 +1176,56 @@ def bar(label, acc, k, ours=False):
     d = 0.5 + 0.35 * k
     return (f'<div class="lab in" style="animation-delay:{d - .2:.2f}s">{label}</div><div class="bar{" ours" if ours else ""}">'
             f'<i style="width:{acc * 0.85:.1f}%;animation-delay:{d:.2f}s"></i>'
-            f'<em style="left:{acc * 0.85:.1f}%;animation-delay:{d + 1.1:.2f}s">{acc:.1f}&nbsp;%</em></div>')
+            f'<em style="left:{acc * 0.85:.1f}%;animation-delay:{d:.2f}s" data-to="{acc}" data-dec="1" data-suf="&nbsp;%" '
+            f'data-delay="{d:.2f}">{acc:.1f}&nbsp;%</em></div>')
+
+
+COUNT_JS = """// numbers count up with their bar (ease-out, 1.4 s like the bar), on the page clock
+const T0 = performance.now(), els = [...document.querySelectorAll('.card.on [data-to]')];
+const tick = () => {
+  const t = (performance.now() - T0) / 1000;
+  for (const e of els) {
+    const k = Math.max(0, Math.min(1, (t - +e.dataset.delay) / 1.4)), v = +e.dataset.to * (1 - Math.pow(1 - k, 3));
+    e.innerHTML = (e.dataset.pre || '') + v.toLocaleString('en-US', {minimumFractionDigits: +e.dataset.dec, maximumFractionDigits: +e.dataset.dec}) + (e.dataset.suf || '');
+  }
+  if (t < 4) requestAnimationFrame(tick);
+};
+tick();
+"""
 
 
 def cards_html():
-    voice = "Kokoro-82M (Apache-2.0)" if ENGINE == "kokoro" else "ElevenLabs"
+    voice = "Kokoro-82M (Apache-2.0)" if ENGINE == "kokoro" else "Toivo and Rene, ElevenLabs v3"
     return f"""<!doctype html><html><head><meta charset="utf-8">{PLEX}<style>{CARD_CSS}</style></head><body>
 <section class="card" id="problem">
-  <h2 class="in">Frontier models get 7 answers in 10 right, and sound just as sure when they are wrong.</h2>
+  <h2 class="in">General AI gets 7 answers in 10 right, and is just as sure when it is wrong.</h2>
   <div class="bars">
-    {bar("<b>Claude Sonnet 5.5</b><br>with the CAD / IFC files", 69.8, 0)}
-    {bar("<b>Gemini 3.1 Pro</b><br>drawing only", 64.2, 1)}
-    {bar("<b>Claude Sonnet 5.5</b><br>drawing only", 63.2, 2)}
+    {bar("<b>Leading AI model</b><br>with the drawing's CAD / BIM files", 69.8, 0)}
+    {bar("<b>Leading AI model</b><br>drawing only", 63.2, 1)}
   </div>
 </section>
 <section class="card" id="results">
   <h2 class="in">90.7&nbsp;% right on all 25,420 held-out test questions.</h2>
   <div class="bars">
     {bar("<b>Datum</b>", 90.7, 0, True)}
-    {bar("<b>Claude Sonnet 5.5</b><br>same files", 69.8, 1)}
-    {bar("<b>Gemini 3.1 Pro</b>", 64.2, 2)}
+    {bar("<b>Leading AI model</b><br>same files", 69.8, 1)}
   </div>
 </section>
 <section class="card" id="cost">
   <h2 class="in">Cost per 1,000 questions</h2>
   <div class="vs">
-    <div class="ours in" style="animation-delay:.4s"><div class="n">$0.013</div><div class="l">Datum</div></div>
-    <div class="fr in" style="animation-delay:1.1s"><div class="n">$25.76</div><div class="l">Claude Sonnet 5.5, same files</div></div>
+    <div class="ours in" style="animation-delay:.4s"><div class="n" data-to="0.013" data-dec="3" data-pre="$" data-delay=".4">$0.013</div><div class="l">Datum</div></div>
+    <div class="fr in" style="animation-delay:1.1s"><div class="n" data-to="25.76" data-dec="2" data-pre="$" data-delay="1.1">$25.76</div><div class="l">Leading AI model, same files</div></div>
   </div>
 </section>
 <section class="card end" id="end">
   <h1 class="in">Datum <span style="font-weight:400; color:var(--g2)">blueprints that talk</span></h1>
-  <p class="in" style="animation-delay:.5s">Exact, verifiable, cheap.<br><code>{REPO_URL}</code></p>
+  <p class="in" style="animation-delay:.5s">Exact, verifiable, cheap. Exact methods first, AI only where needed.<br><code>{REPO_URL}</code></p>
   <div class="foot">{html.escape(CREDITS)}. Voice: {voice}.</div>
 </section>
 <script>
 document.getElementById(new URLSearchParams(location.search).get('card')).classList.add('on');
+{COUNT_JS}
 </script></body></html>"""
 
 
@@ -872,14 +1236,14 @@ def update_doc(plan, caps, total, cut):
     rows, k = [], 0
     for i, (s, t0, dur) in enumerate(plan):
         n = len(lines_of(s, cut))
-        text = " ".join(c[2] for c in caps[k:k + n]) or "(silent)"
+        text = " ".join(f"**{c[4]}** {c[2]}" for c in caps[k:k + n]) or "(silent)"
         k += n
         rows.append(f"| {i + 1} | {int(t0 // 60)}:{t0 % 60:05.2f}–{int((t0 + dur) // 60)}:{(t0 + dur) % 60:05.2f} | "
                     f"{s['kind']} `{s['id']}` | {text} |")
     words = sum(len(c[2].split()) for c in caps)
     table = ("| # | time | shot | voice-over (caption text) |\n|---|---|---|---|\n" + "\n".join(rows) +
              f"\n\nTotal {total:.2f} s; {words} words; voice {ENGINE}"
-             + (f" `{VOICE}` at speed {SPEED}" if ENGINE == "kokoro" else f" `{ELEVEN_VOICE}`") + ". Generated by `make_video.py`.")
+             + (f" `{VOICE}` at speed {SPEED}" if ENGINE == "kokoro" else " eleven_v3, Toivo (T) + Rene (R)") + ". Generated by `make_video.py`.")
     tag = "TIMING" if cut == "full" else "TIMING60"
     src = doc.read_text()
     new = re.sub(rf"(<!-- {tag} -->\n).*?(<!-- /{tag} -->)", lambda m: m.group(1) + table + "\n" + m.group(2), src, flags=re.S)
@@ -915,7 +1279,7 @@ def main():
     ap.add_argument("--out", help="output mp4 (default runs/video/blueprints-<cut>.mp4)")
     ap.add_argument("--reuse", action="store_true", help="re-cut from the shots recorded last time")
     ap.add_argument("--voice-only", action="store_true", help="only synthesize and print the timing")
-    ap.add_argument("--tts", choices=["kokoro", "elevenlabs", "auto"], default="kokoro")
+    ap.add_argument("--tts", choices=["kokoro", "elevenlabs"], default="elevenlabs")
     ap.add_argument("--slow", type=float, default=8.0, help="page-clock slow-motion factor while recording")
     ap.add_argument("--dpr", type=float, default=2.5, help="device pixels per CSS px (2.5 = 3840x2160 captures)")
     ap.add_argument("--draft", action="store_true", help="--dpr 1.25 --slow 4: quick, no sharp punch-ins")
@@ -951,6 +1315,10 @@ def main():
     if a.voice_only:
         return
 
+    for sc, t0, d in plan:
+        mine = [c for c in caps if t0 <= c[0] < t0 + d]
+        CUES[sc["id"]] = [c[0] - t0 for c in mine]
+        CUES[sc["id"] + ":dur"] = [c[1] - c[0] for c in mine]
     only = set(a.only.split(",")) if a.only else None
     plan = [x for x in plan if not only or x[0]["id"] in only]
     if not plan:
@@ -960,22 +1328,14 @@ def main():
     for _, t0, d in plan:
         starts.append((t0, d, acc))
         acc += d
-    caps = [(c[0] - t0 + n, c[1] - t0 + n, c[2], c[3]) for c in caps for t0, d, n in starts if t0 <= c[0] < t0 + d]
+    caps = [(c[0] - t0 + n, c[1] - t0 + n, *c[2:]) for c in caps for t0, d, n in starts if t0 <= c[0] < t0 + d]
     WORK.mkdir(parents=True, exist_ok=True)
     (WORK / "cards.html").write_text(cards_html(), encoding="utf-8")
     if not a.reuse:
         asyncio.run(record([s["id"] for s, _, _ in plan], a.url.rstrip("/"), a.slow, a.dpr, a.gpu, a.voice_wav))
 
-    clips, t = [], 0.0
-    for i, (s, t0, dur) in enumerate(plan):
-        c = WORK / f"scene-{s['id']}.mp4"
-        have, speed = frames_clip(s["id"], dur, c, a.dpr)
-        print(f"scene {s['id']}: recorded {have:.1f} s -> {dur:.2f} s (x{speed:.2f})")
-        clips.append(c)
-    lst = WORK / "list.txt"
-    lst.write_text("".join(f"file '{c.resolve()}'\n" for c in clips))
     silent = WORK / "picture.mp4"
-    ff("-f", "concat", "-safe", 0, "-i", lst, "-c", "copy", silent)
+    compose_picture(plan, silent)
 
     span = sum(d for _, _, d in plan)
     shift = caps
@@ -983,20 +1343,35 @@ def main():
     write_voice(shift, span, voice)
     out = Path(a.out) if a.out else OUT / f"blueprints-{a.cut}.mp4"
     srt = out.with_suffix(".srt")
-    write_srt(shift, srt)  # the sidecar has every line; the burned-in captions skip the cards, whose text is on screen
-    cards = [(n, n + d) for (sc, _, _), (_, d, n) in zip(plan, starts) if sc["kind"] == "card"]
+    write_srt(shift, srt)  # the sidecar has every line in full
     burn = WORK / "burn.srt"
-    write_srt([c for c in shift if not any(a <= c[0] < e for a, e in cards)], burn)
+    write_srt(short_caps(shift), burn)    # burned in: short phrases, on screen the whole time someone speaks
     fonts = ensure_fonts()
     style = ("FontName=IBM Plex Sans,FontSize=13,PrimaryColour=&H00181411,BorderStyle=1,Outline=0,Shadow=0,"
              "Alignment=1,MarginV=12,MarginL=29,MarginR=29")
     ff("-i", silent, "-i", voice,
        "-vf", (f"scale=1632:918:flags=lanczos,pad=1634:920:1:1:color=0xe4e7eb,pad=1920:1080:143:0:color=0xffffff,"
                f"subtitles={burn}:fontsdir={fonts}:force_style='{style}'"),
-       "-af", "loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000",
+       "-af", loudnorm_2pass(voice, LUFS),
        "-c:v", "libx264", "-preset", "slow", "-crf", 18, "-pix_fmt", "yuv420p", "-r", FPS,
        "-c:a", "aac", "-b:a", "192k", "-ac", 2, "-t", f"{span:.3f}", "-movflags", "+faststart", out)
+    trim_loudness(out, LUFS)
     print(f"{out}: {probe_dur(out):.2f} s, {out.stat().st_size / 1e6:.1f} MB")
+
+
+def trim_loudness(mp4, target):
+    """The final mix (speech with gaps) measures ~1 dB under the voice-track target: measure it (EBU R128) and
+    correct the gain once, with a limiter at -1 dBFS; the picture is copied."""
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(mp4), "-af", "ebur128", "-f", "null", "-"],
+                       capture_output=True, text=True)
+    m = re.findall(r"I:\s+(-?[\d.]+) LUFS", r.stderr)
+    if not m or abs(float(m[-1]) - target) < 0.3:
+        return
+    tmp = mp4.with_suffix(".loud.mp4")
+    ff("-i", mp4, "-c:v", "copy", "-af", f"volume={target - float(m[-1]):.2f}dB,alimiter=limit=0.89:level=false",
+       "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", tmp)
+    tmp.replace(mp4)
+    print(f"loudness {float(m[-1]):.1f} -> {target:.1f} LUFS")
 
 
 if __name__ == "__main__":
