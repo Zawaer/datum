@@ -130,4 +130,43 @@ def test_deterministic_and_ui_fields(meta):
     assert r["unit"] == "m²" and r["low_res"] and r["scale"] == "1:50"
 
 
-PINNED = [26.7, 62.06, 214.03]  # m², clear areas: D22 genset room, D13 150 slab, D16 main hall
+PINNED = [26.49, 61.81, 216.38]  # m², clear areas: D22 genset room, D13 150 slab, D16 main hall
+
+
+PDF_A = Path("/data/attachments/s_YTlo5xSrle/stoa-examples/sources/us_aw_078-24-28_march_2020/AW_078-24-28_march_2020.pdf")
+
+
+@pytest.mark.skipif(not PDF_A.exists(), reason="AW 078-24-28 set not available")
+def test_heldout_S100A_imperial(tmp_path):
+    """Held-out: S-100A Pumphouse Foundation and Slab Plan (imperial: 6" / 12" slabs, #4 bars, feet-inches),
+    found by its sheet id in the title block, never used while tuning the module."""
+    import re
+
+    import pymupdf
+
+    src = pymupdf.open(PDF_A)
+    idx = None
+    for i, pg in enumerate(src):
+        W, H = pg.rect.width, pg.rect.height
+        R = pg.rotation_matrix
+        for w in pg.get_text("words"):
+            r = pymupdf.Rect(w[:4]) * R
+            if w[4] == "S-100A" and r.x0 / W > 0.85 and r.y0 / H > 0.85:  # the sheet id box, bottom right
+                idx = i
+    assert idx is not None
+    one = pymupdf.open()
+    one.insert_pdf(src, from_page=idx, to_page=idx)
+    p = tmp_path / "S-100A.pdf"
+    one.save(p)
+    m = sheets.build_meta(str(p), do_classify=False)
+    assert slab.detect(m) >= 0.8
+    A = slab.analyse(m)
+    assert A["imperial"]
+    assert {(t["thickness_in"], t["bars"][0]) for t in A["types"]} == {(6, '#4 @ 18" O.C.'), (12, '#4 @ 12" O.C.E.W.')}
+    assert slab.answer(str(p), "What bars are in the 6 inch slab?", m)["answer"] == '#4 @ 18" O.C.'
+    assert "#4 @ 12\" O.C.E.W." in slab.answer(str(p), 'What reinforcement does the 12" slab have?', m)["answer"]
+    r = slab.answer(str(p), "How long is the power control panel trench?", m)
+    assert r["answer"] == pytest.approx(5.5, abs=0.01) and r["unit"] == "ft"
+    r = slab.answer(str(p), "What is the slab area by type?", m)
+    assert r["unit"] == "SF" and re.search(r"12\" \(305 mm\).*SF", r["answer"])
+    assert r["confidence"] < 0.6  # segmentation is incomplete on this sheet: say so

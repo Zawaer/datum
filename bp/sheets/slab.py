@@ -30,8 +30,53 @@ METHOD = "sheets-slab"
 WALL_BAND = 0.009  # wall band (edge beam) width bound, share of the long image side
 _DEBUG: list = []
 _BAR = r"(?:[DTYHRN]\s?\d{1,2}|#\s?\d{1,2}|Ø\s?\d{1,2}|\d{1,2}\s?M)"
-_BAR_RE = re.compile(rf"\b({_BAR})\s*(?:@|AT|C/C|CC|c/c)\s*(\d{{2,4}})", re.I)
-_THK_RE = re.compile(r"\b(\d{2,3})\s*(?:MM\s*)?(?:THK\.?\s*|THICK\s*)?(?:CONCRETE\s*)?(?:SLAB|SOG|S\.O\.G)", re.I)
+_BAR_RE = re.compile(rf"(?<![\w#])({_BAR})\s*(?:@|AT|C/C|CC|c/c)\s*(\d{{1,4}}\s*(?:\"|IN\b)?(?:\s*O\.?\s?C\.?(?:\s?E\.?W\.?)?)?)",
+                     re.I)
+_THK_RE = re.compile(r"\b(\d{2,3}|\d{1,2}(?:\s*\"|\s*IN\.?|\s*INCH))\s*(?:MM\s*)?(?:THK\.?\s*|THICK\s*)?(?:CONCRETE\s*)?"
+                     r"(?:SLAB|SOG|S\.O\.G)", re.I)
+# feet-inches dimension strings: 40'-8", 1' - 0", 8", 3'-2 1/2"
+_FTIN_RE = re.compile(r"(?<![\d/])(?:(\d{1,3})\s*'\s*-?\s*)?(?:(\d{1,2})(?:\s+(\d)/(\d{1,2}))?\s*\")|(?<![\d/])(\d{1,3})\s*'(?!\s*-?\s*\d)")
+
+
+def _ftin_mm(m) -> float | None:
+    ft, inch, num, den, ft_only = m.groups()
+    if ft_only:
+        return int(ft_only) * 304.8
+    v = (int(ft) if ft else 0) * 12 + (int(inch) if inch else 0) + (int(num) / int(den) if num else 0)
+    return v * 25.4 if v else None
+
+
+def _fmt_ftin(mm: float) -> str:
+    inch = round(mm / 25.4)
+    return f"{inch // 12}'-{inch % 12}\""
+
+
+def _dim_tokens(words, vertical):
+    """Feet-inches dimensions spread over several words ("40'", "-", "8\""): joined per text line, parsed, boxed."""
+    from bp.sheets import ocr_lines
+
+    if not words:
+        return []
+    T = (lambda b: [b[1], b[0], b[3], b[2]]) if vertical else (lambda b: b)
+    ws = [{**w, "bbox": T(w["bbox"])} for w in words]
+    out = []
+    for ln in ocr_lines(ws):
+        parts = sorted(ln["words"], key=lambda w: w["bbox"][0])
+        text, spans = "", []
+        for w in parts:
+            if text:
+                text += " "
+            spans.append((len(text), len(text) + len(w["text"]), w))
+            text += w["text"]
+        for m in _FTIN_RE.finditer(text):
+            v = _ftin_mm(m)
+            if not v:
+                continue
+            used = [w for a, b, w in spans if a < m.end() and b > m.start()]
+            bb = [min(w["bbox"][0] for w in used), min(w["bbox"][1] for w in used),
+                  max(w["bbox"][2] for w in used), max(w["bbox"][3] for w in used)]
+            out.append({"text": m.group(0), "v": v, "bbox": T(bb), "conf": min(w.get("conf", 99) for w in used)})
+    return out
 _EL_RE = re.compile(r"EL(?:EV)?\.?\s*[=:]?\s*\+?\s*(-?\d[\d.,]*)", re.I)
 
 
@@ -134,20 +179,32 @@ def _parse_type(text: str) -> dict | None:
     if re.search(r"TRENCH LENGTH|SEE SHEET|NOTES?:", t) and not m:
         return None
     el = _EL_RE.search(t)
-    bar = [re.sub(r"\s", "", b).upper() + f" @ {s}" for b, s in bars]
+    bar = [re.sub(r"\s", "", b).upper() + " @ " + re.sub(r"\s+", " ", s).strip() for b, s in bars]
+    thk_mm = thk_in = None
+    if m:
+        g1 = m.group(1)
+        if re.search(r"\"|IN", g1):
+            thk_in = int(re.match(r"\d+", g1).group(0))
+            thk_mm = round(thk_in * 25.4)
+        else:
+            thk_mm = int(g1)
     faces = []
     if re.search(r"TOP FACE|\bT\.?F\.?\b|\bT\s*&\s*B\b|EACH FACE|\bE\.?F\.?\b", t):
         faces.append("top")
     if re.search(r"BOTTOM FACE|\bB\.?F\.?\b|\bT\s*&\s*B\b|EACH FACE|\bE\.?F\.?\b", t):
         faces.append("bottom")
-    return {"thickness_mm": int(m.group(1)) if m else None, "bars": bar,
+    return {"thickness_mm": thk_mm, "thickness_in": thk_in, "bars": bar,
+            "default": bool(re.search(r"U\.?N\.?O\.?|UNLESS (?:OTHERWISE )?NOTED|TYP(?:ICAL)?\b", t)),
             "elevation": el.group(1).rstrip(".,") if el else None, "faces": faces,
             "bottom_as_indicated": bool(re.search(r"BOTTOM FACE REINF\w* AS INDICATED", t)),
             "kind": "slab-on-grade" if "ON-GRADE" in t or "SOG" in t else "slab"}
 
 
 def _type_name(ty: dict) -> str:
-    s = f"{ty['thickness_mm']} mm" if ty.get("thickness_mm") else "slab"
+    if ty.get("thickness_in"):
+        s = f"{ty['thickness_in']}\" ({ty['thickness_mm']} mm)"
+    else:
+        s = f"{ty['thickness_mm']} mm" if ty.get("thickness_mm") else "slab"
     if ty.get("bars"):
         s += " w/ " + ", ".join(ty["bars"])
     return s
@@ -515,6 +572,84 @@ def _poly_area(pts):
     return abs(sum(pts[i][0] * pts[(i + 1) % n][1] - pts[(i + 1) % n][0] * pts[i][1] for i in range(n))) / 2
 
 
+def _refine_edges(g, pts, zmask):
+    """Move each side of the clear-area polygon onto the wall's inner face: the most continuous straight line
+    within ~0.6 % of the image of where the white area stopped (fill and closing can overshoot a few px)."""
+    H, W = g.shape
+    S = max(H, W)
+    R = max(4, round(S * 0.006))
+    dark = g < 180
+    n = len(pts)
+    lines = []
+    for i in range(n):
+        (x0, y0), (x1, y1) = pts[i], pts[(i + 1) % n]
+        horiz = abs(x1 - x0) >= abs(y1 - y0)
+        c = (y0 + y1) / 2 if horiz else (x0 + x1) / 2
+        a0, a1 = sorted((x0, x1) if horiz else (y0, y1))
+        L = a1 - a0
+        lo, hi = int(a0 + 0.1 * L), int(a1 - 0.1 * L)
+        best, bestf = c, 0.0
+        if hi - lo >= 10:
+            for d in range(-R, R + 1):
+                cc = int(round(c + d))
+                if not (0 <= cc < (H if horiz else W)):
+                    continue
+                f = float((dark[cc, lo:hi] if horiz else dark[lo:hi, cc]).mean())
+                if f > bestf + 0.02 or (abs(f - bestf) <= 0.02 and abs(cc - c) < abs(best - c)):
+                    best, bestf = cc, max(f, bestf)
+        lines.append((horiz, best if bestf >= 0.8 else c))
+    out = []
+    for i in range(n):
+        a, b = lines[i - 1], lines[i]
+        x = a[1] if not a[0] else b[1]
+        y = a[1] if a[0] else b[1]
+        out.append((float(x), float(y)))
+    return _clean_poly(out)
+
+
+def _has_treads(g, r, k=None):
+    """A stair drawn in plan: >= 4 parallel tread lines across most of the box, 3+ equal steps of 180-400 mm
+    (either direction)."""
+    import numpy as np
+
+    H, W = g.shape
+    x0, y0, x1, y1 = [int(round(v)) for v in r]
+    pad = 3
+    sub = g[max(0, y0 - pad):min(H, y1 + pad), max(0, x0 - pad):min(W, x1 + pad)]
+    if sub.size == 0 or min(sub.shape) < 12:
+        return False
+    import cv2
+
+    for a in (sub, np.ascontiguousarray(sub.T)):
+        m = cv2.morphologyEx((a < 225).astype(np.uint8), cv2.MORPH_CLOSE, np.ones((1, 7), np.uint8)) > 0
+        n = a.shape[1]
+        # a tread row: one continuous marked run over >= 45 % of the box width
+        rows = []
+        for i in range(m.shape[0]):
+            row = m[i]
+            best = run = 0
+            for v in row:
+                run = run + 1 if v else 0
+                best = max(best, run)
+            if best >= 0.45 * n:
+                rows.append(i)
+        # collapse adjacent rows (a line 2-3 px thick) into one tread
+        lines = []
+        for i in rows:
+            if lines and i - lines[-1][-1] <= 2:
+                lines[-1].append(i)
+            else:
+                lines.append([i])
+        c = [float(np.mean(l)) for l in lines]
+        lo, hi = (180 / k, 400 / k) if k else (6, 40)
+        gaps = np.diff(c)
+        for i in range(len(gaps) - 2):
+            g3 = gaps[i:i + 3]
+            if all(lo <= v <= hi for v in g3) and (g3.max() - g3.min()) <= 0.2 * g3.mean():
+                return True
+    return False
+
+
 def _cj_panels(g, zmask):
     """Control-joint panels of a zone: the zone cut by bold straight lines that run (nearly) wall to wall."""
     import cv2
@@ -635,6 +770,11 @@ def _scale_from_dims(hor, ver, W, H, g=None):
 
     dims = []
     for ws, vertical in ((hor, False), (ver, True)):
+        ft = _dim_tokens(ws, vertical)
+        for t in ft:
+            x0, y0, x1, y1 = t["bbox"]
+            dims.append({"v": t["v"], "vertical": vertical, "bbox": t["bbox"], "imperial": True,
+                         "px": [x0 * W, y0 * H, x1 * W, y1 * H]})
         for w in ws:
             v = _num(w["text"])
             if v is None or v < 100 or v > 200000 or w.get("conf", 99) < 50:
@@ -872,8 +1012,11 @@ def analyse(meta) -> dict:
         if ty:
             ty.update({"text": b["text"], "bbox": b["bbox"]})
             # the same note read twice (a crop cut it short): keep the fuller reading, at the tighter location
+            def near(a, b, d=0.04):
+                return a[0] - d < b[2] and b[0] - d < a[2] and a[1] - d < b[3] and b[1] - d < a[3]
+
             twin = next((t for t in types if t["thickness_mm"] == ty["thickness_mm"] and t["bars"] == ty["bars"]
-                         and (t["text"] in ty["text"] or ty["text"] in t["text"])), None)
+                         and (t["text"] in ty["text"] or ty["text"] in t["text"]) and near(t["bbox"], ty["bbox"])), None)
             if twin is None:
                 types.append(ty)
             elif len(ty["text"]) > len(twin["text"]):
@@ -882,6 +1025,9 @@ def analyse(meta) -> dict:
                 twin.clear()
                 twin.update(ty)
                 twin["bbox"] = bb
+
+    if any(t["thickness_mm"] for t in types):  # bar callouts without a thickness are details, not slab types
+        types = [t for t in types if t["thickness_mm"]]
 
     # scale
     k, dims, n_scale = _scale_from_dims(hor, ver, W, H, g)
@@ -930,9 +1076,13 @@ def analyse(meta) -> dict:
         if len(gross) < 4:
             continue
         n_pan, cuts = _cj_panels(g, z["mask"])
-        pts = _clean_poly(pts)
+        pts = _refine_edges(g, _clean_poly(pts), z["mask"])
+        rr = _rects(pts)
+        big = max(((r[2] - r[0]) * (r[3] - r[1]) for r in rr), default=0)
+        stair_parts = [[float(v) for v in r] for r in rr
+                       if (r[2] - r[0]) * (r[3] - r[1]) < 0.06 * big and _has_treads(g, r, k)]
         out_zones.append({"inner": pts, "gross": gross, "inner_px": _poly_area(pts), "gross_px": _poly_area(gross),
-                          "panels": n_pan, "cuts": cuts, "walled": round(z["walled"], 3),
+                          "stair_parts": stair_parts, "panels": n_pan, "cuts": cuts, "walled": round(z["walled"], 3),
                           "centroid": [float(np.mean([p[0] for p in pts])), float(np.mean([p[1] for p in pts]))]})
     # assign notes: inside first, then nearest unused (leadered notes outside)
     from shapely.geometry import Point, Polygon
@@ -969,12 +1119,23 @@ def analyse(meta) -> dict:
     tr_text = "\n".join(b["text"] for b in blocks if b.get("read")) or full_text
     for m in re.finditer(r"([A-Z][A-Z ]{2,40}?)\s+TRENCH\s+LENGTH\s*[-=:]?\s*(\d[\d,]*)", tr_text.upper()):
         trenches.append({"name": m.group(1).strip().title() + " trench", "length_mm": int(m.group(2).replace(",", ""))})
+    for m in re.finditer(r"(?:^|\n|\d\.\s)([A-Z][A-Z ,/]{3,80}?),?\s*APPROXIMATELY\s*((?:\d+\s*'\s*-?\s*)?\d+(?:\s+\d/\d+)?\s*\")\s*LONG",
+                         tr_text.upper()):
+        fm = _FTIN_RE.search(m.group(2))
+        v = _ftin_mm(fm) if fm else None
+        if v:
+            name = re.sub(r"\s+", " ", m.group(1)).strip(" ,").title()
+            trenches.append({"name": name if "Trench" in name else name + " trench", "length_mm": round(v),
+                             "printed": m.group(2).replace(" ", "")})
     by_len: dict = {}
     for t in trenches:  # the same note read twice (overlapping crops / OCR leftovers): keep the cleanest name
         cur = by_len.get(t["length_mm"])
         if cur is None or len(t["name"]) > len(cur["name"]):
             by_len[t["length_mm"]] = t
     trenches = [t for t in trenches if by_len.get(t["length_mm"]) is t]
+    # a reading that lost a digit (427 for 4275) is the same note
+    trenches = [t for t in trenches if not any(o is not t and str(o["length_mm"]).startswith(str(t["length_mm"]))
+                                               and len(str(o["length_mm"])) > len(str(t["length_mm"])) for o in trenches)]
     tl_blocks = [b for b in blocks if "TRENCH" in b["text"].upper()]
     sump_blocks = [b for b in blocks if re.search(r"\bSUMP\b", b["text"].upper())]
     sumps = []
@@ -984,8 +1145,10 @@ def analyse(meta) -> dict:
     cj_words = [w for w in hor + ver if re.fullmatch(r"C\.?J\.?", w["text"].upper())]
     sc = re.search(r"SCALE\s*:?\s*1\s*:\s*(\d+)", full_text.upper())
     hatch_note = next((b for b in blocks if re.search(r"SHADED|HATCH", b["text"].upper())), None)
+    inl = [d for d in dims if d.get("inlier")]
+    imperial = bool(inl) and sum(bool(d.get("imperial")) for d in inl) > len(inl) / 2
     low = bool(meta.get("low_res")) if "low_res" in meta else (src != "pdf-text" and max(meta.get("w") or 0, meta.get("h") or 0) < 3000)
-    res = {"v": 1, "src": src, "low_res": low, "W": W, "H": H, "f": f, "k": k, "scale_src": scale_src,
+    res = {"v": 1, "src": src, "low_res": low, "imperial": imperial, "W": W, "H": H, "f": f, "k": k, "scale_src": scale_src,
            "scale_note": f"1:{sc.group(1)}" if sc else None, "types": types, "zones": out_zones,
            "pads": pads, "trenches": trenches, "trench_blocks": [b["bbox"] for b in tl_blocks],
            "trench_labels": [{"text": b["text"], "bbox": b["bbox"]} for b in tl_blocks],
@@ -1020,8 +1183,11 @@ def _zone_explain(z, a, k, dims, key="gross", stairs=(), WH=(1, 1)):
         w, h = (x1 - x0) * k, (y1 - y0) * k
         # a small appendage labelled as a stair well is not slab (the stair pit of S-100F)
         cx, cy = (x0 + x1) / 2 / WH[0], (y0 + y1) / 2 / WH[1]
-        if (x1 - x0) * (y1 - y0) < 0.04 * big and any(
-                b[0] - 0.06 < cx < b[2] + 0.06 and b[1] - 0.06 < cy < b[3] + 0.06 for b in stairs):
+        drawn = any(min(x1, r[2]) - max(x0, r[0]) > 0.5 * (x1 - x0) and min(y1, r[3]) - max(y0, r[1]) > 0.3 * (y1 - y0)
+                    for r in z.get("stair_parts", []))
+        labelled = (x1 - x0) * (y1 - y0) < 0.04 * big and any(
+            b[0] - 0.06 < cx < b[2] + 0.06 and b[1] - 0.06 < cy < b[3] + 0.06 for b in stairs)
+        if key == "inner" and (drawn or labelled):
             dropped.append(w * h / 1e6)
             continue
         dw, dh = _snap(w, hd), _snap(h, vd)
@@ -1035,7 +1201,10 @@ def _zone_explain(z, a, k, dims, key="gross", stairs=(), WH=(1, 1)):
     if not parts or abs(total - a_kept) / max(a_kept, 1e-9) > 0.03:
         return a_kept, f"measured {a_kept:.2f} m²" + (f" (stair well {sum(dropped):.1f} m² left out)" if dropped else ""), []
     def lab(v, d):
-        return f"{v:,.0f}" + (f" ({d['how']})" if d and d.get("how") else "") if d else f"{v:,.0f}*"
+        if not d:
+            return f"{v:,.0f}*"
+        t = _fmt_ftin(v) if d.get("imperial") else f"{v:,.0f}"
+        return t + (f" ({d['how']})" if d.get("how") else "")
 
     txt = " + ".join(f"{lab(w, pw)} × {lab(h, ph)}" for w, h, _, pw, ph in parts)
     star = " (* measured; other sides are printed dimensions)" if printed < 2 * len(parts) else " (sides = printed dimensions)"
@@ -1077,7 +1246,9 @@ def _chains(dims):
                     tot += row[j]["v"]
                     parts.append(row[j]["v"])
                     if len(parts) > 1:
-                        out.append({"v": tot, "vertical": vertical, "how": " + ".join(f"{p:,}" for p in parts)})
+                        imp = all(d.get("imperial") for d in row[i:j + 1])
+                        out.append({"v": tot, "vertical": vertical, "imperial": imp,
+                                    "how": " + ".join(_fmt_ftin(p) if imp else f"{p:,}" for p in parts)})
     return out
 
 
@@ -1089,6 +1260,7 @@ def _match_zones(q, A):
     """Zones selected by a thickness / bar mention in the question, or None for 'no filter'."""
     ql = q.upper()
     thk = [int(x) for x in re.findall(r"\b(\d{2,3})\s*(?:MM)?\s*(?:THICK|THK|SLAB|SOG|-?MM)", ql)]
+    thk += [round(int(x) * 25.4) for x in re.findall(r"\b(\d{1,2})\s*(?:\"|''|-?IN\.?\b|-?INCH(?:ES)?\b)", ql)]
     bars = [re.sub(r"\s", "", b) for b in re.findall(r"\b([DTYHN]\s?\d{1,2}|#\s?\d{1,2})\b", ql)]
     if not thk and not bars:
         return None, None
@@ -1113,6 +1285,17 @@ def _res(answer, conf, expl, ev, A, path_suffix="", unit=None):
          "method": METHOD + (f"-{path_suffix}" if path_suffix else ""), "cost_usd": round(A.get("cost_usd", 0.0), 5)}
     if unit:
         r["unit"] = unit
+    if A.get("imperial") and unit == "m²":  # imperial sheet: answer in square feet, metric arithmetic kept
+        f = 10.7639
+        if isinstance(answer, (int, float)):
+            r["answer"] = round(answer * f, 1)
+        elif isinstance(answer, str):
+            r["answer"] = re.sub(r"(\d[\d,]*\.?\d*) m²", lambda m: f"{float(m.group(1).replace(',', '')) * f:,.0f} SF", answer)
+        r["unit"] = "SF"
+        r["explanation"] = expl + f" (1 m² = 10.764 SF{'; = ' + format(r['answer'], ',') + ' SF' if isinstance(answer, (int, float)) else ''})"
+        for e in ev:
+            if e.get("unit") == "m²" and isinstance(e.get("value"), (int, float)):
+                e["value"], e["unit"] = round(e["value"] * f, 1), "SF"
     if A.get("low_res"):
         r["low_res"] = "small raster: notes re-read by vision, sides measured at about 2 cm per pixel"
     if A.get("scale_note"):
@@ -1158,14 +1341,18 @@ def answer(path, question, meta) -> dict | None:
             hits = len(toks & set(best["name"].lower().split()))
             ev = [_text_ev(b, "trench note") for b in A["trench_blocks"]]
             div = 1 if re.search(r"\bin mm\b|millimet", ql) else 1000
+            ulen = "mm" if div == 1 else "m"
+            if A.get("imperial") and div != 1:
+                div, ulen = 304.8, "ft"
             if hits and not re.search(r"\btotal|all|sum\b", ql):
-                return _res(best["length_mm"] / div, conf0 + 0.1,
-                            f"{best['name']}: {best['length_mm']:,} mm per the general notes "
-                            f"(\"approximate trench lengths\")", ev, A, "trench", "mm" if div == 1 else "m")
+                return _res(round(best["length_mm"] / div, 3), conf0 + 0.1,
+                            f"{best['name']}: {best['length_mm']:,} mm per the general notes"
+                            + (f" = {best['printed']}" if best.get("printed") else "")
+                            + " (approximate trench lengths)", ev, A, "trench", ulen)
             tot = sum(t["length_mm"] for t in A["trenches"])
-            return _res(tot / div, conf0 + 0.05, " + ".join(f"{t['length_mm']:,}" for t in A["trenches"])
+            return _res(round(tot / div, 3), conf0 + 0.05, " + ".join(f"{t['length_mm']:,}" for t in A["trenches"])
                         + f" mm = {tot:,} mm ({', '.join(t['name'] for t in A['trenches'])}; lengths from the notes)",
-                        ev, A, "trench", "mm" if div == 1 else "m")
+                        ev, A, "trench", ulen)
         if re.search(r"how many|number|count", ql):
             n = len(A["trenches"])
             labels = [t for t in A["trench_labels"] if not re.search(r"LENGTH", t["text"].upper())]
@@ -1247,6 +1434,10 @@ def answer(path, question, meta) -> dict | None:
             and not re.search(r"\barea\b|how much|m2|m²|square", ql):
         sel, desc = _match_zones(q, A)
         tys = [(z, _type_of(z, A)) for z in (zones if sel is None else sel) if _type_of(z, A)]
+        if sel is not None and not tys:  # the note exists but no zone took it: answer from the note itself
+            thk_q = {round(int(x) * 25.4) for x in re.findall(r"\b(\d{1,2})\s*(?:\"|-?IN\.?\b|-?INCH)", q.upper())}
+            thk_q |= {int(x) for x in re.findall(r"\b(\d{2,3})\s*(?:MM)?\s*(?:THICK|THK|SLAB|SOG)", q.upper())}
+            tys = [(None, t) for t in A["types"] if t.get("thickness_mm") in thk_q]
         if not tys and A["types"]:
             tys = [(None, t) for t in A["types"]]
         if not tys:
@@ -1297,6 +1488,11 @@ def answer(path, question, meta) -> dict | None:
         typed = [r for r in rows if _type_of(r[0], A)]
         if len(typed) < len(rows):
             conf *= 0.8
+        used_t = {z.get("type") for z in zones}
+        if any(i not in used_t for i in range(len(A["types"]))):
+            conf *= 0.7  # a slab note found no zone: some slab was not segmented (area is likely short)
+        if any(len(z["inner"]) > 8 for z in zones):
+            conf *= 0.75  # ragged outline: the zone probably leaked or lost a corner
         sel, desc = _match_zones(q, A)
         by_type = re.search(r"by type|per type|each type|each slab|by thickness|breakdown|types? of slab", ql)
         if sel is not None:
