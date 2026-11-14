@@ -316,6 +316,43 @@ svg line.leader.off { stroke: #7a8594; stroke-dasharray: calc(2 * var(--u, 1px))
 .qs:has(#chips:empty) #qstitle { display: none; }
 .pglabel { font: 600 11px var(--font); fill: #003a5c; paint-order: stroke; stroke: rgba(255,255,255,.95); stroke-width: calc(3 * var(--u, 1px)); pointer-events: none; }
 
+/* ------------------------------------------------------------ X-ray count: the sheet greys back, each item lights up in turn */
+#stage img { transition: filter .3s ease, opacity .3s ease; }
+#viewer.xray #stage img { filter: grayscale(1) contrast(.85); opacity: .5; }
+svg .ping { fill: none; stroke: var(--ev); stroke-width: calc(3 * var(--u, 1px)); pointer-events: none; transform-box: fill-box; transform-origin: center;
+  animation: ping .6s cubic-bezier(.2,.8,.2,1) forwards; }
+svg rect.ping { animation-name: pingbox; }
+svg .ping.model { stroke: var(--chk); }
+@keyframes ping { from { opacity: .9; transform: scale(1); } to { opacity: 0; transform: scale(1.12); } }
+@keyframes pingbox { from { opacity: .9; transform: scale(1); } to { opacity: 0; transform: scale(2.2); } }
+.xhud { position: absolute; top: 12px; left: 12px; z-index: 6; background: var(--panel); border: 1px solid var(--line2); border-radius: var(--r2);
+  padding: 8px 12px; min-width: 200px; box-shadow: 0 2px 8px rgba(0,0,0,.12); font-size: 12px; color: var(--mut); pointer-events: none; }
+.xhud .xl { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; font-weight: 600; }
+.xhud .xl b { font-size: 20px; color: var(--ev-ink); letter-spacing: 0; text-transform: none; }
+.xhud .xbar { height: 3px; background: var(--panel3); margin: 4px 0; }
+.xhud .xbar i { display: block; height: 100%; background: var(--ev); }
+.xhud .xs b { color: var(--text); font-weight: 600; }
+
+/* ghost comparison: ours vs each frontier model on one scale; the dataset answer is the ink rule in every row */
+#answer > .ghostcmp { order: 6; }
+.ghostcmp { margin-top: 12px; font-size: 12px; }
+.ghostcmp .gh { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--mut); font-weight: 600; margin-bottom: 4px; }
+.ghostcmp .gh .gref { text-transform: none; letter-spacing: 0; font-weight: 400; white-space: nowrap; }
+.ghostcmp .gh .gref::before { content: ''; display: inline-block; width: 2px; height: 10px; background: var(--ink); margin-right: 5px; vertical-align: -1px; }
+.ghostcmp .gh b { color: var(--text); font-weight: 600; }
+.gr { display: grid; grid-template-columns: 104px minmax(60px, 1fr) 104px; gap: 8px; align-items: center; min-height: 20px; }
+.gr .gn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--mut); }
+.gr.us .gn { color: var(--ev-ink); font-weight: 600; }
+.gr .gt { position: relative; height: 14px; }
+.gr .gt::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid var(--line); }
+.gr .gref { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--ink); }
+.gr .gl { position: absolute; top: 50%; height: 0; border-top: 2px dashed var(--faint); margin-top: -1px; }
+.gr .gd { position: absolute; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--panel); border: 2px solid var(--faint); }
+.gr.us .gl { border-top-style: solid; border-color: var(--ev); }
+.gr.us .gd { background: var(--ev); border-color: #fff; box-shadow: 0 0 0 1px var(--ev); }
+.gr .gv { white-space: nowrap; color: var(--mut); text-align: right; }
+.gr .gv b { color: var(--text); font-weight: 600; margin-right: 2px; }
+
 /* ------------------------------------------------------------ narrower screens and phones */
 @media (max-width: 1100px) { main { grid-template-columns: 224px 1fr 360px; } .meter { min-width: 240px; } }
 @media (max-width: 860px) {
@@ -367,6 +404,8 @@ svg line.leader.off { stroke: #7a8594; stroke-dasharray: calc(2 * var(--u, 1px))
   body.touring #side { padding-bottom: calc(var(--caph, 120px) + 12px); }
   .zoom { bottom: 40px; }
   .big { font-size: 36px; }
+  .gr { grid-template-columns: 92px minmax(48px, 1fr) 100px; }
+  .xhud { top: 8px; left: 8px; min-width: 170px; }
   .ev div { min-height: 36px; }  /* touch targets */
   .ev .tg { width: 20px; height: 20px; }
   .tools3d { top: 50px; }

@@ -537,6 +537,43 @@ function frontierHTML(r, oursOk) {
     <div class="vsnote">From our baseline run on a 400-question sample of the same held-out test split${text ? '; free-text answers were scored by an LLM judge against the reference' : `; the gold answer is ${fmt(r.gold, r.type)}${r.type !== 'count' ? ' ' + unitOf(r.type) : ''}`}.</div></div>`;
 }
 
+// ghost comparison: our number against what each frontier model answered on the same drawing, on one 0-based scale,
+// with the dataset answer as a rule across it; during the X-ray count our marker slides up past the ghosts
+const shortModel = f => String(f.model || '').replace(/^Claude /, '').split(' ').slice(0, 3).join(' ').replace(/ Super\b.*$/, '')
+  + (/files|CAD|IFC/i.test(f.setting || '') ? ' + files' : '');
+function ghostHTML(r, val, counting) {
+  const fr = (r.frontier || []).map(f => ({...f, v: f.pred == null || f.pred === '' ? NaN : Number(f.pred)}));
+  if (!fr.some(f => Number.isFinite(f.v))) return '';
+  const t = r.type, ref = typeof r.gold === 'number' ? r.gold : r.answer;
+  const vals = [ref, r.answer, ...fr.filter(f => Number.isFinite(f.v)).map(f => f.v)];
+  const span = Math.max(...vals) - Math.min(...vals), pad = Math.max(span * 0.12, t === 'count' ? 1 : 0.5);
+  const lo = Math.max(0, Math.min(...vals) - pad), hi = Math.max(...vals) + pad;  // zoomed to the answers: the gaps are the story
+  const x = v => Math.max(0, Math.min(100, 100 * (v - lo) / (hi - lo))).toFixed(2) + '%';
+  const delta = v => {
+    const d = v - ref, ok = t === 'count' ? Math.round(v) === Math.round(ref) : Math.abs(d) <= 0.02 * Math.abs(ref);
+    return ok ? '<span class="okt">✓ right</span>' : `${d < 0 ? '−' : '+'}${fmt(Math.abs(d), t)} ${d < 0 ? 'short' : 'over'}`;
+  };
+  const row = (name, v, cls, tip) => {
+    const ok = Number.isFinite(v), a = ok ? Math.min(v, ref) : 0, b = ok ? Math.max(v, ref) : 0;
+    return `<div class="gr ${cls}" title="${esc(tip)}"><span class="gn">${esc(name)}</span><span class="gt"><i class="gref" style="left:${x(ref)}"></i>`
+      + (ok ? `<i class="gl ${v < ref ? 'short' : 'over'}" style="left:${x(a)};width:calc(${x(b)} - ${x(a)})"></i><i class="gd" style="left:${x(v)}"></i>` : '')
+      + `</span><span class="gv">${ok ? `<b>${fmt(v, t)}</b> ${cls === 'us' && counting ? '' : delta(v)}` : '<i>no answer</i>'}</span></div>`;
+  };
+  const us = row('Ours', val, 'us', 'Blueprints that talk: counted out on the drawing');
+  const rows = fr.map(f => row(shortModel(f), f.v, 'ghost', `${f.model} · ${f.setting}: answered ${f.pred ?? 'nothing'}`)).join('');
+  return `<div class="ghostcmp" data-lo="${lo}" data-hi="${hi}" data-ref="${ref}">
+    <div class="gh"><span>Frontier models, same drawing</span><span class="gref">${typeof r.gold === 'number' ? 'dataset answer' : 'our answer'} <b>${fmt(ref, t)}${t === 'count' ? '' : ' ' + unitOf(t)}</b></span></div>
+    <div class="gbody">${us}${rows}</div></div>`;
+}
+function ghostMove(a, val) {  // mid-count: slide our marker and its gap to the dataset answer
+  const g = a.querySelector('.ghostcmp'); if (!g) return;
+  const lo = +g.dataset.lo, hi = +g.dataset.hi, ref = +g.dataset.ref, x = v => Math.max(0, Math.min(100, 100 * (v - lo) / (hi - lo))).toFixed(2) + '%';
+  const r = g.querySelector('.gr.us'); if (!r) return;
+  const gt = r.querySelector('.gt'), a0 = Math.min(val, ref), up = Math.max(val, ref);
+  gt.innerHTML = `<i class="gref" style="left:${x(ref)}"></i><i class="gl ${val < ref ? 'short' : 'over'}" style="left:${x(a0)};width:calc(${x(up)} - ${x(a0)})"></i><i class="gd" style="left:${x(val)}"></i>`;
+  r.querySelector('.gv').innerHTML = `<b>${fmt(val, res.type)}</b>`;
+}
+
 function renderAnswer(shownSoFar) {
   if (!res) return;
   const a = $('#answer'); const t = res.type;
@@ -545,6 +582,12 @@ function renderAnswer(shownSoFar) {
   if (counting) val = items.slice(0, shownSoFar).reduce((s, e) => s + (e.value ?? 1), 0);
   // a correction (items dropped / added) changes the headline number too; the line under it keeps the solver's value
   else if (typeof val === 'number' && items.some(e => !e.on || e.added)) val = items.filter(e => e.on).reduce((s, e) => s + (e.value ?? 1), 0);
+  if (counting && a.dataset.xseq === String(res._seq) && a.querySelector('.big.counting .bn')) {  // mid-count: only the number moves
+    a.querySelector('.big.counting .bn').textContent = fmt(val, t);
+    ghostMove(a, val);
+    return;
+  }
+  if (counting) a.dataset.xseq = res._seq; else delete a.dataset.xseq;
   const conf = res.confidence ?? 0;
   const confCls = conf >= 0.8 ? 'ok' : conf >= 0.5 ? 'warn' : 'bad';
   let gold = '', oursOk = null;
@@ -563,12 +606,13 @@ function renderAnswer(shownSoFar) {
   a.innerHTML = `
     <div class="qecho">${esc(res.question)}</div>
     ${res.normalized_question && res.normalized_question !== res.question ? `<div class="readas" style="order:1;font-size:12px;color:var(--mut);margin:-2px 0 6px">read as: <i>${esc(res.normalized_question)}</i></div>` : ''}
-    ${typeof res.answer === 'string' ? '' : `<div class="big ${abst ? 'abstain' : ''} ${counting ? 'counting' : ''}">${abst ? 'Not sure, so no guess' : num ? fmt(val, t) : ''} <small>${abst ? '' : unitOf(t)}</small></div>`}
+    ${typeof res.answer === 'string' ? '' : `<div class="big ${abst ? 'abstain' : ''} ${counting ? 'counting' : ''}">${abst ? 'Not sure, so no guess' : num ? `<span class="bn">${fmt(val, t)}</span>` : ''} <small>${abst ? '' : unitOf(t)}</small></div>`}
     ${typeof res.answer === 'string' ? `<div class="textans">${esc(res.answer.trim().split('\n').map(l => l.replace(/^\s{1,4}(?=\S)/, '')).join('\n'))}</div>` : ''}
     ${(() => { const h = howOf(res); if (num && res.answer === 0 && !items.length && h.cls !== 'geo') h.how = 'it found nothing to box, so there is nothing to check on the drawing: look at the plan yourself before relying on 0'; return `<div class="how ${h.cls}"><b>${h.cls === 'geo' ? '✓ ' : ''}${esc(h.t)}</b><span>${esc(h.how)}</span></div>`; })()}
     ${res.rule ? `<div class="rule"><b>Rule</b> ${esc(res.rule)}</div>` : ''}
     ${crossHTML(res)}
     ${calibHTML(res)}
+    ${hasVs && num ? ghostHTML(res, val, counting) : ''}
     ${!res.trace ? `<div class="expl">${esc(res.explanation || '')}</div>` : ''}
     <div class="row">${abst || res.calibration ? '' : `<span class="pill ${confCls}">confidence ${(conf * 100).toFixed(0)}%</span>`}
       ${gold}</div>
@@ -802,23 +846,59 @@ function rescaleLabels() {
   const fs = labelSize(); lay = layoutLabels(img.naturalWidth, img.naturalHeight, fs);
   ov.querySelectorAll('g[data-i]').forEach(g => { if (+g.dataset.i >= 0) placeLabels(g, lay.get(+g.dataset.i), fs); });
 }
+// X-ray count: the drawing greys back and every item lights up in turn while the big number ticks up to the answer
+// (areas: the running sum). ~60–120 ms an item, never more than 2.5 s; a click or a key skips to the end; instant
+// under prefers-reduced-motion.
+const RMOTION = matchMedia('(prefers-reduced-motion: reduce)');
+let xr = null;
+const xhud = document.createElement('div'); xhud.className = 'xhud'; xhud.hidden = true; viewer.appendChild(xhud);
+function xrayStop() {  // a new draw / answer: drop a running count without finishing it
+  if (!xr) return;
+  clearTimeout(xr.t); xr = null; animating = false; viewer.classList.remove('xray'); xhud.hidden = true;
+}
+let xrSkipT = 0;
+function xraySkip() { if (xr) { xrSkipT = performance.now(); xr.skip(); } }
+function xrayHud(k, n, val) {
+  const t = res && res.type, noun = t === 'count' ? 'counting' : 'adding up';
+  xhud.innerHTML = `<div class="xl"><span>X-ray · ${noun}</span><b>${k} / ${n}</b></div><div class="xbar"><i style="width:${(100 * k / Math.max(1, n)).toFixed(1)}%"></i></div>`
+    + `<div class="xs">${t && t !== 'count' ? `<b>${fmt(val, t)} ${unitOf(t)}</b> · ` : ''}click or press a key to skip</div>`;
+}
 function draw(animate) {
+  xrayStop();
   ov.innerHTML = '';
   if (mode === '3d' || !img.naturalWidth) return;
+  if (RMOTION.matches) animate = false;
   const W = img.naturalWidth, H = img.naturalHeight;
   ov.setAttribute('viewBox', `0 0 ${W} ${H}`);
   lay = layoutLabels(W, H, labelSize());
   const leaders = document.createElementNS(NS, 'g'); leaders.setAttribute('class', 'leaders'); ov.appendChild(leaders);  // under every shape and number
   for (const m of [...marks, ...secondMarks()]) ov.appendChild(shapeFor(m, -1, W, H));
   const list2d = items.map((e, i) => [e, i]).filter(([e]) => e.kind !== 'ifc');
-  const step = animate ? Math.max(25, Math.min(110, 1800 / Math.max(1, list2d.length))) : 0;
-  list2d.forEach(([e, i], k) => {
-    const show = () => { ov.appendChild(shapeFor(e, i, W, H)); if (animate) renderAnswer(k + 1); };
-    if (animate) setTimeout(() => { if (res && items[i] === e) show(); }, k * step); else show();
-  });
   const done = () => { animating = false; renderAnswer(null); recompute(); };
-  if (animate) { animating = true; setTimeout(done, list2d.length * step + 60); } else done();
+  if (!animate || !list2d.length) { list2d.forEach(([e, i]) => ov.appendChild(shapeFor(e, i, W, H))); done(); return; }
+  const step = Math.min(120, 2500 / list2d.length), r0 = res, n = list2d.length;
+  const pings = document.createElementNS(NS, 'g'); pings.setAttribute('class', 'pings'); ov.appendChild(pings);
+  let k = 0, sum = 0;
+  const show = quiet => {
+    const [e, i] = list2d[k++]; sum += e.value ?? 1;
+    const g = shapeFor(e, i, W, H); pings.before(g);
+    if (!quiet) {
+      const p = g.firstElementChild.cloneNode(false); p.setAttribute('class', 'ping' + (modelRead(e) ? ' model' : ''));
+      pings.appendChild(p); setTimeout(() => p.remove(), 700);
+    }
+  };
+  const finish = () => { xr = null; viewer.classList.remove('xray'); xhud.hidden = true; pings.remove(); done(); };
+  const tick = () => {
+    if (res !== r0) { xrayStop(); return; }
+    show(false); renderAnswer(k); xrayHud(k, n, sum);
+    if (k < n) xr.t = setTimeout(tick, step); else xr.t = setTimeout(finish, 160);
+  };
+  xr = {t: 0, skip: () => { clearTimeout(xr.t); while (k < n) show(true); finish(); }};
+  animating = true; viewer.classList.add('xray'); xhud.hidden = false; xrayHud(0, n, 0);
+  xr.t = setTimeout(tick, 120);
 }
+viewer.addEventListener('pointerdown', e => { if (xr && !e.target.closest('.caption')) { xraySkip(); e.stopPropagation(); } }, true);
+$('#answer').addEventListener('pointerdown', () => xraySkip(), true);
 function shapeFor(e, i, W, H) {
   const g = document.createElementNS(NS, 'g'); g.dataset.i = i;
   const fs = labelSize();
@@ -840,7 +920,7 @@ function shapeFor(e, i, W, H) {
   shape.appendChild(tip);
   g.appendChild(shape);  // the shape stays the group's first rect / polygon: hover and flash look it up that way
   if (i >= 0) {
-    shape.addEventListener('click', ev => { if (adding) return; ev.stopPropagation(); if (moved) return; e.on = !e.on; redraw(); flashRow(i); });
+    shape.addEventListener('click', ev => { if (adding) return; ev.stopPropagation(); if (moved || performance.now() - xrSkipT < 500) return; e.on = !e.on; redraw(); flashRow(i); });
     shape.addEventListener('mouseenter', () => rowHot(i, true, true));
     shape.addEventListener('mouseleave', () => rowHot(i, false));
   } else if (e.guids) {
@@ -1109,6 +1189,7 @@ window.addEventListener('popstate', () => { if (tour) endTour(); restore(false);
 // ------------------------------------------------------------ keyboard
 document.addEventListener('keydown', e => {
   const typing = e.target.matches('input, textarea, select');
+  if (xr && !typing && !['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) xraySkip();
   if (e.key === 'Escape') {
     if (tour) endTour();
     else if (adding) setAdding(false);
