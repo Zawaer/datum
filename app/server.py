@@ -124,7 +124,7 @@ BASELINE_LATENCY = _baseline_per_q("latency_s")
 @functools.lru_cache(maxsize=256)
 def credit_for(path: str) -> str:
     if path.startswith("uploads/"):
-        return "your upload (stays on this server, not shared)"
+        return "your upload: kept on this server; page images are sent to Claude Haiku to read it"
     src = path.split("/")[1]
     lic = ROOT / "data" / src / "LICENSE.md"
     if not lic.exists():
@@ -221,7 +221,7 @@ def questions(path: str):
         meta = _upload_meta(path)
         return {"path": path, "view": view_path(path), "credit": credit_for(path), "has3d": ifc_for(path) is not None,
                 "kind": meta.get("kind"), "questions": [{"question": s, "type": guess_type(s), "answer": None}
-                                                         for s in _upload_suggestions(meta.get("kind"))],
+                                                         for s in _upload_suggestions(meta.get("kind"), meta.get("not_drawing"))],
                 **_upload_info(meta, path.split("/")[1])}
     qs = BY_PATH.get(path)
     if not qs:
@@ -327,7 +327,9 @@ def _upload_meta(path: str) -> dict:
     return json.loads(m.read_text()) if m.exists() else {}
 
 
-def _upload_suggestions(kind: str | None) -> list[str]:
+def _upload_suggestions(kind: str | None, not_drawing=None) -> list[str]:
+    if not_drawing:  # a photo or a document, not a plan: the solvers decline it, so suggesting counts would mislead
+        return []
     if kind == "ifc":
         return ["How many doors are in the model?", "How many windows are in the model?",
                 "What is the total length of all walls, in metres?", "How many storeys does the building have?",
@@ -787,6 +789,33 @@ def _upload_honesty(res: dict, q: dict):
         res["page"] = max(set(pg), key=pg.count) if pg else (q.get("page") or 0)
 
 
+def _counted_noun(res: dict, question: str) -> str | None:
+    """The thing a generic vision count boxed ("toilet"), from its target, for rows the solver labelled 'item'."""
+    m = re.search(r"x '([^']+)' boxed", str(res.get("explanation") or ""))
+    t = m.group(1) if m else re.sub(r"(?i)^\s*how many\s+", "", question or "")
+    t = re.sub(r"\(.*?\)", " ", t)
+    t = re.split(r"(?i)\s+(?:are|is|in|on|of|drawn|shown|can|do|does|there|symbols?|in plan view)\b|[?,.]", t)[0]
+    words = t.strip().split()
+    if not words or len(words) > 4:
+        return None
+    w = " ".join(words).lower()
+    if w.endswith("ies"):
+        w = w[:-3] + "y"
+    elif w.endswith("s") and not w.endswith("ss"):
+        w = w[:-1]
+    return w or None
+
+
+def _name_items(res: dict, question: str):
+    ev = [e for e in res.get("evidence") or [] if re.fullmatch(r"item \d+", str(e.get("label") or ""))]
+    if not ev:
+        return
+    noun = _counted_noun(res, question)
+    if noun and noun != "item":
+        for e in ev:
+            e["label"] = noun + " " + e["label"].split()[-1]
+
+
 def _fix_upload_evidence(res: dict, q: dict, client_path: str):
     """Solvers see absolute upload paths; the browser knows them as uploads/<key>/<name>."""
     base = str(resolve(client_path).parent)
@@ -1122,6 +1151,10 @@ def ask(req: Ask, request: Request):
     res["gold"] = known["answer"] if known else None
     res["baseline_cost_usd"] = BASELINE_COST.get(q["source"], BASELINE_COST.get("_all", 0.0))
     res["baseline_latency_s"] = BASELINE_LATENCY.get(q["source"], BASELINE_LATENCY.get("_all", 0.0))
+    try:
+        _name_items(res, q.get("question") or "")
+    except Exception:  # noqa: BLE001  a nicer label never breaks an answer
+        traceback.print_exc()
     if q["source"] == "upload":
         _fix_upload_evidence(res, q, req.path)
         _upload_honesty(res, q)

@@ -304,6 +304,11 @@ svg .appear { animation: pop .25s ease-out; transform-box: fill-box; transform-o
 .badgebg { fill: var(--ev); stroke: #fff; vector-effect: non-scaling-stroke; stroke-width: 1.5; pointer-events: none; }
 .badgebg.added { fill: var(--ok-ink); }
 .badgebg.model { fill: var(--chk-ink); stroke-dasharray: 2 1.5; }
+/* a dropped item keeps its number, faint and struck through, so it can be clicked back in */
+.badgebg.off { fill: #fff; stroke: #7a8594; stroke-dasharray: none; }
+.badge.off { fill: #6b7584; text-decoration: line-through; }
+/* nothing to suggest (a refused upload, a file that is not a drawing): no empty heading */
+.qs:has(#chips:empty) #qstitle { display: none; }
 .pglabel { font: 600 11px var(--font); fill: #003a5c; paint-order: stroke; stroke: rgba(255,255,255,.95); stroke-width: 3px; pointer-events: none; }
 
 /* ------------------------------------------------------------ narrower screens and phones */

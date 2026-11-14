@@ -125,17 +125,47 @@ export async function load(path, onStatus) {
     color: 0xc9d1dc, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false, clippingPlanes: [clip] }));
   scene.add(model);
   setClip(null); requestRender();
-  frame(model.geometry);
+  frame(model);
   onStatus && onStatus('', '');
   return { storeys, n: elements.length };
 }
 
-function frame(geom, steep = false) {
-  geom.computeBoundingBox();
-  const b = geom.boundingBox.clone();
+// the box to frame: only vertices a mesh actually draws (the position buffer is shared with undrawn elements).
+// For the whole model, prefer the building shell (walls, slabs, spaces) and trim the 2 % tails per axis, so a stray
+// proxy or a far-off site object does not shrink the building to a dot. Evidence is framed in full.
+const SHELL = /^Ifc(Wall|Slab|Space|Roof|Column|Beam)/;
+function drawnBox(mesh, robust) {
+  let idx = mesh.geometry.index.array;
+  if (robust) {
+    const shell = elements.filter(e => SHELL.test(e.type));
+    if (shell.length) {
+      let n = 0; for (const e of shell) n += e.count;
+      const sub = new Uint32Array(n); let o = 0;
+      for (const e of shell) { sub.set(allIdx.subarray(e.start, e.start + e.count), o); o += e.count; }
+      idx = sub;
+    }
+  }
+  const pa = positions.array, b = new THREE.Box3();
+  if (!idx.length) return b;
+  const stride = Math.max(1, Math.floor(idx.length / 150000));
+  const xs = [], ys = [], zs = [];
+  for (let i = 0; i < idx.length; i += stride) { const k = idx[i] * 3; xs.push(pa[k]); ys.push(pa[k + 1]); zs.push(pa[k + 2]); }
+  const lim = a => {
+    if (!robust || a.length < 50) { let lo = Infinity, hi = -Infinity; for (const v of a) { if (v < lo) lo = v; if (v > hi) hi = v; } return [lo, hi]; }
+    const s = Float64Array.from(a).sort();
+    return [s[Math.floor(s.length * 0.02)], s[Math.min(s.length - 1, Math.ceil(s.length * 0.98))]];
+  };
+  const [x0, x1] = lim(xs), [y0, y1] = lim(ys), [z0, z1] = lim(zs);
+  b.min.set(x0, y0, z0); b.max.set(x1, y1, z1);
+  return b;
+}
+
+function frame(mesh, steep = false) {
+  const b = drawnBox(mesh, mesh === model);
+  if (b.isEmpty()) return;
   if (clip.constant < 1e8) b.max.y = Math.min(b.max.y, clip.constant);
   const c = b.getCenter(new THREE.Vector3()), s = b.getSize(new THREE.Vector3());
-  const r = Math.max(s.x, s.y, s.z) * 0.5 + 0.5;
+  const r = s.length() * 0.5 + 0.3;  // the bounding sphere, so a tall narrow selection is not cut off
   const dist = r / Math.sin((camera.fov * Math.PI / 180) / 2) * 1.15;
   const dir = (steep ? new THREE.Vector3(0.7, 1.8, 1.0) : new THREE.Vector3(1, 0.9, 1.2)).normalize();
   camera.position.copy(c.clone().add(dir.multiplyScalar(dist)));
@@ -159,7 +189,7 @@ function setClip(si) {
 export function getStoreys() { return storeys; }
 export function focusStorey(si, reframe = true) {
   setClip(si);
-  if (reframe && model) frame(hl ? hl.geometry : model.geometry, si != null && si >= 0);
+  if (reframe && model) frame(hl || model, si != null && si >= 0);
   requestRender();
 }
 export function setCut(y) { clip.constant = y; requestRender(); }
@@ -201,7 +231,7 @@ export function highlight(items, animate = true, onStep = null, reframe = true, 
   hl.renderOrder = 2;
   scene.add(hl);
   requestRender();
-  if (reframe) frame(hl.geometry, clip.constant < 1e8);
+  if (reframe) frame(hl, clip.constant < 1e8);
   if (!animate) { onDone && onDone(); return; }
   hl.geometry.setDrawRange(0, 0); requestRender();
   // time-based, so a slow GPU (or a software renderer) skips steps instead of stretching the count out

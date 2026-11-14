@@ -245,10 +245,9 @@ async function select(d, how = 'push') {
   }
   Object.assign(cur, info); has3d = info.has3d; loaded3d = null; loading(''); if (window.V3) V3.clear();
   cur.page = 0; cur.pin = null; uploadPanel(info);
-  cur.page = 0; cur.pin = null; uploadPanel(info);
   $('#modes').classList.toggle('show', has3d);  // a model without a plan sheet still shows "3D model", with Plan disabled
   $('#m2d').disabled = !info.view; $('#m2d').title = info.view ? '' : 'no plan sheet for this model';
-  $('#credit').textContent = info.credit ? '© ' + info.credit : '';
+  $('#credit').textContent = !info.credit ? '' : d.path.startsWith('uploads/') ? info.credit : '© ' + info.credit;  // an upload is not licensed to us
   showImage(info.view);
   if (!info.view && !has3d) { $('#empty').hidden = false; $('#empty').textContent = 'No preview for this file type, but you can still ask about it.'; }
   const chips = $('#chips'); chips.innerHTML = '';
@@ -277,42 +276,7 @@ function uploadPanel(info) {
   const up = cur.path.startsWith('uploads/');
   const notes = (up ? info.notes || [] : []).map(n => `<div>· ${esc(n)}</div>`).join('');
   const orig = up && info.original ? `<div><a href="/api/file?path=${encodeURIComponent(info.original)}" target="_blank" rel="noopener">see your original file</a></div>` : '';
-  const warn = up && info.not_drawing ? `<div style="color:#b45309"><b>This doesn't look like a construction drawing</b> (it looks like: ${esc(info.not_drawing)}). You can still ask about its text, but nothing will be counted on it.</div>` : '';
-  box.innerHTML = `${warn}${notes ? '<b>We prepared your file:</b>' + notes : ''}${orig}`;
-  box.hidden = !box.innerHTML;
-  let bar = $('#pagebar');
-  if (!bar) {
-    bar = document.createElement('div'); bar.id = 'pagebar';
-    bar.style.cssText = 'position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:6;display:flex;gap:4px;align-items:center;background:var(--panel);border:1px solid var(--line2);border-radius:var(--r1);padding:3px 6px;font-size:12px;max-width:70%';
-    bar.innerHTML = '<button id="pgprev" aria-label="Previous page">‹</button><select id="pgsel" aria-label="Page to ask about" style="max-width:340px"></select><button id="pgnext" aria-label="Next page">›</button>';
-    $('#viewer').appendChild(bar);
-    const go = p => { if (!cur || p < 0 || p >= (cur.pages || 1)) return; cur.pin = p; showImage(cur.view, p); };
-    $('#pgsel').onchange = e => { const v = e.target.value; if (v === 'auto') { cur.pin = null; syncPageBar(); } else go(+v); };
-    $('#pgprev').onclick = () => go((cur.page || 0) - 1); $('#pgnext').onclick = () => go((cur.page || 0) + 1);
-  }
-  const n = info.pages || 1, titles = info.page_titles || {};
-  bar.hidden = !(cur.path.startsWith('uploads/') && n > 1 && info.view);
-  if (!bar.hidden) {
-    $('#pgsel').innerHTML = '<option value="auto">Any page: find the right one</option>' +
-      Array.from({length: n}, (_, i) => `<option value="${i}">Page ${i + 1} of ${n}${titles[i] ? ' · ' + esc(titles[i]).slice(0, 60) : ''}</option>`).join('');
-  }
-  syncPageBar();
-}
-function syncPageBar() {
-  const sel = $('#pgsel'); if (!sel || !cur || $('#pagebar').hidden) return;
-  sel.value = cur.pin != null ? String(cur.pin) : 'auto';
-  const o = sel.querySelector('option[value="auto"]');
-  if (o) o.textContent = cur.pin != null ? 'Any page: find the right one' : `Any page (showing ${(cur.page || 0) + 1} of ${cur.pages || 1})`;
-}
-$('#file').accept = '.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.bmp,.gif,.svg,.dxf,.ifc';
-// what the server did to an upload (rectified photo, turned scan, ...), a not-a-drawing warning, and a page picker
-function uploadPanel(info) {
-  let box = $('#upnote');
-  if (!box) { box = document.createElement('div'); box.id = 'upnote'; box.style.cssText = 'font-size:12px;color:var(--mut);margin:0 0 10px;line-height:1.45'; $('#chips').parentElement.before(box); }
-  const up = cur.path.startsWith('uploads/');
-  const notes = (up ? info.notes || [] : []).map(n => `<div>· ${esc(n)}</div>`).join('');
-  const orig = up && info.original ? `<div><a href="/api/file?path=${encodeURIComponent(info.original)}" target="_blank" rel="noopener">see your original file</a></div>` : '';
-  const warn = up && info.not_drawing ? `<div style="color:#b45309"><b>This doesn't look like a construction drawing</b> (it looks like: ${esc(info.not_drawing)}). You can still ask about its text, but nothing will be counted on it.</div>` : '';
+  const warn = up && info.not_drawing ? `<div style="color:#b45309"><b>This doesn't look like a construction drawing</b> (it looks like: ${esc(info.not_drawing)}). Questions about it are declined: nothing is counted or read off a file that is not a drawing.</div>` : '';
   box.innerHTML = `${warn}${notes ? '<b>We prepared your file:</b>' + notes : ''}${orig}`;
   box.hidden = !box.innerHTML;
   let bar = $('#pagebar');
@@ -396,7 +360,8 @@ async function ask() {
   res = r; res._seq = seq; res.question = question; showSecond = false;
   recordTakeoff(res);
   syncURL('replace');
-  session.n++; session.ours += res.cost_usd || 0; session.base += res.baseline_cost_usd || 0;
+  // a declined question (or a file that is not a drawing) would not have gone to a frontier model either: no estimate
+  session.n++; session.ours += res.cost_usd || 0; if (res.answer != null && !cur.not_drawing) session.base += res.baseline_cost_usd || 0;
   updateMeter();
   a.classList.add('pop');
   setupEvidence();
@@ -463,7 +428,10 @@ function zoomToEvidence(only, maxK = 3) {  // cap: keep enough of the plan aroun
   stage.style.transition = 'transform .6s cubic-bezier(.2,.8,.2,1)'; apply(); setTimeout(() => stage.style.transition = '', 620);
 }
 
-const fmt = (v, t) => v == null ? '—' : (t === 'count' ? Math.round(v) : (+v).toFixed(2));
+// round half away from zero with a small epsilon, so 24.575 (stored as 24.57499…) and a sum that lands on 24.5750001
+// both show 24.58: the headline and the evidence total must never differ by a rounding artefact
+const round2 = v => { const x = +v, k = Math.round((Math.abs(x) + 1e-9) * 100) / 100; return (x < 0 ? -k : k).toFixed(2); };
+const fmt = (v, t) => v == null ? '—' : (t === 'count' ? Math.round(v) : round2(v));
 const unitOf = t => ({area: 'm²', length: 'm', volume: 'm³', count: ''}[t] || '');
 const latency = s => s == null ? '' : s < 0.001 ? '&lt; 1 ms' : s < 1 ? (s * 1000).toFixed(0) + ' ms' : s.toFixed(1) + ' s';
 const money = v => v === 0 ? '$0' : v < 0.001 ? '$' + v.toFixed(5) : v < 1 ? '$' + v.toFixed(3) : '$' + v.toFixed(2);
@@ -471,6 +439,7 @@ const money = v => v === 0 ? '$0' : v < 0.001 ? '$' + v.toFixed(5) : v < 1 ? '$'
 // how was this answer made? one badge + one line, so a judge knows what to trust and how to check it
 function howOf(r) {
   const m = String(r.method || ''), paid = (r.cost_usd || 0) > 0;
+  if (r.answer == null && /does not look like a construction drawing/.test(String(r.explanation || ''))) return {cls: 'none', t: 'Not a drawing', how: 'the file was checked before any counting and declined; nothing was guessed'};
   if (r.answer == null) return r.budget_exhausted ? {cls: 'none', t: 'Paused: daily budget used', how: 'the $0 solvers for Swiss, CubiCasa and IFC drawings still answer'}
     : {cls: 'none', t: 'Abstained', how: 'when the evidence is not good enough we say so instead of guessing'};
   if (/-na$|-none$/.test(m)) return {cls: 'none', t: 'Not in the model', how: 'nothing in the file states this, so we say so rather than guess'};
@@ -494,6 +463,8 @@ function pctOf(right, n) {  // never round up to 100 % unless every one was righ
 function calibHTML(r) {
   if (r.answer == null) {
     const m = String(r.method || ''), e = String(r.explanation || '');
+    const nd = e.match(/[^|]*does not look like a construction drawing[^|]*/);
+    if (nd) return `<div class="calib none"><b>Why no answer</b><span>${esc(nd[0].trim().replace(/^./, c => c.toUpperCase()))}. Upload a plan, section or elevation (PDF, image, DXF or IFC) to ask about it.</span></div>`;
     const why = r.budget_exhausted ? 'the daily budget for paid model calls is used up'
       : m === 'timeout' ? 'the solver ran out of time; it stops rather than guess'
       : /error/.test(m) ? 'the solver failed on this input; it reports that rather than a number'
@@ -505,7 +476,18 @@ function calibHTML(r) {
   const c = r.calibration;
   if (!c) return '';
   const conf = Math.round(100 * (r.confidence ?? 0));
-  if (!c.measured) return `<div class="calib unk"><b>No track record yet</b><span>answers made this way were not part of our test, so the ${conf} % is the model's own guess: check the evidence before relying on it.</span></div>`;
+  if (!c.measured) {
+    // deterministic routes (IFC / CAD geometry, the trained detector) compute rather than guess: say what the method did
+    // on our test files, and that this file is new to us, instead of calling the confidence "the model's own guess"
+    const d = r.calibration_dataset, m = String(r.method || '');
+    const fixed = /^(swiss|ifc(?!text)|cubicasa|dxf|cad)/.test(m) || howOf(r).cls === 'geo';
+    if (d && d.family_n && (fixed || /^cubicasa/.test(m))) {
+      const what = /^ifc/.test(m) ? 'test IFC models' : /^cubicasa/.test(m) ? 'held-out test plans' : 'held-out test drawings';
+      return `<div class="calib unk"><b>New file: no track record on it yet</b><span>this method (${esc(d.label)}) was ${nf(d.family_right)}/${nf(d.family_n)} right on our ${what}; your file is new to us, so check the evidence before relying on it.</span></div>`;
+    }
+    if (fixed) return `<div class="calib unk"><b>New file: no track record on it yet</b><span>this answer is computed from the file's own geometry by fixed rules (no AI guess), but files like yours were not part of our test: check the listed items before relying on it.</span></div>`;
+    return `<div class="calib unk"><b>No track record yet</b><span>answers made this way were not part of our test, so the ${conf} % is the model's own guess: check the evidence before relying on it.</span></div>`;
+  }
   const p = c.right / c.n, cls = p >= 0.95 ? 'hi' : p >= 0.85 ? 'mid' : p >= 0.6 ? 'lo' : 'bad';
   const word = p >= 0.95 ? 'Very likely right' : p >= 0.85 ? 'Usually right' : p >= 0.6 ? 'Often right: check the evidence' : 'Uncertain: check the evidence';
   const band = c.scope === 'bin' ? `, confidence ${Math.round(c.lo * 100)}–${Math.round(c.hi * 100)} %` : '';
@@ -523,8 +505,11 @@ function traceHTML(r) {
   const route = (t.route || []).map(x => `<div><span class="pill">${esc(ROUTE[x.solver] || x.solver)}</span> ${esc(x.why)}</div>`).join('');
   const read = (t.read || []).map(x => `<li>${esc(x)}</li>`).join('');
   const a = t.arith;
-  const arith = a ? `<div class="mono">${esc(a.expr)} = <b>${fmt(a.total, r.type)}${u ? ' ' + u : ''}</b></div>
-    <div class="${a.matches ? 'okt' : 'mut'}">${a.matches ? `✓ the ${a.n} items listed under Evidence add up to the answer exactly` : 'the answer is not a plain sum of the listed items (it also weighs how likely each count is)'}</div>` : '';
+  const corrected = typeof r.answer === 'number' && items.some(e => !e.on || e.added);
+  const cv = corrected ? items.filter(e => e.on).reduce((s, e) => s + (e.value ?? 1), 0) : null;
+  const arith = a ? `${corrected ? '<div class="mut">before your correction:</div>' : ''}<div class="mono">${esc(a.expr)} = <b>${fmt(a.total, r.type)}${u ? ' ' + u : ''}</b></div>
+    <div class="${a.matches ? 'okt' : 'mut'}">${a.matches ? `✓ the ${a.n} items listed under Evidence add up to the answer exactly` : 'the answer is not a plain sum of the listed items (it also weighs how likely each count is)'}</div>`
+    + (corrected ? `<div class="mono">after your correction: ${items.filter(e => e.on).length} item${items.filter(e => e.on).length === 1 ? '' : 's'} = <b>${fmt(cv, r.type)}${u ? ' ' + u : ''}</b></div>` : '') : '';
   const ex = String(r.explanation || '').replace(/^(read as: [^|]*\| ?)+/, '').trim();  // "read as" is shown under the question
   const note = ex && !(t.read || []).some(x => String(x).includes(ex)) ? `<div>${esc(ex)}</div>` : '';
   const cost = `<div>${money(r.cost_usd || 0)} · ${latency(r.latency_s)} · ${esc(t.model_call)}${t.method ? ` · <code>${esc(t.method)}</code>` : ''}</div>`;
@@ -590,7 +575,7 @@ function renderAnswer(shownSoFar) {
     ${hasVs ? frontierHTML(res, oursOk) : ''}
     ${traceHTML(res)}
     ${abst ? '' : signHTML(res)}
-    <div class="costcmp" ${hasVs ? 'hidden' : ''}>
+    <div class="costcmp" ${hasVs || (abst && cur.not_drawing) ? 'hidden' : ''}>
       <span class="lab">this answer</span><span><span class="mbar" style="display:block"><i style="width:${Math.max(0.5, 100 * (res.cost_usd || 0) / Math.max(res.baseline_cost_usd || 1e-9, res.cost_usd || 0))}%"></i></span></span>
       <span class="v"><b>${money(res.cost_usd || 0)}</b> · ${latency(res.latency_s)}</span>
       <span class="lab">frontier model</span><span><span class="mbar" style="display:block"><i class="base" style="width:100%"></i></span></span>
@@ -685,9 +670,14 @@ function currentCorrection() {
 }
 function exportTakeoff() {
   const cols = ['drawing', 'question', 'answer', 'unit', 'corrected', 'method', 'confidence', 'track_record', 'rule', 'cost_usd', 'signed_by', 'signed_at', 'asked_at', 'credit'];
-  const head = ['drawing', 'question', 'answer', 'unit', 'corrected value', 'method', 'confidence', 'track record % (held-out test)', 'counting rule', 'cost USD', 'checked by', 'checked at', 'asked at', 'drawing credit'];
+  const head = ['drawing', 'question', 'answer', 'unit', 'corrected value', 'method', 'confidence %', 'track record % (held-out test)', 'counting rule', 'cost USD', 'checked by', 'checked at', 'asked at', 'drawing credit'];
   const cell = v => { const t = String(v ?? ''); return /[",\n;]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
-  const csv = [head.join(','), ...takeoff.map(r => cols.map(c => cell(typeof r[c] === 'string' ? r[c].replace(/\s+/g, ' ') : r[c])).join(','))].join('\r\n');
+  const show = (r, c) => {  // an upload is named by its file name, not its server folder; confidence as % like the track record
+    if (c === 'drawing' && String(r.drawing || '').startsWith('uploads/')) return String(r.drawing).split('/').pop();
+    if (c === 'confidence' && typeof r.confidence === 'number') return +(100 * r.confidence).toFixed(1);
+    return typeof r[c] === 'string' ? r[c].replace(/\s+/g, ' ') : r[c];
+  };
+  const csv = [head.join(','), ...takeoff.map(r => cols.map(c => cell(show(r, c))).join(','))].join('\r\n');
   const url = URL.createObjectURL(new Blob(['\ufeff' + csv], {type: 'text/csv;charset=utf-8'}));
   const link = document.createElement('a'); link.href = url; link.download = `takeoff-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '')}.csv`;
   document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
@@ -768,8 +758,8 @@ function shapeFor(e, i, W, H) {
   } else if (e.guids) {
     shape.addEventListener('mouseenter', () => { const j = guidItem().get(e.guids[0]); if (j != null) rowHot(j, true, true); });
   }
-  if (i >= 0 && numbered(e) && e.on) {
-    const n = items.slice(0, i + 1).filter(x => x.on && numbered(x)).length;
+  if (i >= 0 && numbered(e)) {  // numbers stay put after a correction: a dropped item keeps its number, faint, to click back
+    const n = items.slice(0, i + 1).filter(numbered).length;
     // shape carries the meaning without colour: circle = measured from CAD / IFC geometry, square = found by a model
     let c;
     if (modelRead(e)) {
@@ -781,17 +771,17 @@ function shapeFor(e, i, W, H) {
       if (e.kind === 'polygon') { c.dataset.y = ly; c.dataset.ty = ty; ly = pgBadgeY(ly, ty, fs); }
       c.setAttribute('cx', lx); c.setAttribute('cy', ly); c.setAttribute('r', fs * 0.78);
     }
-    c.setAttribute('class', 'badgebg' + (e.added ? ' added' : '') + (modelRead(e) ? ' model' : '')); g.appendChild(c);
+    c.setAttribute('class', 'badgebg' + (e.added ? ' added' : '') + (modelRead(e) ? ' model' : '') + (e.on ? '' : ' off')); g.appendChild(c);
     const t = document.createElementNS(NS, 'text');
     t.setAttribute('x', lx); t.setAttribute('y', ly); t.setAttribute('text-anchor', 'middle');
-    t.setAttribute('dominant-baseline', 'central'); t.setAttribute('class', 'badge');
+    t.setAttribute('dominant-baseline', 'central'); t.setAttribute('class', 'badge' + (e.on ? '' : ' off'));
     t.textContent = n; t.style.fontSize = (String(n).length > 2 ? fs * 0.62 : fs * 0.82) + 'px'; g.appendChild(t);
   } else if (i >= 0 && e.kind === 'polygon' && e.on && e.value != null && res.type !== 'count') {
     const t = document.createElementNS(NS, 'text');
     // the printed room name and number sit at the centre: put the m² near the bottom edge, inside the room
     t.setAttribute('x', lx); t.dataset.y = ly; t.dataset.by = by; t.setAttribute('y', pgLabelY(ly, by, fs)); t.setAttribute('text-anchor', 'middle');
     t.setAttribute('class', 'pglabel'); t.style.fontSize = fs + 'px';
-    t.textContent = (+e.value).toFixed(2) + ' m²'; g.appendChild(t);
+    t.textContent = round2(e.value) + ' m²'; g.appendChild(t);
   }
   return g;
 }
@@ -816,9 +806,9 @@ function renderEvidence() {
   let k = 0;
   items.forEach((e, i) => {
     const d = document.createElement('div'); d.className = (e.on ? '' : 'off') + (e.added ? ' added' : ''); d.dataset.i = i;
-    if (numbered(e) && e.on) k++;
+    if (numbered(e)) k++;
     const name = e.kind === 'box' ? (e.label || 'item').replace(/ \d+$/, '') : (e.label || (e.kind === 'polygon' ? 'region' : 'item'));
-    const lead = numbered(e) ? `<span class="n">${e.on ? '#' + k : '–'}</span>` : `<span class="n">${i + 1}</span>`;
+    const lead = numbered(e) ? `<span class="n">#${k}</span>` : `<span class="n">${i + 1}</span>`;
     const val = e.value != null && t !== 'count' ? fmt(e.value, t) + ' ' + unitOf(t) : '';
     const read = modelRead(e) && e.score != null ? `<span class="rd" title="found by a model with score ${Math.round(100 * e.score)} %: please check">${Math.round(100 * e.score)}%</span>` : '';
     d.innerHTML = `<button class="tg" title="${e.on ? 'drop this item from the answer' : 'put it back'}" aria-label="include">${e.on ? '✓' : ''}</button>${lead}<span class="nm" title="${esc(name)}">${esc(name)}${read}</span><span class="vl">${val}</span>`;
