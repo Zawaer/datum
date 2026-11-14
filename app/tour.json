@@ -74,7 +74,7 @@
   },
   {
     "title": "Your turn",
-    "caption": "Click any element to drop it from the answer. Now type a question, or pick another drawing top left.",
+    "caption": "Only this storey is shown, its rooms lit. Click a room to find its row; untick a row to drop it. Now ask your own question.",
     "source": "ifc_models",
     "path": "data/ifc_models/bsc-molio_molio-with-uris_plan-03-grundplan.pdf",
     "question": "How many rooms (spaces) are shown on the floor plan of 'Grundplan'?",

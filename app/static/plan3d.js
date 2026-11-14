@@ -95,6 +95,15 @@ function initGL() {
   const cv = renderer.domElement;
   cv.addEventListener('pointermove', e => { if (!e.buttons) hover(pick(e)); });
   cv.addEventListener('pointerleave', () => hover(null));
+  // as in the IFC viewer: a click (within 4 px and 300 ms) selects the item and finds its row; a drag orbits and
+  // selects nothing. Neither changes the answer: items are dropped in the evidence list.
+  let down = null;
+  cv.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY, performance.now()]; });
+  cv.addEventListener('pointerup', e => {
+    const d = down; down = null;
+    if (!d || Math.hypot(e.clientX - d[0], e.clientY - d[1]) >= 4 || performance.now() - d[2] > 300) return;
+    select(pick(e));
+  });
 }
 
 // render on demand (as view3d.js): a frame per request, more only while damping (capped) or a tween runs
@@ -222,8 +231,9 @@ const mats = {
   // room tints are flat (unlit), like the 2D overlay: a lit floor facing the sky would wash the tint out to white
   room: new THREE.MeshBasicMaterial({color: COL.evTint}),
   roomOff: new THREE.MeshBasicMaterial({color: COL.offTint}),
-  hotRoom: new THREE.MeshBasicMaterial({color: 0xf6ef8a}),
-  hot: new THREE.MeshStandardMaterial({color: COL.hl, emissive: COL.hl, emissiveIntensity: 0.35, roughness: 0.6}),
+  // hover / selection: a light accent tint with a dark outline (lineHot), never a saturated solid colour
+  hotRoom: new THREE.MeshBasicMaterial({color: 0x8dbde0}),
+  hot: new THREE.MeshStandardMaterial({color: COL.ev, emissive: COL.ev, emissiveIntensity: 0.25, transparent: true, opacity: 0.45, roughness: 0.6, depthWrite: false}),
   line: new THREE.LineBasicMaterial({color: COL.ev}), lineOff: new THREE.LineBasicMaterial({color: COL.off}), lineHot: new THREE.LineBasicMaterial({color: COL.cut}),
 };
 const fmtA = v => (Math.round(v * 100) / 100).toFixed(2);
@@ -239,7 +249,7 @@ function clearEvidence() {
   if (!evGroup) return;
   for (const o of [...evGroup.children]) { evGroup.remove(o); o.traverse(x => x.geometry && x.geometry.dispose()); }
   for (const s of data ? data.symbols : []) if (s.glass) s.glass.material = s.glass.userData.base || s.glass.material;
-  labs.innerHTML = ''; ev = []; hot = null;
+  labs.innerHTML = ''; ev = []; hot = null; selI = null;
 }
 
 function applyEvidence(animate) {
@@ -350,13 +360,19 @@ function pick(e) {
   const hits = ray.intersectObjects(ev.flatMap(x => x.meshes), false);
   return hits.length ? hits[0].object.userData.i : null;
 }
-let hoverRow = null;
+let hoverRow = null, selI = null;
 function hover(i) {
   if (i === hoverRow) return;
   if (hoverRow != null) app.rowHot(hoverRow, false);
   hoverRow = i; if (i != null) app.rowHot(i, true);
-  setHot(i);
+  setHot(i ?? selI);
   renderer.domElement.style.cursor = i != null ? 'pointer' : '';
+}
+function select(i) {
+  selI = i ?? null; setHot(selI);
+  if (selI == null) return;
+  const w = $('#evwrap'); if (w && !w.open) w.open = true;
+  try { if (typeof window.flashRow === 'function') window.flashRow(selI); else app.rowHot(selI, true); } catch (e) { /* app changed */ }
 }
 function setHot(i) {
   const it = i == null ? null : ev.find(x => x.i === i) || null;

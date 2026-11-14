@@ -5,9 +5,12 @@
 // Rendering is on demand: frames are drawn only while something moves, never while the view is idle.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 
 let renderer, scene, camera, controls, host, model = null, hl = null, offMesh = null, hotMesh = null, anim = null, animDone = null;
-let ctxEdges = null, hlEdges = null, pulse = null, grid = null;
+let ctxEdges = null, hlEdges = null, offEdges = null, pulse = null, grid = null;
 let positions = null, elements = [], byGuid = new Map(), storeys = [], allIdx = null;
 let edgeIdx = null;  // per-element outline segments (vertex index pairs into the shared position buffer)
 let clip = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1e9), clipWanted = 1e9;
@@ -25,7 +28,15 @@ const ctxLine = new THREE.LineBasicMaterial({ color: 0x5b6470, transparent: true
 const hlLine = new THREE.LineBasicMaterial({ color: 0x003a5c, transparent: true, opacity: 0.85 });
 const pulseMat = new THREE.MeshBasicMaterial({ color: 0x56b4e9, transparent: true, opacity: 0, side: THREE.DoubleSide,
   depthTest: false, depthWrite: false });
-for (const m of [ctxMat, ctxLine, hlLine, pulseMat]) m.clippingPlanes = [clip];
+// dropped (unticked) evidence: a faint grey veil with its outlines, so it can still be found and put back
+const offMat = new THREE.MeshLambertMaterial({ color: 0x8a94a3, transparent: true, opacity: 0.1, side: THREE.DoubleSide,
+  depthWrite: false });
+const offLine = new THREE.LineBasicMaterial({ color: 0x5b6470, transparent: true, opacity: 0.6, depthWrite: false });
+// hover and selection: a light accent tint over the element and a 2 px outline, never a solid block of colour
+const markTint = new THREE.MeshBasicMaterial({ color: 0x0072b2, transparent: true, opacity: 0.25, side: THREE.FrontSide,
+  depthTest: false, depthWrite: false });
+const markLine = new LineMaterial({ color: 0x00324f, linewidth: 2, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false });
+for (const m of [ctxMat, ctxLine, hlLine, pulseMat, offMat, offLine, markTint, markLine]) m.clippingPlanes = [clip];
 
 function b64(s, Type) {
   const bin = atob(s), u8 = new Uint8Array(bin.length);
@@ -34,7 +45,8 @@ function b64(s, Type) {
 }
 
 // ------------------------------------------------------------ in-viewer controls and storey labels (DOM owned here)
-let bar, btnExplode, btnXray, labLayer, labels = [];
+let bar, btnExplode, btnXray, labLayer, labels = [], floorEl = null;
+let focusSi = null, homeSi = null;  // the storey on show (null = whole building), and the one the evidence is on
 const CSS = `
 .v3bar { position: absolute; left: 12px; top: 12px; display: flex; gap: 0; z-index: 4; font: 500 13px var(--font, system-ui); }
 .v3bar button { border: 1px solid var(--line2, #c3c8cf); background: var(--panel, #fff); color: var(--text, #16191d);
@@ -57,8 +69,17 @@ const CSS = `
 .v3lab s { display: block; width: 18px; height: 1px; background: var(--faint, #8a929d); text-decoration: none; }
 .v3lab.ev s { background: var(--ev, #0072b2); }
 .v3labs.n .v3lab i { display: none; }
+.v3floor { position: absolute; left: 14px; top: 60px; z-index: 4; display: flex; align-items: center; gap: 8px;
+  font: 13px var(--font, system-ui); color: var(--mut, #5b6470); background: var(--panel, #fff); border: 1px solid var(--line2, #c3c8cf);
+  border-radius: var(--r1, 4px); padding: 4px 4px 4px 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.v3floor[hidden] { display: none; }
+.v3floor b { color: var(--text, #16191d); font-weight: 600; }
+.v3floor button { border: 1px solid var(--line2, #c3c8cf); background: var(--panel2, #f5f6f8); color: var(--text, #16191d);
+  border-radius: var(--r1, 4px); padding: 3px 9px; font: 500 12px var(--font, system-ui); cursor: pointer; min-height: 26px; }
+.v3floor button:hover { border-color: var(--ev, #0072b2); color: var(--ev-ink, #005f94); }
 .v3lab.r { flex-direction: row-reverse; } .v3lab.r i { margin: 0 6px 0 0; }
-@media (max-width: 700px) { .v3bar { left: 8px; top: 8px; font-size: 12px; } .v3bar button { padding: 4px 8px; min-height: 36px; }
+@media (max-width: 700px) { .v3floor { left: 8px; top: 52px; font-size: 12px; } .v3floor button { min-height: 32px; }
+  .v3bar { left: 8px; top: 8px; font-size: 12px; } .v3bar button { padding: 4px 8px; min-height: 36px; }
   .v3lab b { padding: 1px 5px; } .v3lab s { width: 10px; } }
 `;
 const ICON_EXPLODE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 4.5 8 2l6 2.5L8 7z"/><path d="M2 11.5 8 9l6 2.5L8 14z"/></svg>';
@@ -81,12 +102,35 @@ function buildUI() {
   btnXray.onclick = () => setXray(!xrayOn());
   // the bar sits on the canvas: keep its clicks away from orbit / pick, and from the 2D pan handler around it
   for (const ev of ['pointerdown', 'pointerup', 'wheel']) bar.addEventListener(ev, e => e.stopPropagation());
+  // which part of the building is on show: the storey the question is about, or the whole building (a deliberate step)
+  floorEl = document.createElement('div'); floorEl.className = 'v3floor'; floorEl.hidden = true;
+  floorEl.innerHTML = '<span></span><button type="button"></button>';
+  host.appendChild(floorEl);
+  for (const ev of ['pointerdown', 'pointerup', 'wheel']) floorEl.addEventListener(ev, e => e.stopPropagation());
+  floorEl.querySelector('button').onclick = () => {
+    const to = focusSi != null ? 'all' : homeSi;
+    if (to == null) return;
+    if (cbs.onStorey) cbs.onStorey(to); else focusStorey(to === 'all' ? null : to, true, homeSi);
+  };
   syncUI();
 }
 function syncUI() {
   if (!bar) return;
   bar.hidden = !model;
-  btnExplode.hidden = storeys.length < 2;
+  // one floor on show: explode and x-ray belong to the whole building, offered once it is on show
+  const floor = focusSi != null && !(explodeTo > 0);
+  btnExplode.hidden = storeys.length < 2 || floor;
+  btnXray.hidden = floor;
+  if (floorEl) {
+    const nm = i => (storeys[i] && storeys[i].name) || `Storey ${i + 1}`;
+    const show = !!model && storeys.length > 1 && (focusSi != null || homeSi != null) && !(explodeTo > 0);
+    floorEl.hidden = !show;
+    if (show) {
+      const sp = floorEl.querySelector('span'), b = floorEl.querySelector('button');
+      if (focusSi != null) { sp.innerHTML = '<b></b> only'; sp.firstChild.textContent = nm(focusSi); b.textContent = 'Show whole building'; b.title = 'Show every storey, the rest of the building as faint glass'; }
+      else { sp.innerHTML = '<b>Whole building</b>'; b.textContent = `Only ${nm(homeSi)}`; b.title = 'Back to the storey the question is about'; }
+    }
+  }
   btnExplode.setAttribute('aria-pressed', String(explodeTo > 0.5));
   btnExplode.querySelector('span').textContent = explodeTo > 0.5 ? 'Collapse storeys' : 'Explode storeys';
   btnXray.setAttribute('aria-pressed', String(xrayOn()));
@@ -108,16 +152,20 @@ export function init(el, callbacks = {}) {
   buildUI();
   new ResizeObserver(resize).observe(el);
   resize();
-  // click (not drag) -> pick the element under the pointer; a press during the count only skips the count
+  // a click (pressed and released within 4 px and 300 ms) selects the element under the pointer; anything longer or
+  // further is an orbit and selects nothing. A click never changes the answer: dropping an item is done in the list.
+  // A press during the count only skips the count.
   let down = null, swallow = false;
   renderer.domElement.addEventListener('pointerdown', e => {
-    down = [e.clientX, e.clientY]; swallow = false;
+    down = [e.clientX, e.clientY, performance.now()]; swallow = false;
     if (anim) { skipReveal(); swallow = true; }
+    cbs.onPress && cbs.onPress();
   });
   renderer.domElement.addEventListener('pointerup', e => {
     if (swallow) { swallow = false; return; }
-    if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return;
-    const g = pick(e); if (g && cbs.onPick) cbs.onPick(g);
+    const d = down; down = null;
+    if (!d || Math.hypot(e.clientX - d[0], e.clientY - d[1]) >= 4 || performance.now() - d[2] > 300) return;
+    if (cbs.onPick) cbs.onPick(pick(e), { x: e.clientX, y: e.clientY });
   });
   renderer.domElement.addEventListener('pointermove', e => {
     if (e.buttons || !cbs.onHover) return;
@@ -156,7 +204,7 @@ function tween(f) { tweens.add(f); requestRender(); return f; }
 function resize() {
   if (!host) return;
   const w = host.clientWidth, h = host.clientHeight;
-  renderer.setSize(w, h); camera.aspect = w / Math.max(1, h); camera.updateProjectionMatrix();
+  renderer.setSize(w, h); markLine.resolution.set(w, h); camera.aspect = w / Math.max(1, h); camera.updateProjectionMatrix();
   requestRender();
 }
 
@@ -365,8 +413,9 @@ function glideTo(b, ms) {
 
 export function clear() {
   if (anim) { clearInterval(anim); anim = null; const d = animDone; animDone = null; if (d) d(); }  // never leave a count half-way
-  for (const m of [hl, offMesh, hotMesh, hlEdges, pulse]) if (m) { scene.remove(m); m.geometry.dispose(); }
-  hl = offMesh = hotMesh = hlEdges = pulse = null;
+  for (const m of [hl, offMesh, hotMesh, hlEdges, offEdges, pulse]) if (m) { scene.remove(m); m.geometry.dispose(); }
+  hl = offMesh = hotMesh = hlEdges = offEdges = pulse = null;
+  setMark('hot', null); setMark('sel', null);
   if (hlMat) { hlMat.dispose(); hlMat = null; }
   evStoreys = new Map();
   applyLook(); updateLabels();
@@ -383,12 +432,34 @@ function setClip(si) {
 }
 function applyClip() { clip.constant = explodeTo > 0 || explodeT > 0 ? 1e9 : clipWanted; }
 export function getStoreys() { return storeys; }
-export function focusStorey(si, reframe = true) {
-  setClip(si);
-  if (reframe && model) frame(hl || model, si != null && si >= 0 && !(explodeTo > 0));
+// si: the storey to show on its own (everything above it cut away), or null for the whole building; home: the storey
+// the evidence is on (offered as "Only <storey>" while the whole building is on show). Going from one storey to the
+// whole building, the cut rises through the building while the camera pulls back.
+export function focusStorey(si, reframe = true, home) {
+  if (home !== undefined) homeSi = home;
+  const valid = si != null && si >= 0 && si < storeys.length;
+  const was = clipWanted;
+  focusSi = valid ? si : null;
+  setClip(valid ? si : null);
+  syncUI();
+  if (!model) return;
+  const ev = hl || offMesh;
+  if (reframe && !valid && was < 1e8 && clipWanted >= 1e8 && !(explodeTo > 0) && !RM.matches) {
+    const top = drawnBox(model, true).max.y + 0.5, b = drawnBox(model, true), t0 = performance.now(), ms = 900;
+    clipWanted = was; applyClip();
+    for (const f of tweens) if (f.rise) tweens.delete(f);
+    const f = now => {
+      if (focusSi != null) return false;  // back to one storey meanwhile
+      const k = Math.min(1, (now - t0) / ms);
+      clipWanted = k >= 1 ? 1e9 : was + (top - was) * ease(k); applyClip();
+      return k < 1;
+    };
+    f.rise = true; tween(f);
+    glideTo(b, ms);
+  } else if (reframe) frame(ev || model, valid && !(explodeTo > 0));
   requestRender();
 }
-export function setCut(y) { clipWanted = y; applyClip(); requestRender(); }
+export function setCut(y) { for (const f of tweens) if (f.rise) tweens.delete(f); clipWanted = y; applyClip(); requestRender(); }
 
 let footprint = null;  // the building's plan extent (robust): every storey label sits off the same corner of it
 let baseY = null, vStorey = null, offsets = null, storeyBox = [], explodeT = 0, explodeTo = 0, evStoreys = new Map();
@@ -423,6 +494,7 @@ function applyExplode() {
   const pa = positions.array, nv = positions.count, t = explodeT;
   for (let i = 0; i < nv; i++) pa[i * 3 + 1] = baseY[i] + offsets[vStorey[i]] * t;
   positions.needsUpdate = true;
+  for (const k of ['hot', 'sel']) if (marks[k]) markOutline(marks[k]);  // the 2 px outlines hold copies: follow the lift
 }
 
 // lift the storeys apart (true) or set them back (false), eased over ~0.8 s; the camera follows to frame the stack
@@ -430,7 +502,7 @@ export function explode(on = true, ms = 800) {
   if (!model || !offsets || storeys.length < 2) return;
   const to = on ? 1 : 0;
   if (to === explodeTo) return;
-  explodeTo = to; applyClip(); syncUI();
+  explodeTo = to; for (const f of tweens) if (f.rise) tweens.delete(f); applyClip(); syncUI();
   if (RM.matches) ms = 0;
   // frame where things will be at the end: the whole stack when lifting, the evidence (or the focused storey) when
   // setting back. Measured on the end state, then the buffer goes back to where it is now
@@ -446,7 +518,7 @@ export function explode(on = true, ms = 800) {
     const k = ms ? Math.min(1, (now - s) / ms) : 1;
     explodeT = from + (to - from) * ease(k);
     applyExplode(); fadeLabels();
-    if (k >= 1) { explodeT = to; applyClip(); for (const m of [model, hl, offMesh, hotMesh]) if (m) { m.geometry.boundingSphere = null; m.geometry.boundingBox = null; } }
+    if (k >= 1) { explodeT = to; applyClip(); syncUI(); for (const m of [model, hl, offMesh, hotMesh]) if (m) { m.geometry.boundingSphere = null; m.geometry.boundingBox = null; } }
     return k < 1;
   };
   f.explode = true;
@@ -527,8 +599,8 @@ function placeLabels() {
 }
 
 // ------------------------------------------------------------ x-ray: everything but the evidence as faint glass
-let xrayUser = null;  // null = automatic: on while an answer has evidence to show, off for the bare model
-function xrayOn() { return xrayUser != null ? xrayUser : !!hl; }
+let xrayUser = null;  // null = automatic: on while an answer has evidence to show (even all of it dropped), off for the bare model
+function xrayOn() { return xrayUser != null ? xrayUser : !!(hl || offMesh); }
 export function setXray(on) { xrayUser = on == null ? null : !!on; applyLook(); syncUI(); requestRender(); }
 export function isXray() { return xrayOn(); }
 function applyLook() {
@@ -579,20 +651,26 @@ export function highlight(items, animate = true, onStep = null, reframe = true, 
   evStoreys = new Map();
   for (const g of groups) { const ss = new Set(g.map(e => e.storey >= 0 ? e.storey : vStorey ? vStorey[allIdx[e.start]] : -1)); for (const s of ss) evStoreys.set(s, (evStoreys.get(s) || 0) + 1); }
   if (off.length) {
-    offMesh = subMesh(off, new THREE.MeshLambertMaterial({ color: 0x8a94a3, transparent: true, opacity: 0.55,
-      side: THREE.DoubleSide, clippingPlanes: [clip] }));
+    offMesh = subMesh(off, offMat); offMesh.renderOrder = 1;
     scene.add(offMesh);
+    offEdges = subEdges([off], offLine);
+    if (offEdges) { offEdges.renderOrder = 2; scene.add(offEdges); }
   }
   updateLabels();
   requestRender();
-  if (!on.length) { applyLook(); onDone && onDone(); return; }
+  if (!on.length) {  // every item dropped: keep them in view as faint outlines, so they can be found and put back
+    applyLook();
+    if (reframe && offMesh && !(explodeTo > 0)) frame(offMesh, clip.constant < 1e8);
+    revealListener && revealListener(items.length, items.length);
+    onDone && onDone(); return;
+  }
   // rooms are volumes: draw them see-through so what's inside (and the rooms behind) stays visible
   const volumes = on.filter(e => e.type === 'IfcSpace').length > on.length / 2;
   // drawn in the transparent pass, after the context: in x-ray the glass in front of it does not veil it, while a
   // solid (depth-writing) context still hides what is behind a wall
   hlMat = new THREE.MeshLambertMaterial({ color: 0x0072b2, emissive: 0x002a44,
     side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, clippingPlanes: [clip],
-    transparent: true, opacity: volumes ? 0.42 : 1, depthWrite: !volumes });
+    transparent: true, opacity: volumes ? 0.14 : 1, depthWrite: !volumes });
   hlMat.userData.volumes = volumes;
   hl = subMesh(on, hlMat);
   hl.renderOrder = 2;
@@ -641,15 +719,41 @@ export function highlight(items, animate = true, onStep = null, reframe = true, 
   }, step);
 }
 
-// hover glow for one evidence item
-export function hot(guids) {
-  if (hotMesh) { scene.remove(hotMesh); hotMesh.geometry.dispose(); hotMesh = null; requestRender(); }
+// hover ('hot') and selection ('sel'): a light accent tint and a 2 px outline over the element(s)
+const marks = { hot: null, sel: null };
+function markOutline(m) {
+  if (!edgeIdx) return;
+  const pa = positions.array; let n = 0;
+  for (const e of m.list) n += e.ecount;
+  const arr = new Float32Array(n * 3); let o = 0;
+  for (const e of m.list) for (let k = e.estart, end = e.estart + e.ecount; k < end; k++) { const v = edgeIdx[k] * 3; arr[o++] = pa[v]; arr[o++] = pa[v + 1]; arr[o++] = pa[v + 2]; }
+  if (m.line) { scene.remove(m.line); m.line.geometry.dispose(); }
+  const g = new LineSegmentsGeometry(); g.setPositions(arr);
+  m.line = new LineSegments2(g, markLine); m.line.renderOrder = 7; m.line.frustumCulled = false;
+  scene.add(m.line);
+}
+function setMark(kind, guids) {
+  const old = marks[kind];
+  if (old) { scene.remove(old.mesh); old.mesh.geometry.dispose(); if (old.line) { scene.remove(old.line); old.line.geometry.dispose(); } marks[kind] = null; requestRender(); }
   const list = (guids || []).map(g => byGuid.get(g)).filter(Boolean);
   if (!list.length || !model) return;
-  hotMesh = subMesh(list, new THREE.MeshLambertMaterial({ color: 0xf0e442, emissive: 0x5a5200, side: THREE.DoubleSide,
-    polygonOffset: true, polygonOffsetFactor: -2, clippingPlanes: [clip], depthTest: false, transparent: true, opacity: 0.9 }));
-  hotMesh.renderOrder = 4;
-  scene.add(hotMesh); requestRender();
+  const m = { list, mesh: subMesh(list, markTint), line: null };
+  m.mesh.renderOrder = 6; scene.add(m.mesh);
+  markOutline(m);
+  marks[kind] = m; requestRender();
+}
+export function hot(guids) { setMark('hot', guids); }
+// the selected element (a click in 3D, or a row of the evidence list): stays marked until something else is selected
+export function select(guids) { setMark('sel', guids); }
+// where an element is on screen (the middle of its box), for a tooltip beside it; null when behind the camera
+export function screenPos(guids) {
+  const list = (guids || []).map(g => byGuid.get(g)).filter(Boolean); if (!list.length) return null;
+  const pa = positions.array, b = new THREE.Box3(), v = new THREE.Vector3();
+  for (const e of list) for (let t = e.start, end = e.start + e.count; t < end; t++) { const k = allIdx[t] * 3; b.expandByPoint(v.set(pa[k], Math.min(pa[k + 1], clip.constant), pa[k + 2])); }
+  b.getCenter(v).project(camera);
+  if (v.z > 1) return null;
+  const rc = renderer.domElement.getBoundingClientRect();
+  return { x: rc.left + (v.x + 1) / 2 * rc.width, y: rc.top + (1 - v.y) / 2 * rc.height };
 }
 
 export function hasModel() { return !!model; }

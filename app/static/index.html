@@ -107,7 +107,8 @@
 <script type="module">
 import * as V3 from '/static/view3d.js';
 window.V3 = V3;
-V3.init(document.getElementById('three'), {onPick: g => window.onPick3d(g), onHover: g => window.onHover3d(g)});
+V3.init(document.getElementById('three'), {onPick: (g, pt) => window.onPick3d(g, pt), onHover: g => window.onHover3d(g),
+  onPress: () => window.onPress3d && window.onPress3d(), onStorey: to => window.onStorey3d(to)});
 window.dispatchEvent(new Event('v3ready'));
 </script>
 <script src="/static/app.js"></script>

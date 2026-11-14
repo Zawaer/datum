@@ -53,10 +53,12 @@ viewer.addEventListener('wheel', e => {
   const r = viewer.getBoundingClientRect();
   zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0015));
 }, {passive: false});
-const ptrs = new Map(); let gesture = null, moved = false;
+const ptrs = new Map(); let gesture = null, moved = false, pressT = 0;
+// a click is a press released within 4 px and 300 ms: anything else is a pan, and never toggles or adds an item
+const longPress = () => performance.now() - pressT > 300;
 viewer.addEventListener('pointerdown', e => {
   if (mode === '3d' || e.target.closest('button, select, input, .caption, .tools3d')) return;
-  ptrs.set(e.pointerId, [e.clientX, e.clientY]); moved = false;
+  ptrs.set(e.pointerId, [e.clientX, e.clientY]); moved = false; pressT = performance.now();
   startGesture();
 });
 function startGesture() {
@@ -73,7 +75,7 @@ window.addEventListener('pointermove', e => {
   ptrs.set(e.pointerId, [e.clientX, e.clientY]);
   const p = [...ptrs.values()];
   if (gesture.kind === 'pan' && p.length === 1) {
-    if (Math.hypot(e.clientX - gesture.sx, e.clientY - gesture.sy) > 4) moved = true;
+    if (Math.hypot(e.clientX - gesture.sx, e.clientY - gesture.sy) >= 4) moved = true;
     if (moved) { view.x = e.clientX - gesture.x; view.y = e.clientY - gesture.y; apply(); viewer.classList.add('dragging'); }
   } else if (gesture.kind === 'pinch' && p.length >= 2) {
     moved = true;
@@ -103,7 +105,7 @@ function setAdding(on) {
 }
 $('#addbtn').onclick = () => setAdding(!adding);
 viewer.addEventListener('click', e => {
-  if (!adding || !res || moved || mode === '3d' || e.target.closest('button, .caption')) return;
+  if (!adding || !res || moved || longPress() || mode === '3d' || e.target.closest('button, .caption')) return;
   addAt(e.clientX, e.clientY);
 });
 function addAt(cx, cy) {
@@ -125,6 +127,7 @@ function loading(msg) {  // overlay with a running clock, so a slow first load n
 let mode = '2d', loaded3d = null, has3d = false, storeyFocus = 'auto';
 async function setMode(m) {
   mode = m; viewer.classList.toggle('mode3d', m === '3d');
+  if (m !== '3d') pickTip(null);
   $('#m2d').classList.toggle('on', m === '2d'); $('#m3d').classList.toggle('on', m === '3d');
   $('#m2d').setAttribute('aria-pressed', m === '2d'); $('#m3d').setAttribute('aria-pressed', m === '3d');
   if (m === '3d') { const fresh = loaded3d !== cur.path; if (await ensure3d() && !fresh) highlight3d(false); }
@@ -156,14 +159,24 @@ $('#cut').oninput = e => {
   V3.setCut(e.target.value >= 1000 ? 1e9 : y);
 };
 function ifcItems() { return items.filter(e => e.guids && e.guids.length); }
+// the storey the evidence is on (all of it, ticked or not: dropping every item must not jump to the closed building).
+// 'auto' shows that storey on its own, the floors above cut away; a model-wide answer shows the whole building
 function applyStorey(reframe) {
+  const home = V3.autoStorey(ifcItems());
   let si = null;
-  if (storeyFocus === 'auto') si = V3.autoStorey(ifcItems().filter(e => e.on));
+  if (storeyFocus === 'auto') si = home;
   else if (storeyFocus !== 'all') si = +storeyFocus;
-  V3.focusStorey(si, reframe);
+  V3.focusStorey(si, reframe, home);
   $('#cut').value = 1000;
   return si;
 }
+// the in-viewer "Show whole building" / "Only <storey>" control
+window.onStorey3d = to => {
+  pickTip(null);
+  storeyFocus = to === 'all' ? 'all' : 'auto';
+  const sel = $('#storey'); if (sel) sel.value = storeyFocus;
+  applyStorey(true); viewTools();
+};
 function highlight3d(animate) {
   if (!window.V3 || !V3.hasModel() || loaded3d !== cur.path) {  // model still loading: show the final number now
     if (animate) { animating = false; renderAnswer(null); }
@@ -171,15 +184,45 @@ function highlight3d(animate) {
   }
   const it = ifcItems();
   applyStorey(false);
-  if (!it.length) { V3.clear(); V3.focusStorey(null, false); return; }
+  if (!it.length) { V3.clear(); V3.focusStorey(null, false, null); pickTip(null); return; }
   if (animate) animating = true;
   V3.highlight(it, animate, animate ? (k => renderAnswer(k)) : null, true, animate ? () => { animating = false; renderAnswer(null); recompute(); } : null);
+  if (sel3d && sel3d.res === res && items[sel3d.i]) V3.select(items[sel3d.i].guids); else { sel3d = null; pickTip(null); }
+  viewTools();
 }
 const guidItem = () => { const m = new Map(); items.forEach((e, i) => (e.guids || []).forEach(g => m.set(g, i))); return m; };
-window.onPick3d = g => {
-  const i = guidItem().get(g);
-  if (i != null && items[i]) { items[i].on = !items[i].on; redraw(); flashRow(i); return; }
-  const info = V3.elementInfo(g);
+// a click in 3D selects (never toggles: rooms fill the storey, so every orbit would untick one). The selected element
+// is outlined, its row flashes in the evidence list, and a small tip beside it offers to drop it or put it back.
+let sel3d = null;
+const tip3d = document.createElement('div'); tip3d.className = 'tip3d'; tip3d.hidden = true; tip3d.setAttribute('role', 'dialog');
+viewer.appendChild(tip3d);
+for (const t of ['pointerdown', 'pointerup', 'wheel', 'click']) tip3d.addEventListener(t, e => e.stopPropagation());
+function pickTip(i, pt) {
+  if (i == null || !items[i] || mode !== '3d') { tip3d.hidden = true; return; }
+  const e = items[i], k = items.slice(0, i + 1).filter(numbered).length;
+  const name = (e.label || 'item').replace(/ \d+$/, '').replace(/^Ifc[A-Za-z]+ /, '');
+  tip3d.title = e.label || '';
+  tip3d.innerHTML = `<span class="tn">${numbered(e) ? `#${k} ` : ''}<b></b></span><span class="ts">${e.on ? 'counted' : 'dropped'}</span>
+    <button type="button" class="tb">${e.on ? 'Drop from answer' : 'Put back'}</button><button type="button" class="tx" aria-label="Close">✕</button>`;
+  tip3d.querySelector('b').textContent = name;
+  tip3d.querySelector('.tb').onclick = () => { e.on = !e.on; redraw(); flashRow(i); const p = V3.screenPos(e.guids); pickTip(i, p); };
+  tip3d.querySelector('.tx').onclick = () => { sel3d = null; V3.select(null); pickTip(null); };
+  tip3d.hidden = false;
+  const vr = viewer.getBoundingClientRect(), w = tip3d.offsetWidth, h = tip3d.offsetHeight;
+  const p = pt || {x: vr.left + vr.width / 2, y: vr.top + vr.height / 2};
+  tip3d.style.left = Math.max(8, Math.min(vr.width - w - 8, p.x - vr.left + 12)) + 'px';
+  tip3d.style.top = Math.max(56, Math.min(vr.height - h - 30, p.y - vr.top - h - 12)) + 'px';
+}
+window.onPress3d = () => { tip3d.hidden = true; };
+window.onPick3d = (g, pt) => {
+  const i = g == null ? null : guidItem().get(g);
+  if (i != null && items[i]) {
+    sel3d = {res, i}; V3.select(items[i].guids);
+    if (!$('#evwrap').open) $('#evwrap').open = true;
+    flashRow(i); pickTip(i, pt); return;
+  }
+  sel3d = null; V3.select(null); pickTip(null);
+  const info = g == null ? null : V3.elementInfo(g);
   if (info && res && primary === 'ifc') hint(`${info.type} '${info.name}' is not part of this answer`);
 };
 let lastHover = null;
@@ -661,6 +704,20 @@ function trustHTML(r, h) {
   else if (r.confidence != null) tr = `<span class="tr ${r.confidence >= 0.8 ? '' : 'warn'}">Model confidence <b>${Math.round(100 * r.confidence)} %</b></span>`;
   return `<div class="trust">${badge}${tr}</div>`;
 }
+// after a correction the number is the user's: the badge says so, and what the solver's method, track record and second
+// opinion vouch for is said of the solver's own number, in grey, not of the corrected one
+function correctedTrustHTML(r, h) {
+  const t = r.type, u = unitOf(t), c = r.calibration, x = r.crosscheck;
+  let txt = `The solver's ${fmt(r.answer, t)}${u ? ' ' + u : ''} was ${esc(h.t.charAt(0).toLowerCase() + h.t.slice(1))}`;
+  if (c && c.measured) txt += ` (that method is right ${pctOf(c.right, c.n)} % of the time on similar test drawings)`;
+  if (x && x.status === 'agree') txt += '; a second, independent method agreed with the solver';
+  else if (x && x.status && x.status !== 'single') {
+    const sec = x.second || {};
+    txt += `; a second method said ${typeof sec.answer === 'number' ? fmt(sec.answer, t) : esc(String(sec.answer ?? '—'))}`;
+  }
+  return `<div class="trust"><span class="tbadge corr" title="You dropped or added items: this number is yours, not the solver's">✎ Corrected by you</span></div>
+    <div class="orig">${txt}.</div>`;
+}
 // the second opinion in one line: a check mark when it agrees, a warning when it does not
 function secondHTML(r) {
   const c = r.crosscheck; if (!c || !c.status || c.status === 'single' || r.answer == null) return '';
@@ -700,6 +757,7 @@ function renderAnswer(shownSoFar) {
   const num = typeof res.answer === 'number';
   const baseS = res.baseline_latency_s || 8;
   const h = howOf(res);
+  const corrected = num && !counting && items.some(e => !e.on || e.added);
   if (num && res.answer === 0 && !items.length && h.cls !== 'geo') h.how = 'it found nothing to box, so there is nothing to check on the drawing: look at the plan yourself before relying on 0';
   const qrow = `<div class="qrow"><div class="qecho" title="${esc(res.question)}">${esc(res.question)}</div><span class="qtools" id="qtools"></span></div>`;
   if (res.method === 'rate-limit') {  // the demo's per-visitor limit: no abstain card, no comparison, no cost
@@ -713,8 +771,7 @@ function renderAnswer(shownSoFar) {
     ${res.normalized_question && res.normalized_question !== res.question ? `<div class="readas">read as: <i>${esc(res.normalized_question)}</i></div>` : ''}
     ${typeof res.answer === 'string' ? `<div class="textans">${esc(res.answer.trim().split('\n').map(l => l.replace(/^\s{1,4}(?=\S)/, '')).join('\n'))}</div>`
       : `<div class="big ${abst ? 'abstain' : ''} ${counting ? 'counting' : ''}">${abst ? 'Not sure, so no guess' : num ? `<span class="bn">${fmt(val, t)}</span>` : ''}${abst || !unitOf(t) ? '' : ` <small>${unitOf(t)}</small>`}</div>`}
-    ${trustHTML(res, h)}
-    ${secondHTML(res)}
+    ${corrected ? correctedTrustHTML(res, h) : trustHTML(res, h) + secondHTML(res)}
     <div class="corr" id="corr"></div>`;
   // the rest folds: compared with frontier models, and how it was worked out (method, track record, rule, arithmetic, cost)
   const fr = res.frontier || [], wrong = fr.filter(f => f.correct === false).length;
@@ -723,6 +780,7 @@ function renderAnswer(shownSoFar) {
       ${(num && ghostHTML(res, val, counting)) || frontierHTML(res, oursOk)}
       <div class="vsnote">Same drawing and question, from our baseline run on held-out test questions.</div></div></details>` : '';
   const how = `<details class="sec" data-sec="how" ${secOpen.how ? 'open' : ''}><summary><span>How it was worked out</span><span class="sv">${abst && cur.not_drawing ? '' : `${money(res.cost_usd || 0)} · ${latency(res.latency_s)}`}</span></summary><div class="secbody">
+      ${corrected ? `<div class="mut">How the solver reached its ${fmt(res.answer, t)}, before your correction:</div>` : ''}
       <div class="how ${h.cls}"><b>${h.cls === 'geo' ? '✓ ' : ''}${esc(h.t)}</b><span>${esc(h.how)}</span></div>
       ${calibHTML(res)}
       ${crossHTML(res)}
@@ -811,6 +869,7 @@ function wireAnswerActions(a) {
 async function answerAction(act, b) {
   if (act === 'second') { showSecond = !showSecond; draw(false); renderAnswer(null); return; }
   if (act === 'csv') { exportTakeoff(); return; }
+  if (act === 'undo') { items = items.filter(e => !e.added); items.forEach(e => { e.on = true; }); redraw(); return; }
   const row = takeoffRow(res); if (!row) return;
   if (act === 'unsign') { delete row.signed_by; delete row.signed_at; saveTakeoff(); renderAnswer(null); return; }
   if (act === 'sign') {  // inline initials field instead of a prompt() box
@@ -1036,7 +1095,7 @@ function shapeFor(e, i, W, H) {
   shape.appendChild(tip);
   g.appendChild(shape);  // the shape stays the group's first rect / polygon: hover and flash look it up that way
   if (i >= 0) {
-    shape.addEventListener('click', ev => { if (adding) return; ev.stopPropagation(); if (moved || performance.now() - xrSkipT < 500) return; e.on = !e.on; redraw(); flashRow(i); });
+    shape.addEventListener('click', ev => { if (adding) return; ev.stopPropagation(); if (moved || longPress() || performance.now() - xrSkipT < 500) return; e.on = !e.on; redraw(); flashRow(i); });
     shape.addEventListener('mouseenter', () => rowHot(i, true, true));
     shape.addEventListener('mouseleave', () => rowHot(i, false));
   } else if (e.guids) {
@@ -1077,9 +1136,9 @@ function renderEvidence() {
   const on = items.filter(e => e.on).length;
   $('#evtitle').textContent = on === items.length ? `${items.length} item${items.length === 1 ? '' : 's'}` : `${on} of ${items.length}`;
   $('#addbtn').hidden = primary === 'ifc' || mode === '3d' || !num;
-  $('#evhelp').textContent = primary === 'ifc' ? 'Untick a row, or click it in 3D, to drop it.' : 'Untick a row, or click its mark, to drop it.';
-  $('#evhelp').title = primary === 'ifc'
-    ? 'Each row is an IFC element. Hover or click a row to find it in 3D; untick it (or click the element) to drop it from the answer.'
+  $('#evhelp').textContent = primary === 'ifc' || mode === '3d' ? 'Untick a row to drop it. Click an element in 3D to find its row.' : 'Untick a row, or click its mark, to drop it.';
+  $('#evhelp').title = primary === 'ifc' || mode === '3d'
+    ? 'Each row is an IFC element. Hover or click a row to find it in 3D; click an element in 3D to find its row. Untick a row to drop it from the answer.'
     : primary === 'paired' ? 'Each row is an IFC element, numbered on the plan: click a row to zoom to it, untick it to drop it. Switch to 3D to see the same elements in the model.'
     : 'Click a row to zoom to it; untick it (or click its shape) to drop it. Missed one? Add it.'
       + (items.some(modelRead) ? ' Dashed amber = found by a model, with its score: please check.' : ' Solid = measured from the CAD / IFC geometry.');
@@ -1114,7 +1173,11 @@ function renderEvidence() {
 const modelRead = e => !e.added && (e.score != null || (e.kind === 'box' && !!res && howOf(res).cls !== 'geo'));
 function focusItem(i) {
   const e = items[i]; if (!e) return;
-  if (mode === '3d' || e.kind === 'ifc') { hotItem(i, true); setTimeout(() => hotItem(i, false), 1200); return; }
+  if (mode === '3d' || e.kind === 'ifc') {
+    if (mode === '3d' && window.V3 && e.guids) { sel3d = {res, i}; V3.select(e.guids); pickTip(i, V3.screenPos(e.guids)); }
+    else { hotItem(i, true); setTimeout(() => hotItem(i, false), 1200); }
+    return;
+  }
   zoomToEvidence([e], 3); flashRow(i);
   const s = ov.querySelector(`g[data-i="${i}"] rect, g[data-i="${i}"] polygon`);
   if (s) { s.classList.add('flash'); setTimeout(() => s.classList.remove('flash'), 1300); }
@@ -1147,8 +1210,11 @@ function recompute() {
   const changed = items.some(e => !e.on || e.added);
   const v = items.filter(e => e.on).reduce((s, e) => s + (e.value ?? 1), 0);
   const el = $('#corr'); if (!el) return;
+  const solverHad = items.some(e => !e.added);
   el.innerHTML = changed ? `✎ corrected by you: <b>${fmt(v, res.type)} ${unitOf(res.type)}</b> (the solver said ${fmt(res.answer, res.type)})`
-    + `<span class="fbnote" id="fbnote">${fb.res === res && fb.state ? fbText(fb.state) : ''}</span>` : '';
+    + `<span class="fbnote" id="fbnote">${fb.res === res && fb.state ? fbText(fb.state) : ''}</span>`
+    + (v === 0 && solverHad ? `<span class="undo">Nothing is counted now. <button type="button" class="linkish" data-act="undo">Undo all corrections</button></span>` : '') : '';
+  wireAnswerActions(el);
   queueFeedback(changed, v);
   const row = takeoffRow(res); if (row) { const c = changed ? +v.toFixed(3) : ''; if (row.corrected !== c) { row.corrected = c; saveTakeoff(); } }
 }
@@ -1590,7 +1656,10 @@ function speakTools(counting, refresh) {
   const box = $('#qtools'); if (!box || !res) return;
   if (speak.seq != null && speak.seq !== res._seq) speakStop();  // a new answer silences the old one
   // no button mid-count: each tick re-renders the card, so a click there would land on a button that is gone
-  const off = !speak.on || !res.speak_id || res.method === 'rate-limit' || counting;
+  // a corrected answer is not read aloud: the spoken sentence is the solver's, with its verification
+  const corrected = typeof res.answer === 'number' && items.some(e => !e.on || e.added);
+  if (corrected && speak.seq === res._seq) speakStop();
+  const off = !speak.on || !res.speak_id || res.method === 'rate-limit' || counting || corrected;
   let b = box.querySelector('.speakbtn'), t = box.querySelector('.speakauto');
   if (off) { if (b) b.remove(); if (t) t.remove(); if (!refresh && !counting) speakCheck(); return; }
   if (!b) {
