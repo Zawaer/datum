@@ -1,0 +1,22 @@
+# Deck design rules
+
+The rules `deck.html` follows. Each one names its source. If a slide breaks one of them, fix the slide, not the rule.
+
+**Structure**
+1. **One idea per slide.** The headline states the idea as a plain sentence, and everything else on the slide supports it. Apple's slide designers keep to "one theme per slide" and use bullets as a last resort ([Cult of Mac on Jobs's keynotes](https://www.cultofmac.com/how-to/keynote-presentation-tips), [How we make slides at Apple](https://medium.com/adventures-in-consumer-technology/this-is-how-we-make-slides-at-apple-b8a84352bf6d)).
+2. **At most about 25 words of body text per slide.** The rest goes in the speaker notes (an HTML comment above each slide) or on the Method slide at the end. Practical Typography says to keep slides sparse and change the text to fit the size, not the size to fit the text ([Butterick](https://practicaltypography.com/presentations.html)).
+3. **The product is the hero.** Screenshots run edge to edge, or close to it, and are never thumbnails. A demo of the product is the argument.
+4. **Numbers only where they carry the argument, then big and alone.** That means one number, or one number against another, on its own slide. No row of three stats with a paragraph under each: the "hero metric block" is a named AI tell ([impeccable anti-patterns](https://www.mintlify.com/pbakaus/impeccable/concepts/anti-patterns)).
+5. **No footnotes on content slides.** Sample sizes, CIs, run names, licences and caveats go on the Method and Credits slides. The one exception is the licence line for a drawing, which stays on the slide that shows it (rule 11).
+
+**Type**
+6. **One family: IBM Plex Sans, the typeface of the product itself,** so the deck and its screenshots read as one system. Inter and Geist are the defaults the anti-slop lists flag ([impeccable](https://www.mintlify.com/pbakaus/impeccable/concepts/anti-patterns)). Hierarchy comes from a small fixed scale, not ad-hoc sizes ([Geist typography](https://vercel.com/geist/typography), [Apple HIG: Typography](https://developer.apple.com/design/human-interface-guidelines/typography)).
+7. **No more than 3 sizes per slide, from one scale:** display 120 / headline 64 / body 32 / small 24 (chart labels, appendix) / caption 18 px, plus a hero number at 200 px when it replaces the headline. Use weights 400 and 600 only.
+8. **Tighten large type and leave small type alone.** Headlines use -0.025em tracking and 1.05 line height. Body text uses 0 tracking and 1.4 line height. Linear uses a tighter display cut for headings and the regular cut for everything else ([Linear redesign](https://linear.app/now/how-we-redesigned-the-linear-ui)).
+9. **No all-caps eyebrow or kicker labels, no gradient text, no centred text, no emoji or icon bullets.** All are named AI tells ([impeccable](https://www.mintlify.com/pbakaus/impeccable/concepts/anti-patterns)). Practical Typography also says to avoid centred text ([Butterick](https://practicaltypography.com/presentations.html)).
+
+**Colour and space**
+10. **A neutral light theme with a single accent.** Use white, ink #111418 and greys #5b636e / #8a929d / #e4e7eb. The one accent is the product's evidence blue #0072b2, used only for "ours" (our bar, our number). Frontier models are grey, not a second loud colour. In Geist, grey is the default for text, borders and fills ([Geist colours](https://vercel.com/geist/colors)). Linear cut the blue in its chrome "for a more neutral and timeless appearance" ([Linear](https://linear.app/now/how-we-redesigned-the-linear-ui)). The light theme also matches the screenshots, which are light. That avoids the dark-navy-and-electric-blue look ([impeccable](https://www.mintlify.com/pbakaus/impeccable/concepts/anti-patterns)).
+11. **A fixed frame on an 8-pt grid.** Margins are 128 px left and right and 96 px at the top. A 72 px footer band holds, in the same place on every slide, the drawing's licence (bottom left, 18 px grey) and the page number (bottom right). Content is left-aligned to the 128 px line.
+12. **No decoration.** No gradients, glass, glows, coloured side stripes, rounded cards in cards, or drop shadows on top of borders ([impeccable](https://www.mintlify.com/pbakaus/impeccable/concepts/anti-patterns)). A screenshot gets a 1 px #e4e7eb hairline only where its white edge meets the white slide.
+13. **Charts:** one measure per chart, direct labels and no legend, ours in the accent and the rest grey, a recessive axis, thin bars with 4 px rounded ends.
