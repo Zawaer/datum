@@ -12,6 +12,12 @@ CUBICASA_TTA=flip: flip test-time augmentation (4 passes at 1280 px, weighted bo
 with its own dev-tuned thresholds_flip.json / calib_flip.json next to the weights. Test 84.2 % -> 85.1 %, but
 ~2-3x the CPU time per drawing (1.3-1.8 s vs 0.65 s on 2-4 threads). On by default whenever the flip files
 exist (full test 89.5 % -> 90.05 %, runs/router_full_test_v7); CUBICASA_TTA=off restores the single pass.
+
+VLM arbiter (on by default when arbiter_flip.json sits next to the weights; CUBICASA_ARBITER=off restores the
+detector-only answers): where the detector and the fine-tuned VLM's precomputed (or live) answer disagree, the
+detector is unsure and the VLM sure, per a per-template rule fit on dev-val (train/cubicasa/arbiter_dev.py, CV
++0.87 pp), the VLM's answer is taken. CubiCasa test 85.10 % -> 86.15 % (+1.05 pp, 95 % CI +0.75 to +1.38 over
+drawings; runs/cubicasa_test_vlmarb). No extra CPU: the VLM answers are looked up.
 """
 import collections
 import json

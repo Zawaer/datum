@@ -121,7 +121,7 @@ def main(out: Path):
 
     w = out / "weights"
     w.mkdir(parents=True, exist_ok=True)
-    for name in ("best.pt", "thresholds.json", "calib.json", "thresholds_flip.json", "calib_flip.json"):
+    for name in ("best.pt", "thresholds.json", "calib.json", "thresholds_flip.json", "calib_flip.json", "arbiter_flip.json"):
         if (REPO / "cache/cubicasa/weights" / name).exists():
             shutil.copy2(REPO / "cache/cubicasa/weights" / name, w / name)
 
