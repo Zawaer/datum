@@ -6,7 +6,7 @@ sauna stoves) and typed rooms / storeys (bedroom, kitchen, bathroom, WC room, ba
 PNG. The question template picks the classes to count; every counted detection becomes a numbered
 evidence box. Inference sees only the PNG: no annotation lookup.
 
-variant: optional weights path (default $CUBICASA_WEIGHTS or cache/cubicasa/weights/best.pt).
+variant: optional weights path, or a .txt listing several for an ensemble (default $CUBICASA_WEIGHTS or cache/cubicasa/weights/best.pt).
 """
 import collections
 import json
@@ -17,7 +17,7 @@ from pathlib import Path
 
 from bp.cubicasa.classes import COUNTS
 from bp.cubicasa.counting import calib_p, posterior
-from bp.cubicasa.infer import SYMBOLS, predict
+from bp.cubicasa.infer import SYMBOLS, load, predict
 from bp.cubicasa.questions import LABEL, target
 from bp.data import data_root
 
@@ -45,9 +45,7 @@ class CubicasaSolver:
     # -- detection -------------------------------------------------------------------------------
     def _load(self):
         if self._model is None:
-            from ultralytics import YOLO
-
-            self._model = YOLO(self.weights)
+            self._model = load(self.weights)
         return self._model
 
     def detect(self, path: str, imgsz: str | int | None = None):

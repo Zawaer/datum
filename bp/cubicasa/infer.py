@@ -46,8 +46,23 @@ def _parse(r, x0=0, y0=0, sx=1.0, sy=1.0, W=1, H=1):
     return res
 
 
+def load(weights):
+    """A YOLO model, or a list of them for an ensemble: weights may be a .txt file listing member .pt paths
+    (relative to the .txt), whose detections are merged per class (highest score wins)."""
+    from pathlib import Path
+
+    from ultralytics import YOLO
+
+    w = Path(weights)
+    if w.suffix == ".txt":
+        return [YOLO(str((w.parent / ln.strip()).resolve())) for ln in w.read_text().split("\n") if ln.strip()]
+    return YOLO(str(w))
+
+
 def predict(model, path, mode, tile_classes=None, conf=0.05):
     """Detections [(cls, score, [x0, y0, x1, y1] normalised)] for one image path."""
+    if isinstance(model, list):
+        return _merge([d for m in model for d in predict(m, path, mode, tile_classes, conf)])
     tiled = str(mode).startswith("t")
     aug = str(mode).startswith("a")
     imgsz = int(str(mode).lstrip("ta"))

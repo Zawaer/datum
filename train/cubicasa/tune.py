@@ -30,9 +30,9 @@ def main():
     ap.add_argument("--imgsz", nargs="+", default=["1024"], help="modes: 1024, 1280, t1024 (tiled) ...")
     ap.add_argument("--out", help="thresholds.json path (default: next to weights)")
     a = ap.parse_args()
-    from ultralytics import YOLO
+    from bp.cubicasa.infer import load
 
-    m = YOLO(a.weights)
+    m = load(a.weights)
     imgs = sorted((Path(a.data) / "images" / "val").glob("*.png"))
     gold = {}
     for p in imgs:
