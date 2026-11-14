@@ -201,3 +201,22 @@ def test_room_words_plural_and_trades():
     assert R.intent("How many secondary classrooms are on this level?") == "count"
     assert R.intent("How many doors open into the hall?") is None
     assert R.intent("How many m2 of tiling for all WCs?") == "area"
+
+
+def test_warm_segments_and_reads_names_once(monkeypatch):
+    """The upload warm-up segments the rooms and, on a coarse sheet, reads the names once; a big work image is left."""
+    calls = []
+    seg = {"rooms": [{"area_m2": 10.0, "label": ""}] * 4, "px_per_m": 20.0, "wall_px": 2.0, "scan": True,
+           "fill_gray": 255.0, "paper_gray": 250.0}
+    monkeypatch.setattr(R, "scale_info", lambda *a, **k: {"px_per_m": 20.0})
+    monkeypatch.setattr(R, "segment", lambda *a, **k: dict(seg))
+    monkeypatch.setattr(R, "crop_labels", lambda s, img, rooms: calls.append(1) or 0.01)
+    meta = {"image": "x.png", "w": 2000, "h": 1400}
+    R.warm(meta)
+    assert meta["_rooms_seg"]["_crop_read"] and calls == [1]
+    R.warm(meta)  # already done: nothing again
+    R.ensure_crop_labels(meta, meta["_rooms_seg"])
+    assert calls == [1]
+    big = {"image": "y.png", "w": 20000, "h": 14000}
+    R.warm(big)
+    assert "_rooms_seg" not in big

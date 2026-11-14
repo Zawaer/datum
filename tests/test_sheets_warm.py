@@ -51,3 +51,27 @@ def test_answer_times_out_while_warm_runs(monkeypatch, tmp_path):
     gate.set()
     assert res["answer"] is None and res["method"] == "sheets-piping-timeout"
     assert calls == ["warm"]  # the module was not started a second time next to the warm-up
+
+
+def test_arch_question_does_not_wait_for_a_queued_warm(monkeypatch, tmp_path):
+    """A floor plan's warm-up still queued behind other uploads' is cancelled: the question reads the sheet itself.
+    The arch warm hook (rooms) follows on its own worker, outside the Future questions wait for."""
+    import concurrent.futures as cf
+
+    calls = []
+    mod, gate = _fake_module(calls)
+    monkeypatch.setattr(sheets, "modules", lambda: [("arch", mod)])
+    monkeypatch.setattr(sheets, "_load", lambda n: mod)
+    monkeypatch.setattr(sheets, "warm", lambda meta, background=True: None)
+    busy = threading.Event()
+    pool = cf.ThreadPoolExecutor(1)
+    pool.submit(busy.wait, 5)  # the only warm worker is busy with another upload
+    monkeypatch.setattr(sheets, "_warm_pool", pool)
+    meta = {"path": str(tmp_path / "c.png"), "page": 0}
+    f = sheets.warm_upload(meta)
+    t = time.time()
+    res = sheets.answer(meta["path"], "how many?", meta)
+    busy.set()
+    gate.set()
+    assert f.cancelled() and calls == ["answer"] and time.time() - t < 2
+    assert res["method"] == "sheets-arch"

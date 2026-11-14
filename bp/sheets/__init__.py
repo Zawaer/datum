@@ -120,6 +120,10 @@ def answer(path, question, meta):
         # questions asked at once on this sheet share one reading instead of each running the analysis next to the
         # others (3 parallel slab analyses on the 4-core VM ran one question past its timeout)
         wf = warm_upload(meta)
+    if wf is not None and n == "arch" and wf.cancel():
+        # a floor plan's warm-up still queued behind other uploads' (a burst of uploads): this question reads the
+        # sheet itself rather than wait in that line; rooms / openings / the OCR share in-flight readings anyway
+        wf = None
     if wf is not None and not wf.done():
         try:
             wf.result(timeout=max(0.0, deadline - time.monotonic()))
@@ -599,21 +603,38 @@ def _warm_run(meta):
                       label=f"warm {os.path.basename(str(meta.get('path')))}"):
         if n == "arch":  # rooms / zones / textqa share the default OCR (ocr_words at this signature)
             warm(meta, background=False)
-        if fn is not None:
+        if fn is not None and n != "arch":
             fn(meta)
+    if fn is not None and n == "arch":
+        # the room segmentation and name read (arch.warm -> rooms.warm) follow on their own worker, outside this
+        # Future: a question on the sheet that needs no rooms (a table, a note) does not wait for them, and one that
+        # does meets them through rooms' own locks (the segmentation and the name read run once). It takes its own
+        # share of the memory budget, sized to its work image (memgate.hold is per thread).
+        _follow_pool.submit(_follow, fn, meta)
     _trim_meta_mem()
     log.info("sheet warm-up %s (%s) done in %.1f s", n, os.path.basename(str(meta.get("path"))), time.monotonic() - t0)
     return n
 
 
+_follow_pool = __import__("concurrent.futures", fromlist=["x"]).ThreadPoolExecutor(1, thread_name_prefix="sheets-warm2")
+
+
+def _follow(fn, meta):
+    try:
+        fn(meta)
+    except Exception:  # noqa: BLE001
+        log.exception("warm-up follow-up failed")
+
+
 def warm_upload(meta):
     """At upload, in the background: the claiming module's own warm(meta), else the reading its answers start with
-    (piping: tesseract + Haiku tile read; arch: the shared OCR), so the first question finds it ready or in flight.
+    (piping: tesseract + Haiku tile read; arch: the shared OCR, then arch.warm: the room segmentation and, on scans,
+    the per-room name read), so the first question finds it ready or in flight.
     Idempotent per sheet page (a failed warm-up may be retried); returns the Future."""
     key = _warm_key(meta)
     with _warm_lock:
         f = _warm_jobs.get(key)
-        if f is not None and not (f.done() and f.exception() is not None):
+        if f is not None and not (f.done() and (f.cancelled() or f.exception() is not None)):
             return f
 
         def run():

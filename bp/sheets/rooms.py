@@ -1132,6 +1132,61 @@ def identify_room(seg, image, name: str, model: str = IDENT_MODEL):
     return room, str(js.get("why") or ""), cost
 
 
+def coarse_seg(seg) -> bool:
+    """Single rooms' names / outlines need the coarse-sheet treatment (scans, renders below ~35 px/m, thin walls)."""
+    return seg.get("px_per_m", 100) < COARSE_PPM or (seg.get("wall_px") or 0) < 3 or bool(seg.get("scan", False))
+
+
+def ensure_crop_labels(meta, seg):
+    """The per-room VLM name read of a coarse sheet, once: callers at the same time (questions, the upload warm-up)
+    wait for the one reading. Adds its cost to seg["cost_usd"]."""
+    with _lock:
+        lk = seg.setdefault("_crop_lock", threading.Lock())
+    with lk:
+        if not seg.get("_crop_read"):
+            try:
+                seg["cost_usd"] = seg.get("cost_usd", 0.0) + crop_labels(seg, meta["image"], seg["rooms"])
+            except Exception:  # noqa: BLE001
+                import logging
+
+                logging.getLogger(__name__).exception("room crop labels failed")
+            seg["_crop_read"] = True
+
+
+WARM_WORK_PX = 40e6  # segmentation work image above which the upload warm-up leaves rooms alone (A-2 colour plan:
+#                      70 MP, 40 s, 1.9 GB for a shaded diagram whose areas come from the colour zones anyway)
+WARM_BPP = 32          # bytes held per work pixel by a segmentation (measured ~30: 760 MB for a 25 MP work image)
+
+
+def warm(meta):
+    """Upload warm-up for floor plans (called by arch.warm in the sheet warm-up, inside its memory hold): the room
+    segmentation and, on coarse sheets with rooms to name, the per-room crop-name read, so the first room / door
+    question finds both cached. Skipped when the segmentation would be too big or the plan is a shaded diagram."""
+    if not meta.get("image") or "_rooms_seg" in meta and meta["_rooms_seg"].get("_crop_read"):
+        return
+    from bp import memgate
+
+    work = 0.0
+    if "_rooms_seg" not in meta:
+        sc = scale_info(meta["image"], None, meta)
+        if not sc:
+            return
+        W, H = meta.get("w") or 0, meta.get("h") or 0
+        work = W * H * (WORK_PPM / sc["px_per_m"]) ** 2
+        if not (W and H) or work > WARM_WORK_PX:
+            return
+    # its own share of the memory budget (the arrays are at work resolution, not the sheet's): waits in line
+    with memgate.hold(int(max(memgate.MIN_COST, WARM_BPP * work)), tag=memgate.tag_for(meta.get("image") or ""),
+                      label="warm rooms"):
+        seg = _cached(meta)
+    rooms = seg["rooms"]
+    if len(rooms) < 3 or not coarse_seg(seg):
+        return
+    if seg.get("fill_gray", 255) < min(235.0, seg.get("paper_gray", 255.0) - 20):
+        return  # a colour-coded space diagram: answered by the colour-zone path, no room names needed
+    ensure_crop_labels(meta, seg)
+
+
 def named_rooms(meta, name: str):
     """(rooms whose label matches `name`, seg) for other modules (doors into a named room): the same reading as a room
     area question, incl. the per-room vision crops on coarse sheets; ([], seg) when no room matches."""
@@ -1139,19 +1194,9 @@ def named_rooms(meta, name: str):
     rooms = seg["rooms"]
     if not rooms or not query_words(name):
         return [], seg
-    coarse = seg.get("px_per_m", 100) < COARSE_PPM or (seg.get("wall_px") or 0) < 3 or seg.get("scan", False)
+    coarse = coarse_seg(seg)
     if coarse:
-        with _lock:
-            lk = seg.setdefault("_crop_lock", threading.Lock())
-        with lk:
-            if not seg.get("_crop_read"):
-                try:
-                    seg["cost_usd"] = seg.get("cost_usd", 0.0) + crop_labels(seg, meta["image"], rooms)
-                except Exception:  # noqa: BLE001
-                    import logging
-
-                    logging.getLogger(__name__).exception("room crop labels failed")
-                seg["_crop_read"] = True
+        ensure_crop_labels(meta, seg)
     sel, qw = match_rooms(rooms, name)
     if sel and seg.get("_crop_read") and len(qw) >= 2:
         lw = lambda r: {SYN.get(w, w) for w in _norm(r["label"])}  # noqa: E731
@@ -1275,17 +1320,7 @@ def answer(path, question, meta):
             # a named room (or a split by room type) on a coarse sheet: OCR garbles the names here, so every room is
             # read off its own cut-out crop by a VLM (one batch for the sheet, cached); faint glazing / hatch lines
             # close rooms as on a crisp sheet, so the outline holds within a few % (hall 246 / 241 m² for 245)
-            with _lock:
-                lk = seg.setdefault("_crop_lock", threading.Lock())
-            with lk:  # questions asked at once wait for the one reading
-                if not seg.get("_crop_read"):
-                    try:
-                        seg["cost_usd"] = seg.get("cost_usd", 0.0) + crop_labels(seg, meta["image"], rooms)
-                    except Exception:  # noqa: BLE001
-                        import logging
-
-                        logging.getLogger(__name__).exception("room crop labels failed")
-                    seg["_crop_read"] = True
+            ensure_crop_labels(meta, seg)  # questions asked at once (and the upload warm-up) share the one reading
             if not any(r.get("label_source") == "vision" for r in rooms):
                 return None
             cf = cf / 0.6 * 0.8

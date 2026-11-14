@@ -38,6 +38,20 @@ def detect(meta) -> float:
 
 
 # --------------------------------------------------------------------------------------------- question intent
+def warm(meta):
+    """Upload warm-up (bp/sheets/__init__.py warm_upload, after the shared OCR, inside the warm-up's memory hold): the
+    room segmentation and, on scans / coarse rasters, the per-room name read (bp/sheets/rooms.py warm), so the first
+    area, baseboard or door-into-a-room question finds them cached; a question asked meanwhile waits for this."""
+    import logging
+
+    try:
+        from bp.sheets import rooms as rooms_mod
+
+        rooms_mod.warm(meta)
+    except Exception:  # noqa: BLE001  a warm-up never fails the upload; the question computes it again
+        logging.getLogger(__name__).exception("arch warm-up (rooms) failed")
+
+
 def intent(q: str) -> str:
     ql = q.lower()
     if re.search(r"baseboard|skirting|base board|jalkalista|sockelleiste|plinth", ql):
