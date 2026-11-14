@@ -641,9 +641,9 @@ function crossHTML(r) {
   const btn = n2 ? `<button class="linkish" data-act="second">${showSecond ? 'hide' : 'show'} its ${n2} mark${n2 === 1 ? '' : 's'}</button>` : '';
   const val = v => typeof v === 'number' ? fmt(v, t) : esc(String(v ?? '—'));
   // plain-language name of the second method, and what agreement has meant on held-out test questions
-  // (runs/crosscheck_vlm_test.summary.md, runs/crosscheck_test.summary.md)
+  // (runs/crosscheck_vlm_test_v7.summary.md, runs/crosscheck_test.summary.md)
   const m = String(sec.method || '');
-  const [name, track] = /VLM/i.test(m) ? ['Our fine-tuned vision model', 'When both agree, answers were right 94.6 % of the time (12,153 held-out raster questions).']
+  const [name, track] = /VLM/i.test(m) ? ['Our fine-tuned vision model', 'When both agree, answers were right 94.9 % of the time (12,178 held-out raster questions).']
     : /swiss|pdf/i.test(m) ? ['Reading the PDF itself (not the CAD file)', 'When both agree, answers were right 99.97 % of the time on held-out Swiss plans (7,750 of 7,752).']
     : /svg|sheet|ifc/i.test(m) ? ['The rendered plan sheet', 'When both agree, answers were right on all 432 held-out IFC questions.']
     : /yolo|cubicasa/i.test(m) ? ['A second, separately trained detector', '']

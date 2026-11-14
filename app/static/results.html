@@ -76,7 +76,7 @@
 </header>
 <div class="wrap">
   <h1>Scoreboard</h1>
-  <p class="headl" id="headl"><b>89.5 %</b> right on all 25,420 held-out test questions: every question in every language, not a sample (95 % CI 89.1–89.8).</p>
+  <p class="headl" id="headl"><b>90.0 %</b> right on all 25,420 held-out test questions: every question in every language, not a sample (95 % CI 89.7–90.4).</p>
   <p class="lede">Accuracy on the held-out test split, split by whole drawing: each drawing goes to test or dev by a SHA-1 hash of its id
     (20 % test), so every format of a drawing lands on the same side and no drawing seen during development is scored.
     Ours and the prior answer all <b id="ntest">25,420</b> test questions; the frontier and open-weights models were asked 400 questions sampled
@@ -106,6 +106,7 @@
   <h2>Every run</h2>
   <details><summary>show all raw evaluation runs (including dev, preview and partial ones, not re-weighted)</summary>
     <div class="card2"><table id="allruns"></table></div></details>
+  <p class="note" style="margin-top:32px">How a question is routed, proved on the drawing and checked: <a href="/how">How it works</a>.</p>
 </div>
 <script>
 const $ = s => document.querySelector(s);
