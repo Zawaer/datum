@@ -1340,7 +1340,9 @@ def _vision_text(meta) -> dict:
     return d
 
 
-_NOTE_KW = re.compile(r"SLAB|SUMP|TRENCH|NOTES?\b|SHADED|HATCH|REINF", re.I)
+# bar marks too ("D19 RADIAL BARS ... LONG", "D19 @ 250 E.W TOP AND BOTTOM" on a tank slab detailed bar by bar): a
+# scan garbles them as much as the slab notes
+_NOTE_KW = re.compile(r"SLAB|SUMP|TRENCH|NOTES?\b|SHADED|HATCH|REINF|\b[DT]\d{2}\b|RADIAL|\bHOOP\b", re.I)
 
 
 def _merge_boxes(boxes):
@@ -1375,7 +1377,7 @@ def _reread_notes(meta, blocks):
     W, H = im.size
     small_src = max(W, H) < 3000
     keyb = [b for b in blocks if _NOTE_KW.search(b["text"])]
-    if not keyb or len(keyb) > 25:
+    if not keyb or len(keyb) > 40:
         return blocks, 0.0
     boxes = []
     for b in keyb:
@@ -2046,14 +2048,18 @@ def answer(path, question, meta) -> dict | None:
             # no "<thk> SLAB W/ <bar> @ <s>" note (e.g. a tank slab detailed bar by bar): list the bar callouts
             calls = []
             pat = (rf"\b(?:\d+\s*-\s*)?{_BAR}\s*(?:(?:HOOP|RADIAL BARS|BARS)\s*)?(?:@|X|x)\s*\d{{2,5}}"
-                   r"(?:\s*(?:E\.?\s?W\.?|EACH WAY|TOP AND BOTTOM|TOP|BOTTOM|LONG|O\.?C\.?))*")
+                   r"(?:\s*(?:E\.?\s?W\.?|EACH WAY|TOP AND BOTTOM|TOP|BOTTOM|LONG|O\.?C\.?))*"
+                   rf"|\b{_BAR}\s*(?:RADIAL|HOOP|STIRRUP|DOWEL)S?(?:\s*BARS?)?\b")
             for m in re.finditer(pat, A.get("text", ""), re.I):
                 c = re.sub(r"\s+", " ", m.group(0)).strip()
                 if c not in calls:
                     calls.append(c)
             if not calls or not re.search(r"bars?|reinforc|rebar", ql):
                 return None
-            if not any("@" in c for c in calls):
+            kind = re.search(r"\b(radial|hoop|stirrup|dowel)", ql)
+            if kind:  # "the radial bars": the callouts naming them
+                calls = [c for c in calls if kind.group(1).upper() in c.upper()] or calls
+            elif not any("@" in c for c in calls):
                 # only bar marks with a length (an extra "D22x3000" under the columns): the reinforcement itself
                 # ("D19 @ 250 E.W.") was not read, so the general reader looks instead of a misleading part answer
                 return None
