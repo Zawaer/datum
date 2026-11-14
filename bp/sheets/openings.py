@@ -789,14 +789,18 @@ def _write(cf, res):
         pass
 
 
-def _finish_yolo(meta, ppm, res, cf):
-    """The deferred detector run (background thread), inside the process memory budget; updates res in place."""
+def _finish_yolo(meta, ppm, res, cf, early=None):
+    """The deferred detector run (background thread), inside the process memory budget; updates res in place.
+    early: the Future of a run already started (small rasters), waited for instead of a second run."""
     from bp import memgate
 
     try:
-        with memgate.hold(memgate.cost(int(meta.get("w") or 0) * int(meta.get("h") or 0), "answer"),
-                          tag=memgate.tag_for(meta.get("image") or ""), label="openings detector"):
-            y = yolo_openings(meta["image"], ppm)
+        if early is not None:
+            y = early.result()
+        else:
+            with memgate.hold(memgate.cost(int(meta.get("w") or 0) * int(meta.get("h") or 0), "answer"),
+                              tag=memgate.tag_for(meta.get("image") or ""), label="openings detector"):
+                y = yolo_openings(meta["image"], ppm)
     except Exception as e:  # noqa: BLE001
         log.warning("openings: deferred detector failed: %s", e)
         y = None
@@ -818,6 +822,15 @@ def _analyse_uncached(meta, ppm, img, wppm, f, cf) -> dict:
         if res.get("yolo_pending"):  # the process ended before the deferred detector run finished: run it now
             __import__("threading").Thread(target=_finish_yolo, args=(meta, ppm, res, cf), daemon=True).start()
         return res
+    # a small raster (a screenshot, a ~2000 px JPG) always needs the detector (its swing reading is low-res) and the
+    # detector on its ~5000 px resample takes ~35 s on the 4-core VM: start it now, next to the swing reading (~7 s)
+    early = None
+    if not str(meta.get("path") or "").lower().endswith(".pdf") and 0 < max(meta.get("w") or 0, meta.get("h") or 0) < 4000:
+        from concurrent.futures import ThreadPoolExecutor
+
+        ex = ThreadPoolExecutor(1, thread_name_prefix="openings-yolo")
+        early = ex.submit(yolo_openings, meta["image"], ppm)
+        ex.shutdown(wait=False)
     r = detect_openings(img, wppm)
     W, H = r["size"]
 
@@ -856,13 +869,13 @@ def _analyse_uncached(meta, ppm, img, wppm, f, cf) -> dict:
         res["yolo_pending"] = True
     else:
         try:
-            res["yolo"] = yolo_openings(meta["image"], ppm)
+            res["yolo"] = early.result() if early is not None else yolo_openings(meta["image"], ppm)
         except Exception as e:  # noqa: BLE001
             log.warning("openings: detector fallback failed: %s", e)
     _judge(res, meta)
     _write(cf, res)
     if defer:
-        __import__("threading").Thread(target=_finish_yolo, args=(meta, ppm, res, cf), daemon=True).start()
+        __import__("threading").Thread(target=_finish_yolo, args=(meta, ppm, res, cf, early), daemon=True).start()
     return res
 
 
