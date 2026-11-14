@@ -59,14 +59,14 @@ def load(weights):
     return YOLO(str(w))
 
 
-def predict(model, path, mode, tile_classes=None, conf=0.05):
-    """Detections [(cls, score, [x0, y0, x1, y1] normalised)] for one image path."""
+def predict(model, path, mode, tile_classes=None, conf=0.05, iou=0.5):
+    """Detections [(cls, score, [x0, y0, x1, y1] normalised)] for one image path (iou = the detector's NMS IoU)."""
     if isinstance(model, list):
-        return _merge([d for m in model for d in predict(m, path, mode, tile_classes, conf)])
+        return _merge([d for m in model for d in predict(m, path, mode, tile_classes, conf, iou)])
     tiled = str(mode).startswith("t")
     aug = str(mode).startswith("a")
     imgsz = int(str(mode).lstrip("ta"))
-    r = model.predict(path, imgsz=imgsz, conf=conf, iou=0.5, verbose=False, max_det=600, augment=aug)[0]
+    r = model.predict(path, imgsz=imgsz, conf=conf, iou=iou, verbose=False, max_det=600, augment=aug)[0]
     H, W = r.orig_shape
     dets = _parse(r, W=W, H=H)
     if not tiled or max(W, H) < 1.6 * imgsz:
@@ -83,7 +83,7 @@ def predict(model, path, mode, tile_classes=None, conf=0.05):
             offs.append((x, y))
     tdets = []
     for i in range(0, len(crops), 4):
-        for rr, (x, y) in zip(model.predict(crops[i:i + 4], imgsz=imgsz, conf=conf, iou=0.5, verbose=False,
+        for rr, (x, y) in zip(model.predict(crops[i:i + 4], imgsz=imgsz, conf=conf, iou=iou, verbose=False,
                                             max_det=600), offs[i:i + 4]):
             for d in _parse(rr, x, y, W=W, H=H):
                 if tile_classes is None or d[0] in tile_classes:

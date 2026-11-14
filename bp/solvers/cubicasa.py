@@ -16,7 +16,7 @@ import threading
 from pathlib import Path
 
 from bp.cubicasa.classes import COUNTS
-from bp.cubicasa.counting import calib_p, posterior
+from bp.cubicasa.counting import calib_p, posterior, runs_rule, select_runs
 from bp.cubicasa.infer import SYMBOLS, load, predict
 from bp.cubicasa.questions import LABEL, target
 from bp.data import data_root
@@ -100,6 +100,12 @@ class CubicasaSolver:
         lam = sum(cc[n]["lam"] for n in set(COUNTS[t]) if n in cc)
         prior = self.calib.get("priors", {}).get(t)
         post = posterior(ps, lam, prior, rule.get("w", 0.0))
+        rr = runs_rule(t) if rule["method"] == "threshold" else None
+        if rr:  # one consistent set of boxes per wall run (bp/cubicasa/counting.py)
+            kept = select_runs(dets, 0.0, self.th(rr["cls"]) + rr["dt"], rr["ovl"], rr["align"])
+            kept.sort(key=lambda d: (d[2][1], d[2][0]))
+            k = min(len(kept), len(post) - 1)
+            return k, post[k], kept, "detected"
         if rule["method"] == "threshold":
             k = sum(1 for d in dets if d[1] >= self.th(d[0]))
         elif rule["method"] == "prior":
