@@ -12,7 +12,9 @@ from bp import sheets
 
 PROMPT = """Question about a construction drawing: {question}
 Below are the text lines read (OCR) from the sheet, one per line: "[id] (x%, y%) text". OCR may garble a few
-characters (e.g. "2911" for "2,911", "O" for "0"). Tables print one row per line: label then value.
+characters (e.g. "2911" for "2,911", "O" for "0"). Tables print one row per line: label then value. A room tag on
+a plan prints the room name with its area just BELOW it (same x, next y): "KITCHEN" at (52%, 40%) then "151 SF" at
+(52%, 41%) is the kitchen's area; the area just above a name belongs to the room tag above.
 
 {lines}
 
