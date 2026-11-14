@@ -95,6 +95,13 @@ def load_svg(svg_path: str) -> dict:
     return out
 
 
+def _area(poly) -> float:
+    """Shoelace area of a ring (0 for open paths / lines)."""
+    if len(poly) < 3:
+        return 0.0
+    return abs(sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(poly, poly[1:] + poly[:1]))) / 2
+
+
 def svg_for(pdf_path: Path) -> Path:
     return pdf_path.with_suffix(".svg")
 
@@ -113,8 +120,12 @@ def evidence_2d(pdf_rel: str, pdf_abs: Path, items: list[dict], polygon: bool = 
                         "points": [[round(x, 5), round(y, 5)] for x, y in poly],
                         "label": it["label"], "value": it.get("value")})
         else:
-            n = sum(1 for o in out if o["kind"] == "box") + 1
-            out.append({"kind": "box", "file": pdf_rel, "page": 0, "bbox": r["bbox"],
+            # counted elements are drawn with their real outline from the SVG twin (an L-shaped room or a wall run
+            # is not its bounding rectangle); the bbox stays for zooming and badge placement
+            n = sum(1 for o in out if o.get("counted")) + 1
+            poly = max(r["polys"], key=lambda q: _area(q) or len(q))
+            out.append({"kind": "polygon", "file": pdf_rel, "page": 0, "counted": True, "bbox": r["bbox"],
+                        "points": [[round(x, 5), round(y, 5)] for x, y in poly],
                         "label": f"{n}. {it['label']}", "value": None})
     return out
 
