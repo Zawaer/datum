@@ -92,7 +92,10 @@ def detect(meta) -> float:
     if re.search(r"FOUNDATION AND SLAB PLAN|SLAB PLAN|\d{2,3}\s*(?:MM\s*)?SLAB[- ]ON[- ]GRADE", blob, re.I):
         s = max(s, 0.8)
     hits = len(re.findall(r"slab|foundation|footing|reinforc|rebar|S\.?O\.?G|\bD\d{2}\s*@", blob, re.I))
-    return min(1.0, s + min(0.2, 0.04 * hits))
+    s = min(1.0, s + min(0.2, 0.04 * hits))
+    if meta.get("kind") != "slab" and re.search(r"PIP(?:E|ING)\s+SUPPORT", meta.get("title", ""), re.I):
+        s = min(s, 0.5)  # "PIPE SUPPORT PLAN S-101": a structural sheet number, but the piping module's PS tags
+    return s
 
 
 # ----------------------------------------------------------------------------------------------- text

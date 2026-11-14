@@ -545,7 +545,8 @@ def read_sheet(path: str, meta: dict | None = None, vision: bool | None = None) 
     """{"items": [{"text", "bbox", "src", "conf"}], "readers": [...], "cost_usd": first-read cost} (cached)."""
     meta = meta or {}
     page = int(meta.get("page", 0) or 0)
-    key = f"{_sha(path)}_p{page}" + (f"_v{VOTES}{VOTE_MIN}" if VOTES > 1 else "")
+    # _r2: the tile prompt changed (numeric box example): readings cached before it lost whole tiles
+    key = f"{_sha(path)}_p{page}_r2" + (f"_v{VOTES}{VOTE_MIN}" if VOTES > 1 else "")
     with _lock:
         if key in _mem:
             return _mem[key]
@@ -1675,7 +1676,8 @@ def detect(meta) -> float:
     s = 0.0
     if meta.get("kind") == "piping":
         s += 0.6
-    if re.search(r"PIPING\s+PLAN|PIPING\s+LAYOUT|PIPING\s+ARRANGEMENT|P\s*&\s*ID|PROCESS\s+PIPING", blob, re.I):
+    if re.search(r"PIPING\s+PLAN|PIPING\s+LAYOUT|PIPING\s+ARRANGEMENT|P\s*&\s*ID|PROCESS\s+PIPING|PIPE\s+SUPPORT\s+PLAN",
+                 blob, re.I):
         s += 0.4
     if re.search(r"\bM-?1\d{2}[A-Z]?\b|\bP-?\d{3}\b", title):
         s += 0.15
