@@ -72,14 +72,15 @@ def test_answer_evidence():
     assert O.answer(str(FIX), "How many doors?", meta) is None
 
 
-def test_low_res_answer_uses_detector_and_flags_disagreement():
+def test_low_res_answer_uses_detector_vision_only_raises_confidence():
     y = {"doors": [{"bbox": [0.1, 0.1, 0.12, 0.12]}] * 10, "windows": [{"bbox": [0, 0, 0.01, 0.01]}] * 4}
     hk_ok = {"doors": [{}] * 9, "windows": [{}] * 4, "tiles": 9, "cost_usd": 0.01}
     hk_bad = {"doors": [{}] * 3, "windows": [{}] * 4, "tiles": 9, "cost_usd": 0.01}
     a = O._answer_yolo("doors", y, hk_ok)
     b = O._answer_yolo("doors", y, hk_bad)
     assert a["answer"] == 10 and b["answer"] == 10
-    assert a["confidence"] > b["confidence"] and "DISAGREES" in b["explanation"]
+    assert a["confidence"] == 0.6 and b["confidence"] == 0.5
+    assert "agrees" in a["explanation"] and "vision" not in b["explanation"]
     assert a["low_res"] and len(a["evidence"]) == 10
 
 

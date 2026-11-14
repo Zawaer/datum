@@ -157,5 +157,26 @@
    "note": "not hand-checked; schedule says 6"
   },
   "raster_grey_double_line_walls": "not done this round: the dorm raster still goes to the detector fallback (204 doors vs 198)"
+ },
+ "fallback_policy (fourth pass)": {
+  "rule": "detector count answers at 0.5 (0.3 if < 3 symbols); Haiku tiles only raise to 0.6 when within 15 %, quoted only then",
+  "school_2000px_jpg": {
+   "answer": "120 doors, 75 windows",
+   "confidence": 0.5,
+   "hand": "128 doors, 68 exterior windows",
+   "haiku": "109 / 59 (disagrees on windows: not quoted)"
+  },
+  "dorm_2000px_jpg": {
+   "answer": "67 doors, 21 windows",
+   "confidence": 0.5,
+   "hand": "198 doors",
+   "note": "WRONG by 3x: at 2000 px the dorm's doors are ~4 px symbols; even resampled with the true scale (9.6 px/m -> 40) the detector finds 133. Haiku 44. Nothing on this input is within 30 %."
+  },
+  "dorm_10200px_png": {
+   "answer": "210 doors, 90 windows",
+   "confidence": 0.5,
+   "hand": "198 doors",
+   "haiku": "109 / 104"
+  }
  }
 }

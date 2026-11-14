@@ -16,8 +16,8 @@ Scale  : a PDF page's printed ratio (1:200, 1/4" = 1'-0") and paper size, else a
          door-swing radius taken as 0.9 m. Rasters are worked at ~110 px/m (vector PDF pages are re-rendered).
 Fallback (answer() never trusts an implausible swing reading): low-res rasters (needing > 2x upsampling), sheets where
          the swings come out far short of the CubiCasa detector or below ~1 door per 200 m2 of building bbox, use the
-         detector's boxes (resampled to 40 px/m), cross-checked by a Claude Haiku count on 3x3 tiles (~$0.01):
-         confidence 0.5 when they agree within 15 %, 0.25 (and said so) when not.
+         detector's boxes (resampled to 40 px/m) at confidence 0.5; a Claude Haiku count on 3x3 tiles (~$0.01) can
+         only raise it (0.6 when within 15 %): it undercounts dense sheets, so it never vetoes.
 Schedule: on a vector PDF with a DOOR SCHEDULE page, the schedule marks printed on this sheet are an independent door
          count; agreement raises confidence, disagreement switches the answer to the schedule count (and says so).
 
@@ -1004,8 +1004,8 @@ def _agree(a, b, tol=0.15):
 
 
 def _answer_yolo(it, y, hk=None):
-    """Swings not readable: the detector's boxes, cross-checked against a Claude vision count on tiles. Agreement
-    (within 15 %) gives confidence 0.5 (school screenshot: detector 120, vision 109, hand 128); disagreement 0.25."""
+    """Swings not readable: the detector's boxes at 0.5; a Claude vision count on tiles agreeing within 15 % raises
+    it to 0.6 and is quoted; a disagreeing one is ignored (it undercounts dense sheets)."""
     if not y or (it == "doors" and not y["doors"]) or (it == "windows" and not y["windows"]):
         return None
     ev, parts = [], []
@@ -1017,17 +1017,16 @@ def _answer_yolo(it, y, hk=None):
         parts.append(f"{len(y['windows'])} windows")
     ans = len(y["doors"]) if it == "doors" else len(y["windows"]) if it == "windows" else \
         f"{len(y['doors'])} doors and {len(y['windows'])} windows"
-    conf, notes = 0.45, []
-    if hk:
-        for k in (["doors"] if it == "doors" else ["windows"] if it == "windows" else ["doors", "windows"]):
-            a, b = len(y[k]), len(hk[k])
-            if _agree(a, b):
-                notes.append(f"a separate vision count on {hk['tiles']} tiles agrees ({b} {k})")
-                conf = 0.5 if conf > 0.25 else conf  # any disagreement keeps it at 0.25
-            else:
-                notes.append(f"a separate vision count on {hk['tiles']} tiles DISAGREES ({b} {k}): treat this {k} "
-                             f"count as rough")
-                conf = 0.25
+    # the detector's count stands on its own (school 2000 px: 120 vs 128 by hand; dorm PNG: 204 vs 198); a Claude
+    # vision count on tiles can only raise confidence: it undercounts dense sheets (109 on the dorm), so no veto
+    conf, notes = 0.5, []
+    ks = ["doors"] if it == "doors" else ["windows"] if it == "windows" else ["doors", "windows"]
+    if any(len(y[k]) < 3 for k in ks if not (k == "windows" and it == "doors_windows")):
+        conf = 0.3  # implausibly few symbols for a floor plan
+    if hk and all(_agree(len(y[k]), len(hk[k])) for k in ks):
+        notes.append(f"a separate vision count on {hk['tiles']} tiles agrees ("
+                     + ", ".join(f"{len(hk[k])} {k}" for k in ks) + ")")
+        conf = min(0.6, conf + 0.1)
     expl = ("Found " + " and ".join(parts) + " with the symbol detector (door swings could not be read directly on "
             "this drawing, so expect a few wrong or missed boxes: about 1 in 5 for doors on our test sheet)"
             + ("; " + "; ".join(notes) if notes else "") + ". Every counted item is a numbered box: check the marked "
