@@ -1338,3 +1338,8 @@ def answer(path, question, meta) -> dict | None:
         return _res(n, conf0, f"{n} distinct slab notes", [_text_ev(t["bbox"], t["text"][:80]) for t in A["types"]],
                     A, "note")
     return None
+
+
+def warm(meta):
+    """Upload-time warm-up (bp.sheets.warm_upload): run the analysis once so the first question is instant."""
+    analyse(meta)
