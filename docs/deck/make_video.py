@@ -12,7 +12,8 @@ Needs the demo server (default http://localhost:3123; --url), playwright + chrom
 
 1. Voice-over: every caption line in SCENES is spoken by Kokoro-82M (Apache-2.0, local CPU) from cache/tts/venv,
    or with --tts elevenlabs by ElevenLabs (key from ELEVENLABS_API_KEY or data/secrets/elevenlabs.env). The key is
-   probed once; a 401/403 (e.g. a Speech-to-Text-only key) falls back to Kokoro. The key is never printed.
+   probed once (the current key passed on 2026-11-14); a 401/403 (e.g. a Speech-to-Text-only key) falls back to
+   Kokoro. The key is never printed. Clips are cached per engine/voice/text, so re-cuts cost nothing.
 2. Timing: each scene lasts as long as its voice-over (LEAD before, GAP between lines, TAIL after); the total must
    stay <= the cut's limit (120 s / 60 s). The timing table in docs/video.md is rewritten between the TIMING markers.
 3. Picture: every scene is a live recording, the result cards included (their bars grow), so nothing is a slide.
@@ -77,7 +78,7 @@ Q_IFC_WALLS = "How many doors are shown on the floor plan of 'Grundplan'?"
 # misread them. Sources for every number: README.md, docs/RESULTS.md, docs/COSTS.md (listed in docs/video.md).
 # "cuts": which cut a scene is in; "short": the lines it speaks in the 60 s cut (default: the same lines).
 SCENES = [
-    {"id": "hook", "kind": "shot", "cuts": "full short", "lines": [
+    {"id": "hook", "kind": "shot", "cuts": "full short", "min": 8.5, "lines": [  # min: room for both chips
         "Ask a floor plan how many doors it has.",
         ("Twenty. And here is every single one.", "Twenty. And here is every single one."),
     ]},
@@ -808,7 +809,7 @@ def cards_html():
   <div class="kicker in">Built at Junction 2026 · Stoa: Make Blueprints Talk</div>
   <h1 class="in" style="animation-delay:.3s">Blueprints <span>That Talk</span></h1>
   <div class="meta in" style="animation-delay:.8s">Exact · verifiable · cheap<br><code>{REPO_URL}</code></div>
-  <div class="foot">{html.escape(CREDITS)}.<br>Training compute: a local RTX 4070 and cloud GPUs (Verda). Voice: Kokoro-82M (Apache-2.0), generated locally.</div>
+  <div class="foot">{html.escape(CREDITS)}.<br>Training compute: a local RTX 4070 and cloud GPUs (Verda). Voice: {"Kokoro-82M (Apache-2.0), generated locally" if ENGINE == "kokoro" else "ElevenLabs"}.</div>
 </section>
 <script>
 document.getElementById(new URLSearchParams(location.search).get('card')).classList.add('on');

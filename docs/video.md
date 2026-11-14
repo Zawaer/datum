@@ -25,8 +25,11 @@ Playback is smooth at real speed however slow the renderer is. The 4K frames als
 
 **Format.** 1920x1080, 30 fps. The picture is scaled to 85 % so the caption band underneath never covers the drawing
 credits. Burned-in captions (+ `.srt`) use the caption text from the script, and the voice is loudness-normalised. Voice: Kokoro-82M
-`af_heart` (Apache-2.0, local) by default. ElevenLabs TTS is optional. The current key is Speech-to-Text only, so `--tts
-elevenlabs` gets a 401/403, says so, and falls back to Kokoro (the key is never printed).
+`af_heart` (Apache-2.0, local) by default. With `--tts elevenlabs` (or `auto`) the script probes the ElevenLabs key once. On
+14 Nov the key **did** pass the TTS probe (voice `21m00Tcm4TlvDq8ikWAM` "Rachel", `eleven_multilingual_v2`; set
+`ELEVENLABS_VOICE_ID` for another), so the ElevenLabs voice is available. A 401/403 falls back to Kokoro (the key is never printed).
+With ElevenLabs the 2:00 cut times at about 1:34 and Kokoro is slower, so check `--voice-only` before deciding to add a line.
+The end card credits whichever voice engine was used.
 
 ## 2:00 storyboard
 
@@ -35,7 +38,7 @@ Durations are planned. The real ones follow the voice (table below, regenerated 
 
 | # | shot (`id`) | ~s | on screen (exact action) | narration | on-screen text |
 |---|---|---|---|---|---|
-| 1 | **Hook** (`hook`) | 0–6 | Full-bleed 3D (side panels hidden). `swiss_dwellings/site3387_bldg5238_floor23498.pdf`, Q: *How many doors (interior doors and entrance doors together) are drawn on this floor plan?* already answered. **See it in 3D**: the flat plan, seen from straight above, rises into a building over 2.6 s (`window.__p3riseMs = 2600`). The camera tilts to three-quarter view and the 20 counted doors glow blue and pop up numbered 1…20, one after another. | "Ask a floor plan how many doors it has. Twenty. And here is every single one." | chip: **20 doors · every one numbered** / *read from the CAD layers · no AI model call · $0*, then **Blueprints That Talk** / *Junction 2026 · Stoa: Make Blueprints Talk* |
+| 1 | **Hook** (`hook`) | 0–8.5 (min 8.5 s) | Full-bleed 3D (side panels hidden). `swiss_dwellings/site3387_bldg5238_floor23498.pdf`, Q: *How many doors (interior doors and entrance doors together) are drawn on this floor plan?* already answered. **See it in 3D**: the flat plan, seen from straight above, rises into a building over 2.6 s (`window.__p3riseMs = 2600`). The camera tilts to three-quarter view and the 20 counted doors glow blue and pop up numbered 1…20, one after another. | "Ask a floor plan how many doors it has. Twenty. And here is every single one." | chip: **20 doors · every one numbered** / *read from the CAD layers · no AI model call · $0*, then **Blueprints That Talk** / *Junction 2026 · Stoa: Make Blueprints Talk* |
 | 2 | **Problem** (`problem`, card) | 6–17 | Animated card: three orange bars grow in turn. Sonnet 5.5 + its CAD/IFC files 69.8 %, Gemini 3.1 Pro 64.2 %, Sonnet drawing-only 63.2 %. | "Quantity takeoff is still done by hand. Frontier AI, given the very same files, gets seven answers in ten right, and sounds just as sure when it's wrong." | **Frontier models get about 7 answers in 10 right, and sound just as sure when they are wrong.** |
 | 3 | **How it works** (`how`) | 17–25 | `/how`: glide down to the routing chapter, where a question flies to its solver. Two further smooth scrolls through "proof on the drawing". | "So we don't guess. Every question goes to an exact method: the CAD geometry, the BIM model, or a small detector we trained." | (the page's own headings) |
 | 4 | **X-ray count** (`xray`) | 25–35 | Same Swiss plan in 2D. The door question types itself. **X-ray**: the drawing greys back, each door lights up in turn and the HUD counts 1/20 … 20/20. Punch-in on the drawing during the count, then on the answer card: **20**, "Verified by geometry", "Very likely right · 99.95 %", "Two independent methods agree". | "Ask in plain words, and the X-ray counts every door on the drawing. A second, independent method agrees. No model call, zero cost." | (app HUD: *X-ray · counting 20 / 20*) |
