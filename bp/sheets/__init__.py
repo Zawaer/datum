@@ -89,3 +89,214 @@ def answer(path, question, meta):
         res["sheet_type"] = n
         res["sheet_score"] = round(s, 3)
     return res
+
+
+# ------------------------------------------------------------------------------------------- meta (once per upload)
+import json  # noqa: E402
+import os  # noqa: E402
+import re  # noqa: E402
+import shutil  # noqa: E402
+import subprocess  # noqa: E402
+import threading  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+KINDS = ("arch", "slab", "piping", "other")
+CLASSIFY_PROMPT = """This is one sheet of a construction drawing set that a user uploaded. Read its title block and
+the big view titles, and say what kind of sheet it is. JSON only:
+{"kind": "arch" (architectural floor plan / room layout / general arrangement, incl. dormitories, schools, houses) |
+         "slab" (structural foundation / slab / reinforcement plan: slab thicknesses, bar sizes, footings) |
+         "piping" (mechanical / plumbing / process piping plan: pipes with sizes, valves, tags) |
+         "other" (elevation, section, detail, site plan, schedule-only sheet, not a drawing),
+ "title": "<sheet title as printed, e.g. 'SECOND FLOOR PLAN T-SHAPE'>",
+ "sheet_number": "<sheet id as printed, e.g. 'A-2', or ''>",
+ "scale": "<scale as printed, e.g. '1:200' or '1\\" = 40\\'-0\\"', or ''>",
+ "units": "metric" | "imperial" | "unknown",
+ "has_tables": true if the sheet carries schedules / tables of numbers (areas, counts, quantities)}"""
+_KW = {
+    "slab": r"slab|foundation|footing|reinforc|rebar|\bD\d{2}\b|S-\d{3}",
+    "piping": r"piping|pipe|valve|\bPS-\d|\bCV-\d|suction|discharge|header|M-\d{3}|plumbing",
+    "arch": r"floor plan|plan level|dormitory|classroom|corridor|room|\bA-\d",
+}
+_meta_lock = threading.Lock()
+_meta_mem: dict = {}
+
+
+def _image_for(path: str, page: int, cache_dir: Path) -> tuple[str, int, int]:
+    """(raster path, w, h) of the page: rasters as they are; a PDF page rendered once at ~200 dpi (<= 9000 px)."""
+    from PIL import Image
+
+    Image.MAX_IMAGE_PIXELS = None
+    ext = path.rsplit(".", 1)[-1].lower()
+    if ext in ("png", "jpg", "jpeg"):
+        with Image.open(path) as im:
+            return path, im.width, im.height
+    out = cache_dir / f"sheet_p{page}.png"
+    if not out.exists():
+        import pymupdf
+
+        pg = pymupdf.open(path)[page]
+        zoom = min(200 / 72, 9000 / max(pg.rect.width, pg.rect.height))
+        pg.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False).save(str(out))
+    with Image.open(out) as im:
+        return str(out), im.width, im.height
+
+
+def _pdf_text(path: str, page: int) -> str:
+    if not path.lower().endswith(".pdf"):
+        return ""
+    try:
+        import pymupdf
+
+        return pymupdf.open(path)[page].get_text()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def classify(image_path: str, model: str = "haiku") -> dict:
+    """One cheap vision call on a downscaled view of the sheet (~$0.002): kind, title, sheet number, scale."""
+    from PIL import Image
+
+    from bp.generic import llm
+
+    Image.MAX_IMAGE_PIXELS = None
+    with Image.open(image_path) as im:
+        im = im.convert("RGB")
+        im.thumbnail((1568, 1568))
+    r = llm.ask(CLASSIFY_PROMPT, [im], model=model, tag="sheets-classify", timeout=60)
+    d = llm.parse_json(r["text"]) or {}
+    if not isinstance(d, dict):
+        d = {}
+    d["cost_usd"] = r.get("cost_usd", 0.0)
+    if d.get("kind") not in KINDS:
+        d["kind"] = "other" if not d.get("kind") else str(d["kind"]).lower()[:20]
+    return d
+
+
+def kw_score(meta, kind: str) -> float:
+    """Helper for detect(): 1.0 when the classifier said `kind`, plus a little for keyword hits in title/text."""
+    s = 0.8 if meta.get("kind") == kind else 0.0
+    blob = f"{meta.get('title', '')} {meta.get('text', '')[:20000]}"
+    hits = len(re.findall(_KW.get(kind, r"^$"), blob, re.I))
+    return min(1.0, s + min(0.2, 0.04 * hits))
+
+
+def build_meta(path: str, page: int = 0, cache_dir: str | Path | None = None, do_classify: bool = True) -> dict:
+    """meta for detect()/answer() (see module doc). Cached in memory and in <cache_dir>/sheet_meta_p<page>.json
+    (default: the file's own folder, i.e. the upload folder)."""
+    path = str(path)
+    cache_dir = Path(cache_dir or Path(path).parent)
+    key = (path, page)
+    with _meta_lock:
+        if key in _meta_mem:
+            return _meta_mem[key]
+    f = cache_dir / f"sheet_meta_p{page}.json"
+    meta = None
+    if f.exists():
+        try:
+            meta = json.loads(f.read_text())
+        except json.JSONDecodeError:
+            meta = None
+    if meta is None or (do_classify and "classify" not in meta):
+        img, w, h = _image_for(path, page, cache_dir)
+        meta = meta or {}
+        meta.update({"path": path, "page": page, "image": img, "w": w, "h": h, "text": _pdf_text(path, page)})
+        if do_classify and os.environ.get("BP_SHEET_CLASSIFY", "1") == "1":
+            c = classify(img)
+            meta["classify"] = c
+            meta["kind"] = c.get("kind")
+            meta["title"] = " ".join(str(c.get(k) or "") for k in ("title", "sheet_number")).strip()
+            meta["scale"] = c.get("scale") or ""
+            meta["units"] = c.get("units") or "unknown"
+            meta["cost_usd"] = c.get("cost_usd", 0.0)
+        try:
+            f.write_text(json.dumps(meta))
+        except OSError:
+            pass
+    meta.setdefault("kind", None)
+    meta.setdefault("title", "")
+    with _meta_lock:
+        _meta_mem[key] = meta
+    return meta
+
+
+# ------------------------------------------------------------------------------------------------- OCR (shared)
+def ocr_words(meta, region=None, scale: float = 1.0, psm: int = 11, min_conf: float = 30) -> list[dict]:
+    """Tesseract words of the sheet image (or of a region [x0,y0,x1,y1] normalised), cached per call signature.
+    Returns [{"text", "bbox": [x0,y0,x1,y1] normalised to the full image, "conf"}]. [] if tesseract is missing.
+    Upscale (scale=2) helps on ~2000 px screenshots; large images are processed in tiles of <= 4000 px."""
+    if not shutil.which("tesseract"):
+        return []
+    from PIL import Image
+
+    Image.MAX_IMAGE_PIXELS = None
+    cache = meta.setdefault("_ocr", {})
+    ck = f"{region}|{scale}|{psm}"
+    if ck in cache:
+        return [w for w in cache[ck] if w["conf"] >= min_conf]
+    im = Image.open(meta["image"]).convert("L")
+    W, H = im.size
+    x0, y0, x1, y1 = region or (0, 0, 1, 1)
+    box = (round(x0 * W), round(y0 * H), round(x1 * W), round(y1 * H))
+    crop = im.crop(box)
+    if scale != 1.0:
+        crop = crop.resize((round(crop.width * scale), round(crop.height * scale)), Image.LANCZOS)
+    words = []
+    T = 4000
+    import tempfile
+
+    for ty in range(0, crop.height, T - 200):
+        for tx in range(0, crop.width, T - 200):
+            tile = crop.crop((tx, ty, min(crop.width, tx + T), min(crop.height, ty + T)))
+            with tempfile.NamedTemporaryFile(suffix=".png") as tf:
+                tile.save(tf.name)
+                try:
+                    out = subprocess.run(["tesseract", tf.name, "-", "--psm", str(psm), "tsv"], capture_output=True,
+                                         text=True, timeout=180).stdout
+                except subprocess.TimeoutExpired:
+                    continue
+            for line in out.splitlines()[1:]:
+                p = line.split("\t")
+                if len(p) < 12 or not p[11].strip():
+                    continue
+                left, top, wd, ht, conf = int(p[6]), int(p[7]), int(p[8]), int(p[9]), float(p[10])
+                gx0 = box[0] + (tx + left) / scale
+                gy0 = box[1] + (ty + top) / scale
+                words.append({"text": p[11].strip(), "conf": conf,
+                              "bbox": [gx0 / W, gy0 / H, (gx0 + wd / scale) / W, (gy0 + ht / scale) / H]})
+            if tx + T >= crop.width:
+                break
+        if ty + T >= crop.height:
+            break
+    # tiles overlap: drop duplicates (same text, nearly the same box)
+    seen, uniq = set(), []
+    for w in words:
+        k = (w["text"], round(w["bbox"][0] * 400), round(w["bbox"][1] * 400))
+        if k not in seen:
+            seen.add(k)
+            uniq.append(w)
+    cache[ck] = uniq
+    return [w for w in uniq if w["conf"] >= min_conf]
+
+
+def ocr_lines(words: list[dict], ytol: float = 0.5) -> list[dict]:
+    """Group OCR words into text lines: [{"text", "bbox", "words"}], top to bottom, left to right."""
+    ws = sorted(words, key=lambda w: (w["bbox"][1], w["bbox"][0]))
+    lines: list[dict] = []
+    for w in ws:
+        h = w["bbox"][3] - w["bbox"][1]
+        cy = (w["bbox"][1] + w["bbox"][3]) / 2
+        for ln in lines:
+            lh = ln["bbox"][3] - ln["bbox"][1]
+            lcy = (ln["bbox"][1] + ln["bbox"][3]) / 2
+            gap = w["bbox"][0] - ln["bbox"][2]
+            if abs(cy - lcy) < ytol * max(h, lh) and -0.002 < gap < 3 * max(h, lh):
+                ln["words"].append(w)
+                b = ln["bbox"]
+                ln["bbox"] = [min(b[0], w["bbox"][0]), min(b[1], w["bbox"][1]), max(b[2], w["bbox"][2]),
+                              max(b[3], w["bbox"][3])]
+                break
+        else:
+            lines.append({"words": [w], "bbox": list(w["bbox"])})
+    for ln in lines:
+        ln["text"] = " ".join(x["text"] for x in sorted(ln["words"], key=lambda x: x["bbox"][0]))
+    return sorted(lines, key=lambda ln: (ln["bbox"][1], ln["bbox"][0]))
