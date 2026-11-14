@@ -4,7 +4,7 @@ The `cubicasa` solver (`bp/solvers/cubicasa.py`) counts symbols and typed rooms 
 PNGs with one YOLO11 detector. Weights are not in git; produce them like this (~1 h on an RTX 4070):
 
 ```bash
-# 1. public CubiCasa5k release (CC BY-NC 4.0, Zenodo record 2613548, 5.5 GB)
+# 1. public CubiCasa5k release (CC BY-NC-SA 4.0 (the stricter of the two licences stated), Zenodo record 2613548, 5.5 GB)
 mkdir -p cache/cc5k_dl cache/cc5k
 curl -L -o cache/cc5k_dl/cubicasa5k.zip https://zenodo.org/api/records/2613548/files/cubicasa5k.zip/content
 .venv/bin/python -I train/cubicasa/extract_cc5k.py cache/cc5k_dl/cubicasa5k.zip cache/cc5k  # skips test drawings
