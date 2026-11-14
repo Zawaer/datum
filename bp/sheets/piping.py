@@ -1389,6 +1389,24 @@ def _count(q: str, sheet: dict, insts: list[dict], base: dict, cost: list) -> di
             if new is not None:
                 rechecked.append((f, new))
                 sel += [t for t in new if not any(t is x for x in sel)]
+    # gaps left in a numbered run (a family spread over the whole sheet, PS-1..24 without PS-15, can't be zoomed
+    # as one band): one zoomed whole-sheet look for that family (cached, ~$0.01); new numbers within the run are added
+    for f in fams:
+        nums = sorted({t["num"] for t in sel if t["family"] == f and t["num"] is not None})
+        gaps = [k for k in range(1, nums[-1] + 1) if k not in nums] if nums else []
+        if not gaps or f in missing or not sheet.get("image") or "pdf text layer" in sheet["readers"] or \
+                os.environ.get("BP_PIPING_GAP_SCAN", "1") != "1":
+            continue
+        have_t = {t["tag"] for t in sel if t["family"] == f}
+        add = [t for t in _family_scan(sheet, [f], cost, max_tiles=48)
+               if t["num"] is not None and t["num"] in gaps and t["tag"] not in have_t]
+        seen = set()
+        add = [t for t in add if not (t["tag"] in seen or seen.add(t["tag"]))]
+        for t in add:
+            t.update(src="vision-famscan", seen_by=["vision-famscan"], conf=70.0)
+        if add:
+            sel += add
+            rechecked.append((f, add))
     # a family printed without numbers (PG): nothing tells a missed label, so on a raster the whole sheet is looked
     # at once more, zoomed, for that label alone (cached; ~$0.01), and labels at new places are added
     bare = [f for f in fams if f not in missing and any(t["family"] == f and t["num"] is None for t in sel)
