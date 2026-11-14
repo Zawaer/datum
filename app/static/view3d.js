@@ -836,7 +836,7 @@ function paint(items) {
     let h = br ? `<span class="sc"><span>${HEAT.map(c => `<i style="background:${c}"></i>`).join('')}</span><em><b>0</b>${br.map(b => `<b>${b}</b>`).join('')}</em></span><span>m² per room · ${n} measured</span>`
       : count ? `<span><i class="pin"></i>${n} counted</span>` : `<span><i style="background:${EV}"></i>${n} in the total</span>`;
     if (off) h += `<span><i style="background:#e9ebee;border:1px solid #9aa2ad"></i>${off} dropped</span>`;
-    h += `<span class="v3wide">${P.length ? 'Rooms painted on their floor · ' : ''}the rest of the model in grey</span>`;
+    h += `<span class="v3wide">${P.length ? 'Rooms painted on their floor · everything else' : 'Everything else'} in grey</span>`;
     legEl.innerHTML = h; legEl.hidden = false;
   }
 }
