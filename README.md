@@ -185,9 +185,12 @@ answer + confidence + evidence + cross-check ──► web app: numbered boxes /
 
 ## Run it
 
+Tested with Python 3.11 on Linux with an NVIDIA GPU (the detector also runs on CPU, slower). Run everything
+from the repository root.
+
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt fastapi uvicorn ultralytics torch playwright
+pip install -r requirements.txt                 # ~8 min, ~6.5 GB (torch with CUDA from PyPI)
 playwright install chromium                     # only for screenshots / the video / the deck
 
 # dataset (10 GB, non-commercial, not redistributed here)
@@ -195,14 +198,32 @@ mkdir -p data/full && cd data/full
 curl -LO https://fwjydgxpttajiqpfmqtj.supabase.co/storage/v1/object/public/stoa-junction-2026/junction-dataset.zip
 unzip -q junction-dataset.zip && cd ../..       # -> data/full/junction-dataset/questions.jsonl (or set BP_DATA)
 
-# CubiCasa detector weights: see train/cubicasa/README.md (~1 h on an RTX 4070)
+# CubiCasa detector weights: not in git. Train them with train/cubicasa/README.md (5.5 GB download, 1-2 h
+# on an RTX 4070) -> cache/cubicasa/weights/{best.pt,thresholds.json,calib.json}
 
 # demo app
 .venv/bin/python -m uvicorn app.server:app --host 0.0.0.0 --port 3123    # http://localhost:3123
 ```
 
+**Without the detector weights**, Swiss and IFC questions work fully, but every raster-plan (CubiCasa)
+question abstains with "cubicasa solver failed: FileNotFoundError", which is 16,496 of the 25,420 test
+questions. Point `CUBICASA_WEIGHTS` at a `best.pt` if yours is elsewhere.
+
 The app has a guided demo tour (`app/tour.json`), drawing upload (PDF, PNG, JPG, DXF, IFC), and a scoreboard
-page that reads `runs/*.summary.md`. The numeric solvers need no API key.
+page that reads `runs/*.summary.md`.
+
+**API keys.** Every numeric answer (counts, areas, lengths, volumes) needs no key and no network. Only these
+call a model:
+
+| feature | needs |
+|---|---|
+| IFC free-text answers, the typed-question normaliser, the `--judge` scorer, `claude@*` baselines | the Claude Code CLI (`npm install -g @anthropic-ai/claude-code`) on `PATH` (`claude`, logged in or with `ANTHROPIC_API_KEY`), or `CLAUDE_CLI=/path/to/claude` |
+| `gemini` baseline | `GEMINI_API_KEY` |
+| `nemotron` baseline | `NVIDIA_API_KEY` |
+
+Without the CLI nothing crashes: free-text IFC questions fall back to the rule-based fact-sheet answer
+(after ~12 s of retries per question), and a typed question no parser understands gets "question not
+understood" plus the labels the drawing does have.
 
 ## Reproduce every number
 
@@ -210,6 +231,20 @@ Each command writes `runs/<name>.jsonl` (one row per question: prediction, gold,
 evidence) and `runs/<name>.summary.md` (tables by type, source, source × type, language). The `--sample` is
 deterministic (hash of path + question), and `--ids-from` re-runs exactly the questions of another run, so
 every baseline answers the same 400 questions.
+
+**Quick check without keys** (~6 min on an RTX 4070 + 8 CPU threads, $0):
+
+```bash
+python eval.py --solver router --split test --jobs 8 --name router_check     # all 25,420, no --judge
+```
+
+This scores free text with a token-F1 proxy instead of the LLM judge, so expect 89.5 % (ifc_bench text
+34.5 % instead of 38.2 %; every other cell as in [`runs/router_full_test_v6.summary.md`](runs/router_full_test_v6.summary.md)).
+Do not pass `--judge` without the Claude CLI: a failed judge call scores the answer as wrong. A
+`--sample N` run is stratified by source × type, not weighted to the test mix, so compare its
+per-source rows, not its "ALL" row, with the headline.
+
+The full set (the baselines need the keys above):
 
 ```bash
 python eval.py --solver router --split test --jobs 8 --judge --name router_full_test_v6      # 89.5 %, all 25,420
@@ -226,6 +261,10 @@ BP_OURS_RUN=router_full_test_v6 bash analysis/run_all.sh   # judge baseline text
                                                            # figures, docs/RESULTS.md, analysis/out/*.csv
 .venv/bin/python analysis/costs.py                          # docs/COSTS.md
 ```
+
+`analysis/run_all.sh` and `analysis/costs.py` read the per-question `runs/*.jsonl` logs and the spend logs
+under `cache/`, which are not in git (only the `runs/*.summary.md` tables are). Run them after the eval
+commands above, not on a fresh clone: there, `costs.py` would rewrite `docs/COSTS.md` with $0 rows.
 
 Per-solver checks: `--solver swiss`, `ifc`, `cubicasa`, `ifctext@combo --source ifc_bench --judge`, and
 `vlm` (needs a served LoRA, see `train/vlm/README.md`). Rules and thresholds were tuned on the dev split only.
