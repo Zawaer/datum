@@ -1530,11 +1530,18 @@ def how_page():
 
 
 @app.get("/static/{name}")
-def static(name: str):
+def static(name: str, request: Request):
     p = (STATIC / name).resolve()
     if not p.is_relative_to(STATIC.resolve()) or not p.exists():
         raise HTTPException(404)
     if ROOT_PATH and p.suffix in (".js", ".html"):
+        # rewritten per request, so no file ETag: hash the bytes we send and let no-cache revalidate with a 304
+        body = _with_root(p.read_text()).encode()
+        etag = '"' + hashlib.sha1(body).hexdigest()[:20] + '"'
+        hdr = {"Cache-Control": "no-cache", "ETag": etag}
+        inm = request.headers.get("if-none-match", "")
+        if etag in [t.strip().removeprefix("W/") for t in inm.split(",")]:
+            return Response(status_code=304, headers=hdr)
         mt = "text/javascript" if p.suffix == ".js" else "text/html"
-        return Response(_with_root(p.read_text()), media_type=mt, headers={"Cache-Control": "no-cache"})
+        return Response(body, media_type=mt, headers=hdr)
     return FileResponse(p, headers={"Cache-Control": "no-cache"})

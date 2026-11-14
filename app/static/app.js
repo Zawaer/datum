@@ -107,6 +107,7 @@ let mode = '2d', loaded3d = null, has3d = false, storeyFocus = 'auto';
 async function setMode(m) {
   mode = m; viewer.classList.toggle('mode3d', m === '3d');
   $('#m2d').classList.toggle('on', m === '2d'); $('#m3d').classList.toggle('on', m === '3d');
+  $('#m2d').setAttribute('aria-pressed', m === '2d'); $('#m3d').setAttribute('aria-pressed', m === '3d');
   if (m === '3d') { const fresh = loaded3d !== cur.path; if (await ensure3d() && !fresh) highlight3d(false); }
   else if (img.naturalWidth && res) draw(false);
   if (res) renderEvidence();
@@ -378,7 +379,7 @@ async function ask() {
   renderEvidence();
   if (!PHONE.matches && seq === askSeq) {  // bring the answer card up under the question box (desktop side panel)
     const side = $('#side');
-    side.scrollTo({top: Math.max(0, a.getBoundingClientRect().top - side.getBoundingClientRect().top + side.scrollTop - $('.ask').offsetHeight - 16), behavior: 'smooth'});
+    side.scrollTo({top: Math.max(0, a.getBoundingClientRect().top - side.getBoundingClientRect().top + side.scrollTop - $('.ask').offsetHeight - 16), behavior: smooth()});
   }
 }
 $('#go').onclick = ask; $('#q').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) ask(); });
@@ -629,7 +630,19 @@ function renderAnswer(shownSoFar) {
     </div>`;
   const d = a.querySelector('details.trace'); if (d) d.ontoggle = () => { traceOpen = d.open; };
   wireAnswerActions(a);
-  if (!counting) recompute();
+  if (!counting) { recompute(); announce(); }
+}
+// screen readers hear each answer once, when its count has finished (the card itself is not a live region:
+// the X-ray count and corrections re-render it many times)
+let announcedSeq = null;
+function announce() {
+  if (!res || announcedSeq === res._seq) return;
+  announcedSeq = res._seq;
+  const t = res.type, h = howOf(res);
+  const ans = res.answer == null ? 'not sure, so no guess'
+    : typeof res.answer === 'number' ? `${fmt(res.answer, t)} ${unitOf(t)}`.trim()
+    : String(res.answer).trim().slice(0, 300);
+  const sr = $('#sr-status'); if (sr) sr.textContent = `${res.question}: ${ans}. ${h.t}.`;
 }
 
 // ------------------------------------------------------------ cross-check (a second, independent method), when the router sends one
@@ -854,6 +867,7 @@ function rescaleLabels() {
 // (areas: the running sum). ~60–120 ms an item, never more than 2.5 s; a click or a key skips to the end; instant
 // under prefers-reduced-motion.
 const RMOTION = matchMedia('(prefers-reduced-motion: reduce)');
+function smooth() { return RMOTION.matches ? 'auto' : 'smooth'; }  // scrolls jump instead of glide under reduced motion
 let xr = null;
 const xhud = document.createElement('div'); xhud.className = 'xhud'; xhud.hidden = true; viewer.appendChild(xhud);
 function xrayStop() {  // a new draw / answer: drop a running count without finishing it
@@ -978,9 +992,14 @@ function renderEvidence() {
     const lead = numbered(e) ? `<span class="n">#${k}</span>` : `<span class="n">${i + 1}</span>`;
     const val = e.value != null && t !== 'count' ? fmt(e.value, t) + ' ' + unitOf(t) : '';
     const read = modelRead(e) && e.score != null ? `<span class="rd" title="found by a model with score ${Math.round(100 * e.score)} %: please check">${Math.round(100 * e.score)}%</span>` : '';
-    d.innerHTML = `<button class="tg" title="${e.on ? 'drop this item from the answer' : 'put it back'}" aria-label="include">${e.on ? '✓' : ''}</button>${lead}<span class="nm" title="${esc(name)}">${esc(name)}${read}</span><span class="vl">${val}</span>`;
+    const leadTxt = numbered(e) ? `#${k}` : String(i + 1);
+    d.innerHTML = `<button class="tg" role="checkbox" aria-checked="${e.on}" title="${e.on ? 'drop this item from the answer' : 'put it back'}" aria-label="Include ${esc(name)} ${leadTxt}">${e.on ? '✓' : ''}</button>${lead}<span class="nm" title="${esc(name)}">${esc(name)}${read}</span><span class="vl">${val}</span>`;
     d.onmouseenter = () => hotItem(i, true); d.onmouseleave = () => hotItem(i, false);
-    d.querySelector('.tg').onclick = ev => { ev.stopPropagation(); e.on = !e.on; redraw(); };
+    d.querySelector('.tg').onclick = ev => {
+      ev.stopPropagation(); e.on = !e.on;
+      const kb = document.activeElement === ev.currentTarget; redraw();
+      if (kb) $(`#ev div[data-i="${i}"] .tg`)?.focus();  // the list is rebuilt: keep keyboard focus on this row's toggle
+    };
     d.onclick = () => focusItem(i);
     ev.appendChild(d);
   });
@@ -1237,7 +1256,7 @@ const voice = {rec: null, lang: null, final: '', timer: 0};
   };
   voice.lang = pick();
   const mic = document.createElement('button');
-  mic.id = 'mic'; mic.type = 'button'; mic.className = 'mic'; mic.setAttribute('aria-label', 'Ask by voice'); mic.title = 'Ask by voice: your browser turns speech into text (Chrome and Edge send the audio to Google or Microsoft, Safari to Apple); we only receive the text';
+  mic.id = 'mic'; mic.type = 'button'; mic.className = 'mic'; mic.setAttribute('aria-label', 'Ask by voice'); mic.setAttribute('aria-pressed', 'false'); mic.title = 'Ask by voice: your browser turns speech into text (Chrome and Edge send the audio to Google or Microsoft, Safari to Apple); we only receive the text';
   mic.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4M8.5 21h7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
   $('#go').before(mic);
   const strip = document.createElement('div'); strip.id = 'voice'; strip.className = 'voice'; strip.hidden = true; strip.setAttribute('aria-live', 'polite');
@@ -1308,6 +1327,7 @@ async function startTour(auto = false) {
 }
 async function typeQuestion(text) {
   const q = $('#q'); q.value = '';
+  if (RMOTION.matches) { q.value = text; return; }  // reduced motion: the question appears at once, not typed out
   const dt = Math.max(12, Math.min(40, 1400 / text.length));
   for (const ch of text) { q.value += ch; await sleep(dt); }
 }
@@ -1345,7 +1365,7 @@ async function doAction(act) {
   else if (k === 'toggle') {
     const i = +arg; if (!items[i]) return;
     // on a phone the evidence list sits below the drawing: bring the row up so the change is seen
-    if (PHONE.matches) { const row = $(`#ev div[data-i="${i}"]`); if (row) { row.scrollIntoView({behavior: 'smooth', block: 'center'}); await sleep(600); } }
+    if (PHONE.matches) { const row = $(`#ev div[data-i="${i}"]`); if (row) { row.scrollIntoView({behavior: smooth(), block: 'center'}); await sleep(600); } }
     hotItem(i, true); await sleep(700); items[i].on = !items[i].on; redraw(); hotItem(i, false); flashRow(i); await sleep(900);
   } else if (k === 'add') {
     const [u, v] = arg.split(',').map(Number); const r = img.getBoundingClientRect();
@@ -1355,11 +1375,11 @@ async function doAction(act) {
   else if (k === 'trace') {
     traceOpen = arg !== 'close'; const d = $('#answer details.trace'); if (!d) return;
     d.open = traceOpen;
-    if (PHONE.matches) d.scrollIntoView({behavior: 'smooth', block: 'start'});
+    if (PHONE.matches) d.scrollIntoView({behavior: smooth(), block: 'start'});
     else {  // bring the trace up, but never past the top of the answer card (the big number stays visible)
       const side = $('#side'), a = $('#answer'), top = el => el.getBoundingClientRect().top - side.getBoundingClientRect().top + side.scrollTop;
       const card = top(a) - $('.ask').offsetHeight - 16, want = top(d) + d.offsetHeight - side.clientHeight + 16;
-      side.scrollTo({top: Math.max(0, Math.min(card, Math.max(side.scrollTop, want))), behavior: 'smooth'});
+      side.scrollTo({top: Math.max(0, Math.min(card, Math.max(side.scrollTop, want))), behavior: smooth()});
     }
     await sleep(900);
   }
@@ -1368,13 +1388,13 @@ async function doAction(act) {
     if (gh && !PHONE.matches) {  // the frontier comparison as a picture: keep the big number and the ghost strip in view together
       const side = $('#side'), a = $('#answer'), top = el => el.getBoundingClientRect().top - side.getBoundingClientRect().top + side.scrollTop;
       const card = top(a) - $('.ask').offsetHeight - 16, want = top(gh) + gh.offsetHeight - side.clientHeight + 24;
-      side.scrollTo({top: Math.max(0, Math.min(card, want)), behavior: 'smooth'}); await sleep(900); return;
+      side.scrollTo({top: Math.max(0, Math.min(card, want)), behavior: smooth()}); await sleep(900); return;
     }
     const el = gh || $('#answer ' + arg); if (!el) return;
-    if (PHONE.matches) el.scrollIntoView({behavior: 'smooth', block: 'start'});
+    if (PHONE.matches) el.scrollIntoView({behavior: smooth(), block: 'start'});
     else {
       const side = $('#side'), top = el.getBoundingClientRect().top - side.getBoundingClientRect().top + side.scrollTop;
-      side.scrollTo({top: Math.max(0, top - $('.ask').offsetHeight - 24), behavior: 'smooth'});
+      side.scrollTo({top: Math.max(0, top - $('.ask').offsetHeight - 24), behavior: smooth()});
     }
     await sleep(900);
   }
