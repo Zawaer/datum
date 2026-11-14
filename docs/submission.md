@@ -25,7 +25,7 @@ _(665 characters)_
 
 ## Description (≤ 5000 chars, markdown)
 
-_Character count of the block between the rules below: 544 (limit 5,000)._
+_Character count of the block between the rules below: 4,731 (limit 5,000)._
 
 ---
 
