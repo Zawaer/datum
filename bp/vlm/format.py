@@ -142,7 +142,15 @@ def parse_output(text: str) -> dict:
                 items.append(("", [min(1.0, max(0.0, float(v) / 1000)) for v in m.groups()]))
         m = _COUNT_RE.search(t)
         count = int(m.group(1)) if m else None
-    return {"items": items, "count": count, "ok": ok}
+    # repetition loops (the same box over and over until max_new_tokens) are the main failure of the fine-tuned
+    # model on dense classes; two instances never share an identical box, so exact repeats are dropped
+    seen, uniq = set(), []
+    for lab, b in items:
+        k = tuple(round(v, 3) for v in b)
+        if k not in seen:
+            seen.add(k)
+            uniq.append((lab, b))
+    return {"items": uniq, "count": count, "ok": ok, "n_raw": len(items)}
 
 
 def decision_confidence(tokens: list[tuple[str, float]]) -> float | None:

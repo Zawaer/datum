@@ -63,6 +63,9 @@ class VlmSolver:
         if not p["ok"]:
             conf *= 0.5
             notes.append("reply was not clean JSON")
+        if p.get("n_raw", n) > n:  # the model looped on the same box(es): its count is unreliable
+            conf *= 0.2
+            notes.append(f"repetition loop ({p['n_raw'] - n} repeated boxes dropped)")
         if p["count"] is not None and p["count"] != n:
             conf *= 0.5
             notes.append(f"model said count {p['count']} but listed {n} boxes")

@@ -90,7 +90,7 @@ ssh $H 'cd /root/bp-vlm && HF_HOME=cache/hf .venv/bin/python train/vlm/eval_vlm.
   --adapter cache/vlm/runs/q3vl8b/final --out cache/vlm/eval_q3vl8b.jsonl'
 
 # serve base + adapter (OpenAI-compatible) for the app / router
-ssh $H 'cd /root/bp-vlm && tmux new -d -s serve "HF_HOME=cache/hf .venv-vllm/bin/vllm serve Qwen/Qwen3-VL-8B-Instruct \
+ssh $H 'cd /root/bp-vlm && tmux new -d -s serve "PATH=$PWD/.venv-vllm/bin:\$PATH HF_HOME=cache/hf .venv-vllm/bin/vllm serve Qwen/Qwen3-VL-8B-Instruct \
   --enable-lora --lora-modules blueprints=cache/vlm/runs/q3vl8b/final --max-lora-rank 32 \
   --max-model-len 8192 --limit-mm-per-prompt.image 1 --host 0.0.0.0 --port 8000"'
 # then locally: BP_VLM_URL=http://<host>:8000/v1 .venv/bin/python eval.py --solver vlm ...
