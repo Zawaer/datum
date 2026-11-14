@@ -19,6 +19,7 @@ Contract for a module `bp/sheets/<name>.py`:
               (or ocr_words, which returns these first) before running OCR yourself,
      "image": path of a PNG/JPG render of the page (full resolution, page 0 unless "page" says otherwise),
      "page":  page index the image is of,
+     "low_res": True for a raster under 3000 px on its long side (OCR upscaled; lower confidence on small text),
      "w", "h": image size in px,
      ...}   modules may add their own cached keys under their own name (meta["slab"] = {...}).
 
@@ -138,7 +139,7 @@ def _image_for(path: str, page: int, cache_dir: Path) -> tuple[str, int, int]:
         import pymupdf
 
         pg = pymupdf.open(path)[page]
-        zoom = min(200 / 72, 9000 / max(pg.rect.width, pg.rect.height))
+        zoom = min(300 / 72, 9000 / max(pg.rect.width, pg.rect.height))  # small symbols need ~300 dpi
         pg.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False).save(str(out))
     with Image.open(out) as im:
         return str(out), im.width, im.height
@@ -232,6 +233,9 @@ def build_meta(path: str, page: int = 0, cache_dir: str | Path | None = None, do
         img, w, h = _image_for(path, page, cache_dir)
         meta = meta or {}
         meta.update({"path": path, "page": page, "image": img, "w": w, "h": h, "text": _pdf_text(path, page)})
+        # a small raster (a screenshot, a phone-sized export): tags and small symbols are at the edge of legibility,
+        # so specialists should OCR it upscaled and lower their confidence on reads of small text / symbols
+        meta["low_res"] = max(w, h) < 3000 and not path.lower().endswith(".pdf")
         pw = pdf_words(path, page)
         if len(pw) >= 20:
             meta["words"], meta["text_source"] = pw, "pdf"

@@ -494,7 +494,12 @@ def _answer_count(meta, it):
         parts.append(f"{len(ds)} {w}{'s' if len(ds) != 1 else ''}")
     n = len(ev)
     conf = 0.65 if sc else 0.45
-    if not sc:
+    ppm_needed = DET_PX_PER_M / 2.5  # below ~21 px per metre a door swing is a few pixels: the detector guesses
+    if meta.get("low_res") or (sc and sc["px_per_m"] < ppm_needed):
+        conf = min(conf, 0.3)
+    if conf <= 0.3:
+        note = "the sheet is low resolution, so small symbols are hard to tell apart; upload the PDF or a larger image"
+    elif not sc:
         note = "no scale found, so the sheet was read at a default size (less reliable)"
     else:
         note = f"sheet resampled to {DET_PX_PER_M:.0f} px/m ({sc['how']})"
