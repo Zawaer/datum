@@ -598,8 +598,8 @@ function crossHTML(r) {
   // (runs/crosscheck_vlm_test.summary.md, runs/crosscheck_test.summary.md)
   const m = String(sec.method || '');
   const [name, track] = /VLM/i.test(m) ? ['Our fine-tuned vision model', 'When both agree, answers were right 94.6 % of the time (12,153 held-out raster questions).']
-    : /swiss|pdf/i.test(m) ? ['Reading the PDF itself (not the CAD file)', 'When both agree, answers were right 100 % of the time on held-out Swiss plans.']
-    : /svg|sheet|ifc/i.test(m) ? ['The rendered plan sheet', 'When both agree, answers were right 100 % of the time on held-out IFC questions.']
+    : /swiss|pdf/i.test(m) ? ['Reading the PDF itself (not the CAD file)', 'When both agree, answers were right 99.97 % of the time on held-out Swiss plans (7,750 of 7,752).']
+    : /svg|sheet|ifc/i.test(m) ? ['The rendered plan sheet', 'When both agree, answers were right on all 432 held-out IFC questions.']
     : /yolo|cubicasa/i.test(m) ? ['A second, separately trained detector', '']
     : [esc(ROUTE[m.split('-')[0]] || m || 'A second method'), ''];
   const tip = c.note ? ` title="${esc(c.note)}"` : '';

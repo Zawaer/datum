@@ -52,7 +52,9 @@ for name, label in [("baseline_sonnetfair_full400", "Claude Sonnet 5.5 + sibling
         lines.append(f"| {label} | {n:,} (sample) | ${c:.2f} | ${c / n * 1000:.2f} |")
 lines += ["",
           "Frontier rows are a 400-question stratified sample of the same test split; their $/1k is the raw sample "
-          "mean (the re-weighted figures in docs/RESULTS.md differ slightly). Our numeric answers make no paid calls; "
+          "mean. The sample over-represents the costly IFC and free-text cells, so re-weighted to the true test mix "
+          "(docs/RESULTS.md, the figures the README quotes) they are much lower: e.g. $25.76 instead of $61.31 for "
+          "Sonnet + sibling files. Our numeric answers make no paid calls; "
           "only the 110 free-text IFC questions call Claude Haiku. Local compute (CAD/IFC parsing on CPU, the YOLO "
           "detector on one GPU, ~0.13 s per drawing) prices at roughly $0.005 per 1,000 questions at $0.50 per GPU-hour.",
           ""]

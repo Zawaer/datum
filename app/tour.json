@@ -12,7 +12,7 @@
   },
   {
     "title": "Ask in German, compare with frontier models",
-    "caption": "Net living area of apartment A: each room is outlined with its own m², and the list adds up to 62.74 m², the dataset's answer. Below the answer, the same question put to five frontier models given the same drawing: all five missed it (59 to 75 m²).",
+    "caption": "Net living area of apartment A: each room is outlined with its own m², and the list adds up to 62.74 m², the dataset's answer. Below the answer, the same question put to five frontier baselines given the same drawing: all five missed it (59 to 75 m²).",
     "source": "swiss_dwellings",
     "path": "data/swiss_dwellings/site11487_bldg17991_floor47889.pdf",
     "question": "Wie gross ist die Nettowohnfläche von Wohnung A in m² (Summe aller Räume ohne Balkone, Loggien, Terrassen und andere Aussenräume)?",
