@@ -198,11 +198,11 @@
   <div class="kicker">Demo · verify in seconds</div>
   <h2 style="margin-bottom:34px">The answer is counted out on the drawing.</h2>
   <div class="shots">
-    <div class="shot"><img src="img/step-1.jpg" alt="20 doors numbered on a Swiss plan">
-      <div class="cap"><b>“How many doors?”</b> 20, each numbered on the plan, read from the CAD layers. No model call, $0.
+    <div class="shot"><img src="img/deck-swiss-doors.jpg" alt="20 doors numbered on a Swiss plan, two independent methods agree">
+      <div class="cap"><b>“How many doors?”</b> 20, each numbered on the plan, read from the CAD layers. “Very likely right”, and reading the PDF itself agrees. No model call, $0.
         <small>Swiss Dwellings v3.0.0, M. Standfest et al. (Archilyse AG), doi:10.5281/zenodo.7788422, CC BY 4.0</small></div></div>
-    <div class="shot"><img src="img/step-2.jpg" alt="Apartment area as the sum of 9 room polygons">
-      <div class="cap"><b>Asked in German:</b> net area of apartment A. 9 rooms outlined with their m², summing to 107.40 m². Untick a room and the total updates.
+    <div class="shot"><img src="img/deck-german-area.jpg" alt="Apartment area as the sum of 6 room polygons, next to five frontier models">
+      <div class="cap"><b>Asked in German:</b> net area of apartment A, 6 rooms outlined and summed to 62.74 m². Five frontier models given the same drawing: 5 of 5 wrong.
         <small>Swiss Dwellings v3.0.0, M. Standfest et al. (Archilyse AG), doi:10.5281/zenodo.7788422, CC BY 4.0</small></div></div>
   </div>
 </section>
@@ -211,13 +211,13 @@
 <section class="slide">
   <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">6</div>
   <div class="kicker">Demo · scans and BIM</div>
-  <h2 style="margin-bottom:34px">Raster scans get boxes. BIM models light up in 3D.</h2>
+  <h2 style="margin-bottom:34px">Scans get boxes. BIM models light up in 3D.</h2>
   <div class="shots">
-    <div class="shot"><img src="img/step-4.jpg" alt="Finnish plan with 5 detected doors boxed">
-      <div class="cap"><b>Finnish plan, asked in Finnish:</b> the detector boxes each of the 5 doors it counted.
+    <div class="shot"><img src="img/deck-finnish-vlm.jpg" alt="Finnish plan with 13 detected doors boxed; the fine-tuned vision model also says 13">
+      <div class="cap"><b>Finnish plan, asked in Finnish:</b> the detector boxes each of the 13 doors; our fine-tuned vision model also says 13. When both agree: 94.6&nbsp;% right.
         <small>CubiCasa5K, © 2019 CubiCasa; Kalervo, Ylioinas, Häikiö, Karhu, Kannala, SCIA 2019; CC BY-NC-SA 4.0</small></div></div>
-    <div class="shot"><img src="img/step-5b.jpg" alt="12 doors highlighted in a 3D IFC model">
-      <div class="cap"><b>Plan rendered from a BIM model:</b> the 12 doors are IFC elements, lit up in 3D and listed by GlobalId.
+    <div class="shot"><img src="img/deck-ifc-walls.jpg" alt="21 walls lit up in a 3D IFC model with the arithmetic summing to 185.13 m">
+      <div class="cap"><b>BIM model, asked in Danish:</b> total wall length. The 21 walls light up in 3D and “Why this answer” shows the sum: 185.13&nbsp;m, exact.
         <small>Molio Demo-hus, buildingSMART Community Sample-Test-Files contributors, CC BY 4.0</small></div></div>
   </div>
 </section>
@@ -278,12 +278,17 @@
   <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">9</div>
   <div class="kicker">Why this won’t be obsolete next year</div>
   <h2>A better model still guesses from pixels. We read the number from the geometry.</h2>
-  <ul class="points">
+  <div class="row" style="gap:60px; align-items:flex-start">
+  <ul class="points points-tight" style="flex:0 0 800px; --fs:28px">
     <li><b>Exact where exactness exists.</b> CAD layers and BIM quantities give the true answer; no model generation will beat 100&nbsp;% on those, or $0 per answer.</li>
     <li><b>Proof is the product.</b> A professional signs off a takeoff only if they can check it. Every answer ships with the elements behind it, and its arithmetic.</li>
     <li><b>Models are plug-ins.</b> When a stronger or cheaper vision model ships, it slots into the raster and fallback paths behind the same evidence contract.</li>
     <li><b>Corrections are training data.</b> Every unticked or added item is a labelled example for the small local models.</li>
   </ul>
+  <div class="shot"><img src="img/deck-correction.jpg" alt="A window unticked: the total changes to 10 and the app notes the solver said 11">
+    <div class="cap"><b>Disagree? Click.</b> Untick window #4 and the answer becomes 10 (“the solver said 11”), saved as feedback.
+      <small>Swiss Dwellings v3.0.0, M. Standfest et al. (Archilyse AG), doi:10.5281/zenodo.7788422, CC BY 4.0</small></div></div>
+  </div>
 </section>
 
 <!-- 10 · product -->
@@ -310,13 +315,20 @@
 </section>
 
 <!-- 11 · team -->
-<section class="slide title" style="padding-top:220px">
+<section class="slide title" style="padding-top:130px">
+  <div class="row" style="gap:60px; align-items:flex-start">
+  <div style="flex:0 0 640px">
   <div class="kicker" style="color:#60a5fa">Team</div>
   <div class="team"><div class="person">Toivo</div><div class="person">Rene</div></div>
-  <div class="links" style="color:#cbd5e1">
+  <div class="links" style="color:#cbd5e1; font-size:28px; margin-top:56px">
     Built at Junction 2026, Espoo, 13–15 Nov, with Claude Code.<br>
-    Source: <code style="color:#fff">github.com/Zawaer/datum</code> (MIT)<br>
-    Reproduce: <code style="color:#fff">python eval.py --solver router --split test --judge</code> · <code style="color:#fff">analysis/run_all.sh</code>
+    Source: <code style="color:#fff; font-size:24px">github.com/Zawaer/datum</code> (MIT)<br>
+    Reproduce:<br><code style="color:#fff; font-size:20px">python eval.py --solver router --split test --judge</code><br><code style="color:#fff; font-size:20px">analysis/run_all.sh</code>
+  </div>
+  </div>
+  <div class="shot" style="flex:1"><img src="img/landing.jpg" alt="The demo's landing page: the headline numbers, a one-line pitch and a 60-second tour" style="border-color:#334155">
+    <div class="cap" style="color:#cbd5e1; font-size:24px">Try it: open the demo, press <b style="color:#fff">▶ Start the 60-second tour</b>, then ask your own question in any language.
+      <small style="color:#64748b">Drawing: Swiss Dwellings v3.0.0 (Archilyse AG), CC BY 4.0</small></div></div>
   </div>
   <div class="foot">Drawings: Junction 2026 dataset (non-commercial, per-file licences). Swiss Dwellings v3.0.0 (Archilyse AG, CC BY 4.0) · CubiCasa5K (© 2019 CubiCasa, CC BY-NC-SA 4.0) · Molio Demo-hus (buildingSMART Community Sample-Test-Files, CC BY 4.0) · BIM-Speed Warmond (TU Berlin, CC BY 4.0).</div>
 </section>

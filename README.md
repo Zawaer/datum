@@ -22,7 +22,7 @@ Stoa's brief asks for approaches next year's frontier models won't make obsolete
 + CV + 3D/geometry + small fine-tuned models"*. That is this system, piece by piece: CAD and IFC geometry, a
 small CV detector, a fine-tuned 8B VLM as second opinion, and a frontier LLM only where free text needs it.
 
-![Counting doors on a Swiss apartment plan: 20 numbered boxes, each one a door read from the CAD layers](docs/deck/img/step-1.jpg)
+![Counting doors on a Swiss apartment plan: 20 numbered doors read from the CAD layers, "Very likely right", and a second, independent method that agrees](docs/deck/img/step-1.jpg)
 <sub>Drawing: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0 (rendered by the Junction dataset authors).</sub>
 
 - **Demo:** TODO public URL &nbsp;·&nbsp; **Video (2 min):** TODO link &nbsp;·&nbsp; **Deck:** [docs/deck/deck.pdf](docs/deck/deck.pdf)
