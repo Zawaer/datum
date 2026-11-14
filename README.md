@@ -101,7 +101,7 @@ plus an audit of the whole evaluation and a robustness suite:
    judge-correct more often than the rest (63 % vs 52 % on dev, 28 % for unverified ones; 42 % vs 39 % on test,
    where only 1 is unverified), so the flag is shown, not hidden.
 
-**Robustness** ([`docs/ROBUSTNESS.md`](docs/ROBUSTNESS.md)): the 12,651 language-twin pairs (same question in
+**Robustness** ([`docs/ROBUSTNESS.md`](docs/ROBUSTNESS.md)): the 12,654 language-twin pairs (same question in
 English and Finnish / German / ...) agree 100 %; typed paraphrases go through a question normaliser (one cheap
 Haiku call, only for questions no parser understands, constrained to names that exist in the drawing) and score
 85.9 % vs 57.7 % before it, equal to the original wording; 50 of 50 must-abstain questions (unknown storeys,

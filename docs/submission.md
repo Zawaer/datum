@@ -59,7 +59,7 @@ The answer is counted out on the drawing: numbered boxes, rooms outlined with th
 - **Independent cross-check.** A second method re-derives each answer (PDF re-read for CAD plans, the SVG sheet for IFC, a fine-tuned vision model for scans). Where they agree, Swiss and IFC answers were right 100 % of the time; it caught a real error in our own CAD reading of an apartment area. On conflict, confidence is halved and both readings are shown.
 - **Provenance.** Every number in an LLM-written answer is traced to the facts it cites, or flagged.
 
-Robustness: 12,651 language-twin pairs agree 100 %; typed paraphrases 86 %, same as the original wording (58 % before our normaliser); 50/50 must-abstain questions abstain.
+Robustness: 12,654 language-twin pairs agree 100 %; typed paraphrases 86 %, same as the original wording (58 % before our normaliser); 50/50 must-abstain questions abstain.
 
 ### 3. Creativity
 
