@@ -46,6 +46,10 @@ class CubicasaSolver:
         self.thresh = json.loads(tf.read_text()) if tf.exists() else {}
         cf = Path(self.weights).with_name(f"calib{sfx}.json")
         self.calib = json.loads(cf.read_text()) if cf.exists() else {}
+        # detector-vs-VLM arbitration (train/cubicasa/arbiter_dev.py): arbiter.json next to the weights, on unless
+        # CUBICASA_ARBITER=off; uses the precomputed / live VLM answer of bp.crosscheck.vlm_answer when one exists
+        af = Path(self.weights).with_name("arbiter.json")
+        self.arbiter = json.loads(af.read_text()) if af.exists() and os.environ.get("CUBICASA_ARBITER") != "off" else None
         self.imgsz = str(self.thresh.pop("_imgsz", 1024))
         self.cls_imgsz = self.thresh.pop("_cls_imgsz", {})
         self._model = None
@@ -143,7 +147,7 @@ class CubicasaSolver:
         if how == "estimated":
             expl = (f"{k} {label}{'' if k == 1 else 's'}: weak detections combined with how common each count is"
                     f" ({len(kept)} box{'' if len(kept) == 1 else 'es'} shown)")
-        return {
+        res = {
             "answer": k,
             "confidence": round(conf, 3),
             "method": "cubicasa-yolo" if how == "detected" else "cubicasa-yolo+prior",
@@ -151,3 +155,25 @@ class CubicasaSolver:
             "explanation": expl,
             "evidence": ev,
         }
+        return self.arbitrate(q, t, res) if self.arbiter else res
+
+    def arbitrate(self, q, t, res):
+        """Take the VLM's answer instead of the detector's when the dev-fitted rule says so (they disagree, the
+        detector is unsure, the VLM is sure enough). Confidence = the rule's dev precision on switched answers."""
+        from bp.crosscheck import vlm_answer
+
+        a = self.arbiter
+        if a.get("kind") not in ("switch", "switch_global"):
+            return res
+        v = vlm_answer(q)
+        if not v or v.get("answer") is None or v["answer"] == res["answer"]:
+            return res
+        lo, hi = a["per_t"].get(t, (0.0, 1.0)) if a["kind"] == "switch" else a["ab"]
+        if not (res["confidence"] < lo and (v.get("confidence") or 0.0) >= hi):
+            return res
+        n = v["answer"]
+        return {**res, "answer": n, "confidence": float(a.get("switched_precision", {}).get(t, 0.5)),
+                "method": "cubicasa-vlm-arbiter", "detector_answer": res["answer"],
+                "detector_confidence": res["confidence"], "evidence": v.get("evidence") or [],
+                "explanation": f"{n} {LABEL[t]}{'' if n == 1 else 's'} by the fine-tuned VLM: the detector "
+                               f"({res['answer']}, confidence {res['confidence']:.2f}) was unsure and the two disagreed"}

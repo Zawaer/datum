@@ -820,7 +820,9 @@ def crosscheck(q, primary) -> dict:
         others = []
         sec = _second(fn, q)
         indep = INDEPENDENCE[src]
-        if src in ("cubicasa5k", "upload-raster") and q.get("type") == "count":
+        # (an answer the arbiter already took from the VLM, bp/solvers/cubicasa.py, keeps the v3 detector as its check)
+        if src in ("cubicasa5k", "upload-raster") and q.get("type") == "count" \
+                and (primary or {}).get("method") != "cubicasa-vlm-arbiter":
             vlm = vlm_answer(q)  # its own caches; not _second, which would also remember "server down"
             if vlm is not None and vlm.get("answer") is not None:
                 if sec is not None and sec.get("answer") is not None:
