@@ -289,9 +289,15 @@ def main():
       "seeded, single-threaded) and the same label is joined to every system's rows, so a question counts under the "
       "same language for every column. The test split holds English, Finnish, German, French, Italian and Dutch "
       "questions. "
-      f"Our solvers parse the question template in either language, so language itself changes nothing: all "
-      f"{fmt_n(tw['pairs'])} Finnish/English CubiCasa twins (same drawing, same question) get the same answer "
-      f"({fmt_n(tw['same_answer'])} identical). The per-language gaps are a source mix effect: every Finnish "
+      + (f"Our solvers parse the question template in either language, so language itself changes nothing: all "
+         f"{fmt_n(tw['pairs'])} Finnish/English CubiCasa twins (same drawing, same question) get the same answer. "
+         if tw['same_answer'] == tw['pairs'] else
+         f"Our solvers parse the question template in either language, so language itself barely matters: "
+         f"{fmt_n(tw['same_answer'])} of {fmt_n(tw['pairs'])} Finnish/English CubiCasa twins (same drawing, same "
+         f"question) get the same answer; the {fmt_n(tw['pairs'] - tw['same_answer'])} that differ are where the "
+         "VLM arbiter, whose precomputed answers were made per question text, overrode the detector in one "
+         "language only. ")
+      + "The per-language gaps are a source mix effect: every Finnish "
       "question is a CubiCasa raster count (our hardest source), while German/French/Italian questions come from "
       "Swiss Dwellings and IFC models, which we solve exactly. The frontier per-language numbers are raw sample "
       "means (not re-weighted) with n = 10–225 and carry the same confound.")

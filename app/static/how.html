@@ -168,13 +168,14 @@
       </article>
       <article class="hw-step" data-step="1">
         <p><b>2 · Confidence you can take literally.</b> If the router answers only at confidence ≥&nbsp;0.5 and says
-          “not sure” otherwise, it answers 87.6&nbsp;% of all questions at 95.8&nbsp;% accuracy, turning 1,594 wrong
+          “not sure” otherwise, it answers 88.8&nbsp;% of all questions at 95.6&nbsp;% accuracy, turning 1,354 wrong
           answers into honest abstentions. Hover or use the arrow keys on the curve.</p>
       </article>
       <article class="hw-step" data-step="2">
         <p><b>3 · A second opinion.</b> A different method re-derives every answer. On scanned plans it is our
           fine-tuned Qwen3-VL-8B. When it agrees, the detector is right 94.9&nbsp;%. On a conflict the confidence is
-          halved and both sets of marks are shown, never silently swapped.</p>
+          halved and both sets of marks are shown. Only where a rule fit on dev says the detector is unsure and the
+          vision model sure is its count taken.</p>
       </article>
       <article class="hw-step" data-step="3">
         <p><b>4 · Every LLM number traced.</b> In free-text answers, each number and name must appear in the fact lines
@@ -190,19 +191,19 @@
         </div>
         <div class="hw-stats">
           <div><b>&gt;&nbsp;90&nbsp;%</b><span>precision and recall of scanned-plan boxes against independent gold instances (box centres matched)</span></div>
-          <div><b>91&nbsp;% / 86&nbsp;%</b><span>the same at IoU ≥&nbsp;0.5</span></div>
-          <div><b>~2.3&nbsp;%</b><span>of correct counts are right by luck: a missed object and a false box cancelling out</span></div>
+          <div><b>91&nbsp;% / 87&nbsp;%</b><span>the same at IoU ≥&nbsp;0.5</span></div>
+          <div><b>~2.8&nbsp;%</b><span>of correct counts are right by luck: a missed object and a false box cancelling out</span></div>
         </div>
       </div>
 
       <div class="hw-panel" data-p="1">
         <div class="hw-chart" id="curveWrap">
           <svg id="curve" viewBox="0 0 560 330" tabindex="0" role="img"
-               aria-label="Accuracy against the share of questions answered. Answering everything: 90.0 percent right. Answering 87.6 percent of questions at confidence 0.5 or more: 95.8 percent right."></svg>
+               aria-label="Accuracy against the share of questions answered. Answering everything: 90.7 percent right. Answering 88.8 percent of questions at confidence 0.5 or more: 95.6 percent right."></svg>
           <div class="hw-tip" id="tip" hidden></div>
         </div>
         <p class="hw-note">All 25,420 test questions, ranked by the confidence the app shows. Raster-plan answers at
-          confidence ≥&nbsp;0.95 are right 98.7&nbsp;% of the time.</p>
+          confidence ≥&nbsp;0.95 are right 98.6&nbsp;% of the time.</p>
       </div>
 
       <div class="hw-panel" data-p="2">
@@ -211,7 +212,7 @@
           <div class="hw-arow"><div class="hw-abar"><i class="ok" style="--w:99.98%"></i></div><b>99.98&nbsp;%</b></div>
           <p class="hw-asub">right: all but 2. The check caught a real error: an area read as 86.72&nbsp;m² from the CAD file,
             95.38&nbsp;m² from the PDF (gold 95.36).</p>
-          <p class="hw-alab">Scanned Finnish plans · 16,496 test questions, detector vs fine-tuned vision model</p>
+          <p class="hw-alab">Scanned Finnish plans · 16,496 test questions, detector alone vs fine-tuned vision model</p>
           <div class="hw-split" role="img" aria-label="They agree on 73.8 percent of questions, where the detector is right 94.9 percent; they conflict on 26.2 percent, where it is right 57.3 percent.">
             <div class="hw-seg" style="--w:73.8%">
               <span class="hw-segl">agree · 73.8&nbsp;%</span>
@@ -224,8 +225,9 @@
               <span class="hw-segv"><b>57.3&nbsp;%</b> right</span>
             </div>
           </div>
-          <p class="hw-asub">On a conflict the vision model itself is right only 18.6&nbsp;%, so it never overrides: it lowers
-            the confidence and shows its own marks.</p>
+          <p class="hw-asub">On a conflict the vision model itself is right only 18.6&nbsp;%, so it does not override wholesale:
+            it lowers the confidence and shows its own marks. A narrow rule fit on dev lets it settle the cases where the
+            detector is unsure and it is sure: 85.1&nbsp;% → 86.1&nbsp;% on these scans.</p>
         </div>
       </div>
 
@@ -254,8 +256,8 @@
   <div class="hw-scrolly">
     <div class="hw-steps">
       <article class="hw-step" data-step="0">
-        <p><b>90.0&nbsp;% vs 69.8&nbsp;%.</b> The fair comparison is Claude Sonnet 5.5 given the drawing <i>and</i> its
-          CAD / IFC files, the same inputs our methods read: +20 points for us. Lines show 95&nbsp;% intervals; the frontier
+        <p><b>90.7&nbsp;% vs 69.8&nbsp;%.</b> The fair comparison is Claude Sonnet 5.5 given the drawing <i>and</i> its
+          CAD / IFC files, the same inputs our methods read: +21 points for us. Lines show 95&nbsp;% intervals; the frontier
           models answered a 400-question sample re-weighted to the test mix.</p>
       </article>
       <article class="hw-step" data-step="1">
@@ -264,13 +266,13 @@
       </article>
       <article class="hw-step" data-step="2">
         <p><b>One dot is our API bill for 1,000 questions.</b> Sonnet with the files costs about 1,900 of them for the same
-          1,000. Our local compute adds ~$0.006, and we answer in 0.04&nbsp;s instead of 15.7&nbsp;s.</p>
+          1,000. Our local compute adds ~$0.009, and we answer in 0.06&nbsp;s instead of 15.7&nbsp;s.</p>
       </article>
     </div>
     <div class="hw-graphic hw-cost" id="costG">
       <div class="hw-panel" data-p="0">
         <p class="hw-ctitle">Accuracy on the held-out test split</p>
-        <div class="hw-acc" id="acc" role="img" aria-label="Accuracy: ours 90.0 percent; Claude Sonnet 5.5 with the CAD and IFC files 69.8; Gemini 3.1 Pro 64.2; Claude Sonnet 5.5 drawing only 63.2; Claude Haiku 5.5 60.6; Nemotron 3.5 Super VL 49.0."></div>
+        <div class="hw-acc" id="acc" role="img" aria-label="Accuracy: ours 90.7 percent; Claude Sonnet 5.5 with the CAD and IFC files 69.8; Gemini 3.1 Pro 64.2; Claude Sonnet 5.5 drawing only 63.2; Claude Haiku 5.5 60.6; Nemotron 3.5 Super VL 49.0."></div>
       </div>
       <div class="hw-panel" data-p="1">
         <p class="hw-ctitle">API $ per 1,000 questions (log scale)</p>
@@ -307,14 +309,14 @@
         <caption class="hw-sr">Right answers out of 41, by the form the sheet was uploaded in</caption>
         <tbody>
           <tr><th scope="row">Vector PDF</th><td><div class="hw-sbar2"><i style="--w:97.6%"></i></div></td><td class="hw-r">40</td></tr>
-          <tr><th scope="row">Full-resolution PNG</th><td><div class="hw-sbar2"><i style="--w:87.8%"></i></div></td><td class="hw-r">36</td></tr>
-          <tr><th scope="row">2,000&nbsp;px JPG</th><td><div class="hw-sbar2"><i style="--w:75.6%"></i></div></td><td class="hw-r">31</td></tr>
-          <tr><th scope="row">2,500&nbsp;px PNG</th><td><div class="hw-sbar2"><i style="--w:68.3%"></i></div></td><td class="hw-r">28</td></tr>
-          <tr><th scope="row">Scanned PDF</th><td><div class="hw-sbar2"><i style="--w:68.3%"></i></div></td><td class="hw-r">28</td></tr>
+          <tr><th scope="row">Full-resolution PNG</th><td><div class="hw-sbar2"><i style="--w:90.2%"></i></div></td><td class="hw-r">37</td></tr>
+          <tr><th scope="row">2,000&nbsp;px JPG</th><td><div class="hw-sbar2"><i style="--w:80.5%"></i></div></td><td class="hw-r">33</td></tr>
+          <tr><th scope="row">2,500&nbsp;px PNG</th><td><div class="hw-sbar2"><i style="--w:63.4%"></i></div></td><td class="hw-r">26</td></tr>
+          <tr><th scope="row">Scanned PDF</th><td><div class="hw-sbar2"><i style="--w:65.9%"></i></div></td><td class="hw-r">27</td></tr>
         </tbody>
       </table>
-      <p class="hw-note">Weakest: school plans shrunk to a small image (1 of 8 right at 2,000&nbsp;px), and slab areas
-        on a sheet we never tuned on (23–41&nbsp;% low, marked unsure). Coarse sheets give totals only and say why.</p>
+      <p class="hw-note">Weakest: school plans shrunk to a small image or scanned (1–2 of 8 right), the slab plan from a
+        2,500&nbsp;px PNG or a scan (6–7 of 12), and slab areas on a sheet we never tuned on (23–41&nbsp;% low, marked unsure). Coarse sheets give totals only and say why.</p>
     </figure>
   </div>
 </section>
@@ -330,10 +332,10 @@
 </section>
 
 <footer class="hw-foot">
-  <p>Numbers: README and <code>docs/RESULTS.md</code>; ours from <code>runs/router_full_test_v7</code> (all 25,420 test questions, split by
+  <p>Numbers: README and <code>docs/RESULTS.md</code>; ours from <code>runs/router_full_test_v8</code> (all 25,420 test questions, split by
     whole drawing); frontier models on a 400-question stratified sample re-weighted to the test mix, API list price; curve from
-    <code>analysis/out/selective_all_curve.csv</code>; second opinion from <code>runs/crosscheck_test.summary.md</code>, <code>runs/crosscheck_vlm_test_v7.summary.md</code>;
-    provenance from <code>docs/PROVENANCE.md</code>; construction sheets from <code>runs/stoa_examples_final_*.summary.md</code>
+    <code>analysis/out/selective_all_curve.csv</code>; second opinion from <code>runs/crosscheck_test.summary.md</code>, <code>runs/crosscheck_vlm_test_v7.summary.md</code>, <code>runs/cubicasa_test_vlmarb.summary.md</code>;
+    provenance from <code>docs/PROVENANCE.md</code>; construction sheets from <code>runs/stoa_examples_v8_*.summary.md</code>
     (gold printed on the sheet, or measured by hand with a wider tolerance).</p>
   <p>Drawings: Swiss Dwellings v3.0.0, M. Standfest et al. (Archilyse AG), doi:10.5281/zenodo.7788422, CC BY 4.0. Questions: Junction 2026
     dataset by Stoa (non-commercial, per-file licences); IFC-Bench v2, © 2025 Sylvain Hellin (TUM), CC BY 4.0.</p>

@@ -3,7 +3,6 @@
 Ready-to-paste texts for the tech challenges we entered (locked list in [TRACKS.md](TRACKS.md)). Main challenge:
 Stoa, "Make Blueprints Talk". Numbers come from `README.md`, `docs/COSTS.md` and `analysis/infra.json`; sources are
 in the facts table of [VERDA.md](VERDA.md). Placeholders to fill in at submission: `<DEMO_URL>`, `<REPO_URL>`,
-`<RESULT>` (outcome of the Sat 14.11 sweep), `<SWEEP_COST>` (its GPU-hours and $, not yet in COSTS.md),
 `<CRACI_BUILD_URL>`.
 
 ---
@@ -15,7 +14,7 @@ Required: summary + Discord post. Same texts as [VERDA.md](VERDA.md).
 ### Summary (≤ 300 words)
 
 Datum answers questions about construction drawings and BIM models, with the proof drawn on
-the plan. On all 25,420 held-out test questions it is right 90.0 % of the time at $0.013 per 1,000 questions in
+the plan. On all 25,420 held-out test questions it is right 90.7 % of the time at $0.013 per 1,000 questions in
 API fees; Claude Sonnet 5.5 given the same CAD/IFC files gets 69.8 % at $25.76 per 1,000.
 
 Verda ran four parts of it:
@@ -25,16 +24,16 @@ Verda ran four parts of it:
    zero-shot to 76 % on dev, 74.9 % on all 16,496 Finnish-plan test questions. The other tried PaliGemma 2
    (52 %, not shipped). The model is weaker than our detector (85.1 %), so it ships as an independent second
    opinion: when both agree (73.8 %), answers are 94.9 % right.
-2. **Today's sweep, 2× H100.** A bigger detector and detector-vs-VLM arbitration, selected by whole-pipeline
-   cross-validation on dev drawings. <RESULT>
-3. **Live serving, RTX PRO 6000 96GB ($2.89/h).** The fine-tuned model checks users' own uploaded plans. It runs
-   on demand: an upload starts the GPU, it stops when idle, and a daily cap bounds the bill. 96 GB holds the 8B
-   model at a little over half the H100 rate.
+2. **Today's sweep, 2× H100.** A bigger detector and detector-vs-VLM arbitration, cross-validated on dev
+   drawings. The detector stayed; the arbiter shipped: where the detector is unsure and the VLM sure, the VLM's
+   count wins. Finnish plans 85.1 % → 86.1 % on test, whole system 90.0 % → 90.7 %; $30.80.
+3. **Live serving, RTX PRO 6000 96GB ($2.89/h).** Checked users' uploaded plans live on Saturday (2.1 h,
+   $5.94), then deleted.
 4. **Public demo, CPU.4V.16G VM** (Docker + Caddy), $0.048/h: numeric answers need no GPU.
 
-Verda so far: $99.83 of our $196.68 build cost, plus the sweep (<SWEEP_COST>).
+Verda so far: $115.01 of our $217.12 build cost.
 
-**How it scales.** Per 1,000 questions we pay $0.013 in API fees plus about $0.006 of local compute; the VLM
+**How it scales.** Per 1,000 questions we pay $0.013 in API fees plus about $0.009 of local compute; the VLM
 second opinion adds $0.16 per 1,000 on one H100 (16,496 questions in 31 minutes). Next step: serve the model from Verda's autoscaling
 serverless containers (scale to zero, scale with load) and run re-checks of a whole drawing set, every revision, as batch jobs.
 
@@ -45,9 +44,9 @@ Demo: `<DEMO_URL>` · Code: `<REPO_URL>`
 Datum (Stoa "Make Blueprints Talk") on Verda. Two H100s overnight (14.9 GPU-h, $77.33):
 we LoRA-tuned Qwen3-VL-8B to count symbols on floor plans with one box per item, 42.6 % zero-shot to 76 % on
 dev. It ships as a second opinion to our detector: when both agree, answers are 94.9 % right. Today 2× H100
-swept a bigger detector plus VLM arbitration: <RESULT>. An RTX PRO 6000 serves the model live on users'
-uploads, started on upload, stopped when idle, capped daily. The demo runs on a CPU VM for $0.048/h. Whole
-system: 90.0 % on 25,420 test questions at $0.013 per 1,000.
+swept a bigger detector plus VLM arbitration: the arbiter won, Finnish plans 85.1 % → 86.1 % ($30.80). An RTX
+PRO 6000 served the model live on users' uploads on Saturday. The demo runs on a CPU VM for $0.048/h. Whole
+system: 90.7 % on 25,420 test questions at $0.013 per 1,000.
 Demo: `<DEMO_URL>` · Code: `<REPO_URL>`
 
 ---

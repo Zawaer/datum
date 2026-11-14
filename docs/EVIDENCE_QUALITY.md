@@ -35,11 +35,12 @@ answers were counted from. Every number below uses all questions unless marked o
 
 ## Results (test split, router v4)
 
-_Re-run on the shipped router (`runs/router_full_test_v7.jsonl`, YOLO11m detector with flip test-time augmentation;
-`analysis/out/evidence_hitrate.csv`): CubiCasa, all 16,496 questions: precision 90.7 % / 92.4 % / **95.1 %**, recall
-87.2 % / 88.9 % / **91.4 %** (IoU≥.5 / centre / either), count right 85.1 %, count right AND boxes right 83.2 %, of
-right counts boxes right **97.7 %** (2.3 % right by luck). The v6 run (no flip): 95.2 % / 90.2 %, count right 84.2 %,
-82.2 %, 97.6 %. The detailed tables below are still the v4 run (YOLO11s detector)._
+_Re-run on the shipped router (`runs/router_full_test_v8.jsonl`, YOLO11m detector with flip test-time augmentation
+plus the VLM arbiter, whose answers bring the VLM's own boxes; `analysis/out/evidence_hitrate.csv`): CubiCasa, all
+16,496 questions: precision 90.8 % / 92.5 % / **95.2 %**, recall 86.7 % / 88.4 % / **90.9 %** (IoU≥.5 / centre /
+either), count right 86.1 %, count right AND boxes right 83.7 %, of right counts boxes right **97.2 %** (2.8 % right
+by luck). The v7 run (detector only): 95.1 % / 91.4 %, count right 85.1 %, 83.2 %, 97.7 %; v6 (no flip): 95.2 % /
+90.2 %, 84.2 %, 82.2 %, 97.6 %. The detailed tables below are still the v4 run (YOLO11s detector)._
 
 | source | target | questions | our boxes | gold instances | precision IoU≥.5 / centre / either | recall IoU≥.5 / centre / either | count right | count right AND boxes right (either) | of right counts, boxes right |
 |---|---|---|---|---|---|---|---|---|---|

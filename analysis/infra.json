@@ -28,18 +28,26 @@
     {
       "name": "stoa-live-gpu",
       "provider": "Verda",
-      "what": "1x RTX PRO 6000 96GB (CC): live VLM second opinion for the demo (Qwen3-VL-8B LoRA, transformers), Sat window",
+      "what": "1x RTX PRO 6000 96GB (CC): live VLM second opinion for the demo (Qwen3-VL-8B LoRA, transformers), Sat window; deleted",
       "usd_per_h": 2.89,
       "start": "2026-11-14T10:26:44Z",
       "stop": "2026-11-14T12:30:00Z"
     },
     {
-      "name": "stoa-live-gpu (Sun)",
+      "name": "stoa-h100-sweep-a",
       "provider": "Verda",
-      "what": "1x RTX PRO 6000 96GB (CC): live VLM second opinion during judging, scheduled window",
-      "usd_per_h": 2.89,
-      "start": "2026-11-15T07:30:00Z",
-      "stop": "2026-11-15T13:00:00Z"
+      "what": "1x H100 80GB: bigger CubiCasa detector + detector-vs-VLM arbitration sweep; deleted, its 300 GB disk kept detached (storage not included)",
+      "usd_per_h": 5.19,
+      "start": "2026-11-14T12:47:00Z",
+      "stop": "2026-11-14T15:45:00Z"
+    },
+    {
+      "name": "stoa-h100-sweep-b",
+      "provider": "Verda",
+      "what": "1x H100 80GB: bigger CubiCasa detector + detector-vs-VLM arbitration sweep; deleted, its 300 GB disk kept detached (storage not included)",
+      "usd_per_h": 5.19,
+      "start": "2026-11-14T12:47:00Z",
+      "stop": "2026-11-14T15:45:00Z"
     }
   ]
 }

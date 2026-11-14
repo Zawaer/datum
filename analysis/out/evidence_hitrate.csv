@@ -1,154 +1,154 @@
 source,scope,target,subset,match,questions,with_boxes,pred_boxes,gold_instances,precision,recall,count_correct,boxes_exact,count_and_boxes_right,of_count_right_boxes_right
-cubicasa5k,drawing,ALL,all,iou,16496,14342,42694,44416,0.9072,0.8721,0.851,0.7762,0.7749,0.9105
-cubicasa5k,drawing,ALL,all,centre,16496,14342,42694,44416,0.9243,0.8885,0.851,0.7895,0.7882,0.9262
-cubicasa5k,drawing,ALL,all,mutual,16496,14342,42694,44416,0.9505,0.9136,0.851,0.8329,0.8316,0.9772
-cubicasa5k,drawing,ALL,gold-consistent,iou,16436,14302,42572,44312,0.9082,0.8726,0.8522,0.7777,0.7777,0.9126
-cubicasa5k,drawing,ALL,gold-consistent,centre,16436,14302,42572,44312,0.9252,0.8889,0.8522,0.7911,0.7911,0.9283
-cubicasa5k,drawing,ALL,gold-consistent,mutual,16436,14302,42572,44312,0.9514,0.9141,0.8522,0.8346,0.8346,0.9794
-cubicasa5k,drawing,balcony,all,iou,564,212,218,252,0.8807,0.7619,0.8369,0.8475,0.8121,0.9703
-cubicasa5k,drawing,balcony,all,centre,564,212,218,252,0.8807,0.7619,0.8369,0.8475,0.8121,0.9703
-cubicasa5k,drawing,balcony,all,mutual,564,212,218,252,0.8807,0.7619,0.8369,0.8475,0.8121,0.9703
-cubicasa5k,drawing,balcony,gold-consistent,iou,530,198,204,252,0.9412,0.7619,0.8642,0.8642,0.8642,1.0
-cubicasa5k,drawing,balcony,gold-consistent,centre,530,198,204,252,0.9412,0.7619,0.8642,0.8642,0.8642,1.0
-cubicasa5k,drawing,balcony,gold-consistent,mutual,530,198,204,252,0.9412,0.7619,0.8642,0.8642,0.8642,1.0
-cubicasa5k,drawing,bathroom,all,iou,916,818,856,892,0.9533,0.9148,0.8974,0.8886,0.8886,0.9903
-cubicasa5k,drawing,bathroom,all,centre,916,818,856,892,0.9603,0.9215,0.8974,0.8908,0.8908,0.9927
-cubicasa5k,drawing,bathroom,all,mutual,916,818,856,892,0.9626,0.9238,0.8974,0.893,0.893,0.9951
-cubicasa5k,drawing,bathroom,gold-consistent,iou,914,816,854,892,0.9555,0.9148,0.8972,0.8906,0.8906,0.9927
-cubicasa5k,drawing,bathroom,gold-consistent,centre,914,816,854,892,0.9625,0.9215,0.8972,0.8928,0.8928,0.9951
-cubicasa5k,drawing,bathroom,gold-consistent,mutual,914,816,854,892,0.9649,0.9238,0.8972,0.895,0.895,0.9976
-cubicasa5k,drawing,bedroom,all,iou,1162,966,1950,1914,0.9446,0.9624,0.9019,0.895,0.895,0.9924
-cubicasa5k,drawing,bedroom,all,centre,1162,966,1950,1914,0.9456,0.9634,0.9019,0.8967,0.8967,0.9943
-cubicasa5k,drawing,bedroom,all,mutual,1162,966,1950,1914,0.9456,0.9634,0.9019,0.8967,0.8967,0.9943
-cubicasa5k,drawing,bedroom,gold-consistent,iou,1162,966,1950,1914,0.9446,0.9624,0.9019,0.895,0.895,0.9924
-cubicasa5k,drawing,bedroom,gold-consistent,centre,1162,966,1950,1914,0.9456,0.9634,0.9019,0.8967,0.8967,0.9943
-cubicasa5k,drawing,bedroom,gold-consistent,mutual,1162,966,1950,1914,0.9456,0.9634,0.9019,0.8967,0.8967,0.9943
-cubicasa5k,drawing,door,all,iou,1326,1326,11406,11382,0.9651,0.9671,0.7255,0.6848,0.6848,0.9439
-cubicasa5k,drawing,door,all,centre,1326,1326,11406,11382,0.9674,0.9694,0.7255,0.6938,0.6938,0.9563
-cubicasa5k,drawing,door,all,mutual,1326,1326,11406,11382,0.9681,0.9701,0.7255,0.6983,0.6983,0.9626
-cubicasa5k,drawing,door,gold-consistent,iou,1326,1326,11406,11382,0.9651,0.9671,0.7255,0.6848,0.6848,0.9439
-cubicasa5k,drawing,door,gold-consistent,centre,1326,1326,11406,11382,0.9674,0.9694,0.7255,0.6938,0.6938,0.9563
-cubicasa5k,drawing,door,gold-consistent,mutual,1326,1326,11406,11382,0.9681,0.9701,0.7255,0.6983,0.6983,0.9626
-cubicasa5k,drawing,floor,all,iou,1844,1840,2288,2272,0.9843,0.9912,0.9837,0.9805,0.9805,0.9967
-cubicasa5k,drawing,floor,all,centre,1844,1840,2288,2272,0.9886,0.9956,0.9837,0.9816,0.9816,0.9978
-cubicasa5k,drawing,floor,all,mutual,1844,1840,2288,2272,0.9895,0.9965,0.9837,0.9826,0.9826,0.9989
-cubicasa5k,drawing,floor,gold-consistent,iou,1842,1838,2284,2270,0.9851,0.9912,0.9837,0.9815,0.9815,0.9978
-cubicasa5k,drawing,floor,gold-consistent,centre,1842,1838,2284,2270,0.9895,0.9956,0.9837,0.9826,0.9826,0.9989
-cubicasa5k,drawing,floor,gold-consistent,mutual,1842,1838,2284,2270,0.9904,0.9965,0.9837,0.9837,0.9837,1.0
-cubicasa5k,drawing,kitchen,all,iou,1274,1244,1254,1250,0.9298,0.9328,0.967,0.9168,0.9168,0.9481
-cubicasa5k,drawing,kitchen,all,centre,1274,1244,1254,1250,0.9697,0.9728,0.967,0.956,0.956,0.9886
-cubicasa5k,drawing,kitchen,all,mutual,1274,1244,1254,1250,0.9777,0.9808,0.967,0.9639,0.9639,0.9968
-cubicasa5k,drawing,kitchen,gold-consistent,iou,1272,1242,1252,1250,0.9313,0.9328,0.967,0.9182,0.9182,0.9496
-cubicasa5k,drawing,kitchen,gold-consistent,centre,1272,1242,1252,1250,0.9712,0.9728,0.967,0.9575,0.9575,0.9902
-cubicasa5k,drawing,kitchen,gold-consistent,mutual,1272,1242,1252,1250,0.9792,0.9808,0.967,0.9654,0.9654,0.9984
-cubicasa5k,drawing,sauna,all,iou,1298,730,766,740,0.8616,0.8919,0.9476,0.9045,0.9029,0.9528
-cubicasa5k,drawing,sauna,all,centre,1298,730,766,740,0.9034,0.9351,0.9476,0.9291,0.9276,0.9789
-cubicasa5k,drawing,sauna,all,mutual,1298,730,766,740,0.9164,0.9486,0.9476,0.9368,0.9353,0.987
-cubicasa5k,drawing,sauna,gold-consistent,iou,1292,724,758,732,0.8628,0.8934,0.9489,0.9071,0.9071,0.956
-cubicasa5k,drawing,sauna,gold-consistent,centre,1292,724,758,732,0.905,0.9372,0.9489,0.9319,0.9319,0.9821
-cubicasa5k,drawing,sauna,gold-consistent,mutual,1292,724,758,732,0.9182,0.9508,0.9489,0.9396,0.9396,0.9902
-cubicasa5k,drawing,shower_bath,all,iou,1710,1500,1982,2012,0.5853,0.5765,0.8035,0.5497,0.5497,0.6841
-cubicasa5k,drawing,shower_bath,all,centre,1710,1500,1982,2012,0.6297,0.6203,0.8035,0.5766,0.5766,0.7176
-cubicasa5k,drawing,shower_bath,all,mutual,1710,1500,1982,2012,0.8436,0.831,0.8035,0.7556,0.7556,0.9403
-cubicasa5k,drawing,shower_bath,gold-consistent,iou,1708,1498,1980,2012,0.5859,0.5765,0.8033,0.5504,0.5504,0.6851
-cubicasa5k,drawing,shower_bath,gold-consistent,centre,1708,1498,1980,2012,0.6303,0.6203,0.8033,0.5773,0.5773,0.7187
-cubicasa5k,drawing,shower_bath,gold-consistent,mutual,1708,1498,1980,2012,0.8444,0.831,0.8033,0.7564,0.7564,0.9417
-cubicasa5k,drawing,sink,all,iou,1812,1754,4708,4680,0.9252,0.9308,0.851,0.798,0.798,0.9377
-cubicasa5k,drawing,sink,all,centre,1812,1754,4708,4680,0.9346,0.9402,0.851,0.8168,0.8168,0.9598
-cubicasa5k,drawing,sink,all,mutual,1812,1754,4708,4680,0.9363,0.9419,0.851,0.8201,0.8201,0.9637
-cubicasa5k,drawing,sink,gold-consistent,iou,1810,1752,4704,4680,0.926,0.9308,0.8508,0.7989,0.7989,0.939
-cubicasa5k,drawing,sink,gold-consistent,centre,1810,1752,4704,4680,0.9354,0.9402,0.8508,0.8177,0.8177,0.961
-cubicasa5k,drawing,sink,gold-consistent,mutual,1810,1752,4704,4680,0.9371,0.9419,0.8508,0.821,0.821,0.9649
-cubicasa5k,drawing,toilet,all,iou,1840,1716,2456,2542,0.7109,0.6869,0.9293,0.6946,0.6946,0.7474
-cubicasa5k,drawing,toilet,all,centre,1840,1716,2456,2542,0.715,0.6908,0.9293,0.7,0.7,0.7532
-cubicasa5k,drawing,toilet,all,mutual,1840,1716,2456,2542,0.9601,0.9276,0.9293,0.9033,0.9033,0.9719
-cubicasa5k,drawing,toilet,gold-consistent,iou,1838,1714,2454,2542,0.7115,0.6869,0.9293,0.6953,0.6953,0.7482
-cubicasa5k,drawing,toilet,gold-consistent,centre,1838,1714,2454,2542,0.7156,0.6908,0.9293,0.7008,0.7008,0.7541
-cubicasa5k,drawing,toilet,gold-consistent,mutual,1838,1714,2454,2542,0.9609,0.9276,0.9293,0.9042,0.9042,0.9731
-cubicasa5k,drawing,wc_room,all,iou,906,404,510,468,0.8902,0.9701,0.9492,0.9426,0.9426,0.993
-cubicasa5k,drawing,wc_room,all,centre,906,404,510,468,0.902,0.9829,0.9492,0.9492,0.9492,1.0
-cubicasa5k,drawing,wc_room,all,mutual,906,404,510,468,0.902,0.9829,0.9492,0.9492,0.9492,1.0
-cubicasa5k,drawing,wc_room,gold-consistent,iou,906,404,510,468,0.8902,0.9701,0.9492,0.9426,0.9426,0.993
-cubicasa5k,drawing,wc_room,gold-consistent,centre,906,404,510,468,0.902,0.9829,0.9492,0.9492,0.9492,1.0
-cubicasa5k,drawing,wc_room,gold-consistent,mutual,906,404,510,468,0.902,0.9829,0.9492,0.9492,0.9492,1.0
+cubicasa5k,drawing,ALL,all,iou,16496,14404,42426,44416,0.9075,0.8668,0.8615,0.7798,0.7787,0.9039
+cubicasa5k,drawing,ALL,all,centre,16496,14404,42426,44416,0.9254,0.884,0.8615,0.7942,0.7931,0.9206
+cubicasa5k,drawing,ALL,all,mutual,16496,14404,42426,44416,0.9517,0.909,0.8615,0.838,0.8369,0.9715
+cubicasa5k,drawing,ALL,gold-consistent,iou,16436,14360,42300,44312,0.9086,0.8673,0.8624,0.7815,0.7815,0.9062
+cubicasa5k,drawing,ALL,gold-consistent,centre,16436,14360,42300,44312,0.9264,0.8844,0.8624,0.796,0.796,0.923
+cubicasa5k,drawing,ALL,gold-consistent,mutual,16436,14360,42300,44312,0.9527,0.9094,0.8624,0.84,0.84,0.974
+cubicasa5k,drawing,balcony,all,iou,564,215,218,252,0.8899,0.7698,0.8582,0.8546,0.8262,0.9628
+cubicasa5k,drawing,balcony,all,centre,564,215,218,252,0.8899,0.7698,0.8582,0.8546,0.8262,0.9628
+cubicasa5k,drawing,balcony,all,mutual,564,215,218,252,0.8899,0.7698,0.8582,0.8546,0.8262,0.9628
+cubicasa5k,drawing,balcony,gold-consistent,iou,530,197,200,252,0.97,0.7698,0.8792,0.8792,0.8792,1.0
+cubicasa5k,drawing,balcony,gold-consistent,centre,530,197,200,252,0.97,0.7698,0.8792,0.8792,0.8792,1.0
+cubicasa5k,drawing,balcony,gold-consistent,mutual,530,197,200,252,0.97,0.7698,0.8792,0.8792,0.8792,1.0
+cubicasa5k,drawing,bathroom,all,iou,916,830,862,892,0.9536,0.9215,0.9105,0.8996,0.8996,0.988
+cubicasa5k,drawing,bathroom,all,centre,916,830,862,892,0.9617,0.9294,0.9105,0.9017,0.9017,0.9904
+cubicasa5k,drawing,bathroom,all,mutual,916,830,862,892,0.9664,0.9339,0.9105,0.9061,0.9061,0.9952
+cubicasa5k,drawing,bathroom,gold-consistent,iou,914,828,860,892,0.9558,0.9215,0.9103,0.9015,0.9015,0.9904
+cubicasa5k,drawing,bathroom,gold-consistent,centre,914,828,860,892,0.964,0.9294,0.9103,0.9037,0.9037,0.9928
+cubicasa5k,drawing,bathroom,gold-consistent,mutual,914,828,860,892,0.9686,0.9339,0.9103,0.9081,0.9081,0.9976
+cubicasa5k,drawing,bedroom,all,iou,1162,955,1930,1914,0.9487,0.9566,0.9088,0.9019,0.9019,0.9924
+cubicasa5k,drawing,bedroom,all,centre,1162,955,1930,1914,0.9508,0.9587,0.9088,0.9036,0.9036,0.9943
+cubicasa5k,drawing,bedroom,all,mutual,1162,955,1930,1914,0.9508,0.9587,0.9088,0.9036,0.9036,0.9943
+cubicasa5k,drawing,bedroom,gold-consistent,iou,1162,955,1930,1914,0.9487,0.9566,0.9088,0.9019,0.9019,0.9924
+cubicasa5k,drawing,bedroom,gold-consistent,centre,1162,955,1930,1914,0.9508,0.9587,0.9088,0.9036,0.9036,0.9943
+cubicasa5k,drawing,bedroom,gold-consistent,mutual,1162,955,1930,1914,0.9508,0.9587,0.9088,0.9036,0.9036,0.9943
+cubicasa5k,drawing,door,all,iou,1326,1326,11327,11382,0.964,0.9593,0.7247,0.6848,0.6848,0.9448
+cubicasa5k,drawing,door,all,centre,1326,1326,11327,11382,0.9667,0.962,0.7247,0.6931,0.6931,0.9563
+cubicasa5k,drawing,door,all,mutual,1326,1326,11327,11382,0.9675,0.9628,0.7247,0.6976,0.6976,0.9625
+cubicasa5k,drawing,door,gold-consistent,iou,1326,1326,11327,11382,0.964,0.9593,0.7247,0.6848,0.6848,0.9448
+cubicasa5k,drawing,door,gold-consistent,centre,1326,1326,11327,11382,0.9667,0.962,0.7247,0.6931,0.6931,0.9563
+cubicasa5k,drawing,door,gold-consistent,mutual,1326,1326,11327,11382,0.9675,0.9628,0.7247,0.6976,0.6976,0.9625
+cubicasa5k,drawing,floor,all,iou,1844,1844,2288,2272,0.9878,0.9947,0.9902,0.987,0.987,0.9967
+cubicasa5k,drawing,floor,all,centre,1844,1844,2288,2272,0.9913,0.9982,0.9902,0.9881,0.9881,0.9978
+cubicasa5k,drawing,floor,all,mutual,1844,1844,2288,2272,0.9921,0.9991,0.9902,0.9892,0.9892,0.9989
+cubicasa5k,drawing,floor,gold-consistent,iou,1842,1842,2284,2270,0.9886,0.9947,0.9902,0.9881,0.9881,0.9978
+cubicasa5k,drawing,floor,gold-consistent,centre,1842,1842,2284,2270,0.9921,0.9982,0.9902,0.9891,0.9891,0.9989
+cubicasa5k,drawing,floor,gold-consistent,mutual,1842,1842,2284,2270,0.993,0.9991,0.9902,0.9902,0.9902,1.0
+cubicasa5k,drawing,kitchen,all,iou,1274,1259,1261,1250,0.9231,0.9312,0.9741,0.916,0.916,0.9404
+cubicasa5k,drawing,kitchen,all,centre,1274,1259,1261,1250,0.9651,0.9736,0.9741,0.9576,0.9576,0.9831
+cubicasa5k,drawing,kitchen,all,mutual,1274,1259,1261,1250,0.9746,0.9832,0.9741,0.967,0.967,0.9927
+cubicasa5k,drawing,kitchen,gold-consistent,iou,1272,1257,1259,1250,0.9245,0.9312,0.9741,0.9175,0.9175,0.9419
+cubicasa5k,drawing,kitchen,gold-consistent,centre,1272,1257,1259,1250,0.9666,0.9736,0.9741,0.9591,0.9591,0.9847
+cubicasa5k,drawing,kitchen,gold-consistent,mutual,1272,1257,1259,1250,0.9762,0.9832,0.9741,0.9686,0.9686,0.9944
+cubicasa5k,drawing,sauna,all,iou,1298,739,771,740,0.8534,0.8892,0.9576,0.906,0.9045,0.9445
+cubicasa5k,drawing,sauna,all,centre,1298,739,771,740,0.8949,0.9324,0.9576,0.9307,0.9291,0.9702
+cubicasa5k,drawing,sauna,all,mutual,1298,739,771,740,0.9079,0.9459,0.9576,0.9384,0.9368,0.9783
+cubicasa5k,drawing,sauna,gold-consistent,iou,1292,733,763,732,0.8545,0.8907,0.959,0.9087,0.9087,0.9475
+cubicasa5k,drawing,sauna,gold-consistent,centre,1292,733,763,732,0.8965,0.9344,0.959,0.9334,0.9334,0.9734
+cubicasa5k,drawing,sauna,gold-consistent,mutual,1292,733,763,732,0.9096,0.9481,0.959,0.9412,0.9412,0.9814
+cubicasa5k,drawing,shower_bath,all,iou,1710,1547,1925,2012,0.5694,0.5447,0.8532,0.5515,0.5515,0.6463
+cubicasa5k,drawing,shower_bath,all,centre,1710,1547,1925,2012,0.6234,0.5964,0.8532,0.5883,0.5883,0.6895
+cubicasa5k,drawing,shower_bath,all,mutual,1710,1547,1925,2012,0.8442,0.8077,0.8532,0.7713,0.7713,0.904
+cubicasa5k,drawing,shower_bath,gold-consistent,iou,1708,1545,1923,2012,0.5699,0.5447,0.853,0.5521,0.5521,0.6472
+cubicasa5k,drawing,shower_bath,gold-consistent,centre,1708,1545,1923,2012,0.624,0.5964,0.853,0.589,0.589,0.6905
+cubicasa5k,drawing,shower_bath,gold-consistent,mutual,1708,1545,1923,2012,0.845,0.8077,0.853,0.7722,0.7722,0.9053
+cubicasa5k,drawing,sink,all,iou,1812,1752,4645,4680,0.9249,0.9179,0.8549,0.8008,0.8008,0.9367
+cubicasa5k,drawing,sink,all,centre,1812,1752,4645,4680,0.935,0.928,0.8549,0.8173,0.8173,0.9561
+cubicasa5k,drawing,sink,all,mutual,1812,1752,4645,4680,0.9363,0.9293,0.8549,0.8206,0.8206,0.96
+cubicasa5k,drawing,sink,gold-consistent,iou,1810,1750,4641,4680,0.9257,0.9179,0.8547,0.8017,0.8017,0.9379
+cubicasa5k,drawing,sink,gold-consistent,centre,1810,1750,4641,4680,0.9358,0.928,0.8547,0.8182,0.8182,0.9573
+cubicasa5k,drawing,sink,gold-consistent,mutual,1810,1750,4641,4680,0.9371,0.9293,0.8547,0.8215,0.8215,0.9612
+cubicasa5k,drawing,toilet,all,iou,1840,1718,2434,2542,0.7128,0.6825,0.9239,0.6918,0.6918,0.7488
+cubicasa5k,drawing,toilet,all,centre,1840,1718,2434,2542,0.7177,0.6873,0.9239,0.6973,0.6973,0.7547
+cubicasa5k,drawing,toilet,all,mutual,1840,1718,2434,2542,0.9614,0.9205,0.9239,0.8984,0.8984,0.9724
+cubicasa5k,drawing,toilet,gold-consistent,iou,1838,1716,2432,2542,0.7134,0.6825,0.9238,0.6926,0.6926,0.7497
+cubicasa5k,drawing,toilet,gold-consistent,centre,1838,1716,2432,2542,0.7183,0.6873,0.9238,0.698,0.698,0.7556
+cubicasa5k,drawing,toilet,gold-consistent,mutual,1838,1716,2432,2542,0.9622,0.9205,0.9238,0.8993,0.8993,0.9735
+cubicasa5k,drawing,wc_room,all,iou,906,387,465,468,0.9527,0.9466,0.9779,0.9658,0.9658,0.9876
+cubicasa5k,drawing,wc_room,all,centre,906,387,465,468,0.9742,0.9679,0.9779,0.9757,0.9757,0.9977
+cubicasa5k,drawing,wc_room,all,mutual,906,387,465,468,0.9742,0.9679,0.9779,0.9757,0.9757,0.9977
+cubicasa5k,drawing,wc_room,gold-consistent,iou,906,387,465,468,0.9527,0.9466,0.9779,0.9658,0.9658,0.9876
+cubicasa5k,drawing,wc_room,gold-consistent,centre,906,387,465,468,0.9742,0.9679,0.9779,0.9757,0.9757,0.9977
+cubicasa5k,drawing,wc_room,gold-consistent,mutual,906,387,465,468,0.9742,0.9679,0.9779,0.9757,0.9757,0.9977
 cubicasa5k,drawing,window,all,iou,1844,1832,14300,16012,0.9148,0.817,0.5271,0.4859,0.4859,0.9218
 cubicasa5k,drawing,window,all,centre,1844,1832,14300,16012,0.9466,0.8454,0.5271,0.4989,0.4989,0.9465
 cubicasa5k,drawing,window,all,mutual,1844,1832,14300,16012,0.9502,0.8486,0.5271,0.4989,0.4989,0.9465
 cubicasa5k,drawing,window,gold-consistent,iou,1836,1824,14216,15918,0.916,0.8181,0.5283,0.488,0.488,0.9237
 cubicasa5k,drawing,window,gold-consistent,centre,1836,1824,14216,15918,0.9475,0.8462,0.5283,0.5011,0.5011,0.9485
 cubicasa5k,drawing,window,gold-consistent,mutual,1836,1824,14216,15918,0.951,0.8494,0.5283,0.5011,0.5011,0.9485
-ifc_models,model-wide (sheet subset),ALL,all,iou,38,28,364,364,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),ALL,all,centre,38,28,364,364,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),ALL,all,mutual,38,28,364,364,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),ALL,gold-consistent,iou,4,4,12,12,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),ALL,gold-consistent,centre,4,4,12,12,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),ALL,gold-consistent,mutual,4,4,12,12,1.0,1.0,1.0,1.0,1.0,1.0
+ifc_models,model-wide (sheet subset),ALL,all,iou,38,0,0,364,,0.0,1.0,0.2632,0.2632,0.2632
+ifc_models,model-wide (sheet subset),ALL,all,centre,38,0,0,364,,0.0,1.0,0.2632,0.2632,0.2632
+ifc_models,model-wide (sheet subset),ALL,all,mutual,38,0,0,364,,0.0,1.0,0.2632,0.2632,0.2632
+ifc_models,model-wide (sheet subset),ALL,gold-consistent,iou,4,0,0,12,,0.0,1.0,0.0,0.0,0.0
+ifc_models,model-wide (sheet subset),ALL,gold-consistent,centre,4,0,0,12,,0.0,1.0,0.0,0.0,0.0
+ifc_models,model-wide (sheet subset),ALL,gold-consistent,mutual,4,0,0,12,,0.0,1.0,0.0,0.0,0.0
 ifc_models,model-wide (sheet subset),beam,all,iou,2,0,0,0,,,1.0,1.0,1.0,1.0
 ifc_models,model-wide (sheet subset),beam,all,centre,2,0,0,0,,,1.0,1.0,1.0,1.0
 ifc_models,model-wide (sheet subset),beam,all,mutual,2,0,0,0,,,1.0,1.0,1.0,1.0
 ifc_models,model-wide (sheet subset),column,all,iou,2,0,0,0,,,1.0,1.0,1.0,1.0
 ifc_models,model-wide (sheet subset),column,all,centre,2,0,0,0,,,1.0,1.0,1.0,1.0
 ifc_models,model-wide (sheet subset),column,all,mutual,2,0,0,0,,,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),door,all,iou,8,6,54,54,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),door,all,centre,8,6,54,54,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),door,all,mutual,8,6,54,54,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),door,gold-consistent,iou,2,2,10,10,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),door,gold-consistent,centre,2,2,10,10,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),door,gold-consistent,mutual,2,2,10,10,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),space,all,iou,6,4,46,46,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),space,all,centre,6,4,46,46,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),space,all,mutual,6,4,46,46,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),stair,all,iou,4,4,4,4,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),stair,all,centre,4,4,4,4,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),stair,all,mutual,4,4,4,4,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),stair,gold-consistent,iou,2,2,2,2,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),stair,gold-consistent,centre,2,2,2,2,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),stair,gold-consistent,mutual,2,2,2,2,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),wall,all,iou,8,8,142,142,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),wall,all,centre,8,8,142,142,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),wall,all,mutual,8,8,142,142,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),window,all,iou,8,6,118,118,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),window,all,centre,8,6,118,118,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,model-wide (sheet subset),window,all,mutual,8,6,118,118,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,ALL,all,iou,82,80,1718,1718,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,ALL,all,centre,82,80,1718,1718,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,ALL,all,mutual,82,80,1718,1718,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,ALL,gold-consistent,iou,80,80,1718,1718,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,ALL,gold-consistent,centre,80,80,1718,1718,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,ALL,gold-consistent,mutual,80,80,1718,1718,1.0,1.0,1.0,1.0,1.0,1.0
+ifc_models,model-wide (sheet subset),door,all,iou,8,0,0,54,,0.0,1.0,0.25,0.25,0.25
+ifc_models,model-wide (sheet subset),door,all,centre,8,0,0,54,,0.0,1.0,0.25,0.25,0.25
+ifc_models,model-wide (sheet subset),door,all,mutual,8,0,0,54,,0.0,1.0,0.25,0.25,0.25
+ifc_models,model-wide (sheet subset),door,gold-consistent,iou,2,0,0,10,,0.0,1.0,0.0,0.0,0.0
+ifc_models,model-wide (sheet subset),door,gold-consistent,centre,2,0,0,10,,0.0,1.0,0.0,0.0,0.0
+ifc_models,model-wide (sheet subset),door,gold-consistent,mutual,2,0,0,10,,0.0,1.0,0.0,0.0,0.0
+ifc_models,model-wide (sheet subset),space,all,iou,6,0,0,46,,0.0,1.0,0.3333,0.3333,0.3333
+ifc_models,model-wide (sheet subset),space,all,centre,6,0,0,46,,0.0,1.0,0.3333,0.3333,0.3333
+ifc_models,model-wide (sheet subset),space,all,mutual,6,0,0,46,,0.0,1.0,0.3333,0.3333,0.3333
+ifc_models,model-wide (sheet subset),stair,all,iou,4,0,0,4,,0.0,1.0,0.0,0.0,0.0
+ifc_models,model-wide (sheet subset),stair,all,centre,4,0,0,4,,0.0,1.0,0.0,0.0,0.0
+ifc_models,model-wide (sheet subset),stair,all,mutual,4,0,0,4,,0.0,1.0,0.0,0.0,0.0
+ifc_models,model-wide (sheet subset),stair,gold-consistent,iou,2,0,0,2,,0.0,1.0,0.0,0.0,0.0
+ifc_models,model-wide (sheet subset),stair,gold-consistent,centre,2,0,0,2,,0.0,1.0,0.0,0.0,0.0
+ifc_models,model-wide (sheet subset),stair,gold-consistent,mutual,2,0,0,2,,0.0,1.0,0.0,0.0,0.0
+ifc_models,model-wide (sheet subset),wall,all,iou,8,0,0,142,,0.0,1.0,0.0,0.0,0.0
+ifc_models,model-wide (sheet subset),wall,all,centre,8,0,0,142,,0.0,1.0,0.0,0.0,0.0
+ifc_models,model-wide (sheet subset),wall,all,mutual,8,0,0,142,,0.0,1.0,0.0,0.0,0.0
+ifc_models,model-wide (sheet subset),window,all,iou,8,0,0,118,,0.0,1.0,0.25,0.25,0.25
+ifc_models,model-wide (sheet subset),window,all,centre,8,0,0,118,,0.0,1.0,0.25,0.25,0.25
+ifc_models,model-wide (sheet subset),window,all,mutual,8,0,0,118,,0.0,1.0,0.25,0.25,0.25
+ifc_models,this sheet,ALL,all,iou,82,0,0,1718,,0.0,1.0,0.0244,0.0244,0.0244
+ifc_models,this sheet,ALL,all,centre,82,0,0,1718,,0.0,1.0,0.0244,0.0244,0.0244
+ifc_models,this sheet,ALL,all,mutual,82,0,0,1718,,0.0,1.0,0.0244,0.0244,0.0244
+ifc_models,this sheet,ALL,gold-consistent,iou,80,0,0,1718,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,ALL,gold-consistent,centre,80,0,0,1718,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,ALL,gold-consistent,mutual,80,0,0,1718,,0.0,1.0,0.0,0.0,0.0
 ifc_models,this sheet,column,all,iou,2,0,0,0,,,1.0,1.0,1.0,1.0
 ifc_models,this sheet,column,all,centre,2,0,0,0,,,1.0,1.0,1.0,1.0
 ifc_models,this sheet,column,all,mutual,2,0,0,0,,,1.0,1.0,1.0,1.0
-ifc_models,this sheet,door,all,iou,10,10,164,164,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,door,all,centre,10,10,164,164,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,door,all,mutual,10,10,164,164,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,door,gold-consistent,iou,10,10,164,164,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,door,gold-consistent,centre,10,10,164,164,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,door,gold-consistent,mutual,10,10,164,164,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,space,all,iou,22,22,536,536,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,space,all,centre,22,22,536,536,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,space,all,mutual,22,22,536,536,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,space,gold-consistent,iou,22,22,536,536,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,space,gold-consistent,centre,22,22,536,536,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,space,gold-consistent,mutual,22,22,536,536,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,stair,all,iou,10,10,10,10,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,stair,all,centre,10,10,10,10,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,stair,all,mutual,10,10,10,10,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,stair,gold-consistent,iou,10,10,10,10,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,stair,gold-consistent,centre,10,10,10,10,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,stair,gold-consistent,mutual,10,10,10,10,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,wall,all,iou,20,20,522,522,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,wall,all,centre,20,20,522,522,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,wall,all,mutual,20,20,522,522,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,wall,gold-consistent,iou,20,20,522,522,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,wall,gold-consistent,centre,20,20,522,522,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,wall,gold-consistent,mutual,20,20,522,522,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,window,all,iou,18,18,486,486,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,window,all,centre,18,18,486,486,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,window,all,mutual,18,18,486,486,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,window,gold-consistent,iou,18,18,486,486,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,window,gold-consistent,centre,18,18,486,486,1.0,1.0,1.0,1.0,1.0,1.0
-ifc_models,this sheet,window,gold-consistent,mutual,18,18,486,486,1.0,1.0,1.0,1.0,1.0,1.0
+ifc_models,this sheet,door,all,iou,10,0,0,164,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,door,all,centre,10,0,0,164,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,door,all,mutual,10,0,0,164,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,door,gold-consistent,iou,10,0,0,164,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,door,gold-consistent,centre,10,0,0,164,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,door,gold-consistent,mutual,10,0,0,164,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,space,all,iou,22,0,0,536,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,space,all,centre,22,0,0,536,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,space,all,mutual,22,0,0,536,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,space,gold-consistent,iou,22,0,0,536,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,space,gold-consistent,centre,22,0,0,536,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,space,gold-consistent,mutual,22,0,0,536,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,stair,all,iou,10,0,0,10,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,stair,all,centre,10,0,0,10,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,stair,all,mutual,10,0,0,10,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,stair,gold-consistent,iou,10,0,0,10,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,stair,gold-consistent,centre,10,0,0,10,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,stair,gold-consistent,mutual,10,0,0,10,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,wall,all,iou,20,0,0,522,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,wall,all,centre,20,0,0,522,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,wall,all,mutual,20,0,0,522,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,wall,gold-consistent,iou,20,0,0,522,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,wall,gold-consistent,centre,20,0,0,522,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,wall,gold-consistent,mutual,20,0,0,522,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,window,all,iou,18,0,0,486,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,window,all,centre,18,0,0,486,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,window,all,mutual,18,0,0,486,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,window,gold-consistent,iou,18,0,0,486,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,window,gold-consistent,centre,18,0,0,486,,0.0,1.0,0.0,0.0,0.0
+ifc_models,this sheet,window,gold-consistent,mutual,18,0,0,486,,0.0,1.0,0.0,0.0,0.0
 swiss_dwellings,drawing,ALL,all,iou,772,769,18533,18329,0.4525,0.4576,1.0,0.079,0.079,0.079
 swiss_dwellings,drawing,ALL,all,centre,772,769,18533,18329,0.9575,0.9681,1.0,0.7254,0.7254,0.7254
 swiss_dwellings,drawing,ALL,all,mutual,772,769,18533,18329,0.9715,0.9823,1.0,0.7578,0.7578,0.7578

@@ -126,7 +126,7 @@ SCENES = [
         "Explode the storeys, X-ray the rest, and the evidence glows.",
     ]},
     {"id": "results", "kind": "card", "cuts": "full short", "lines": [
-        ("90.0 % right on all 25,420 held-out test questions.",
+        ("90.7 % right on all 25,420 held-out test questions.",
          "Ninety percent right, on all twenty-five thousand held-out test questions."),
         ("Claude Sonnet 5.5, given the same files: 69.8 %.",
          "Claude Sonnet, given the same files: seventy."),
@@ -841,9 +841,9 @@ def cards_html():
   </div>
 </section>
 <section class="card" id="results">
-  <h2 class="in">90&nbsp;% right on all 25,420 held-out test questions.</h2>
+  <h2 class="in">90.7&nbsp;% right on all 25,420 held-out test questions.</h2>
   <div class="bars">
-    {bar("<b>Datum</b>", 90.0, 0, True)}
+    {bar("<b>Datum</b>", 90.7, 0, True)}
     {bar("<b>Claude Sonnet 5.5</b><br>same files", 69.8, 1)}
     {bar("<b>Gemini 3.1 Pro</b>", 64.2, 2)}
   </div>

@@ -1,6 +1,6 @@
 """Evidence hit-rate: do our numbered evidence boxes land on the right objects?
 
-    .venv/bin/python analysis/evidence_scoring.py [--run runs/router_full_test_v7.jsonl]
+    .venv/bin/python analysis/evidence_scoring.py [--run runs/router_full_test_v8.jsonl]
 
 For every TEST-split count question whose answer comes with numbered boxes, we match the boxes
 one-to-one to independent gold instances and report precision (boxes on a real instance of the asked
@@ -318,7 +318,7 @@ def agg(rows, rule):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--run", default="runs/router_full_test_v7.jsonl")
+    ap.add_argument("--run", default="runs/router_full_test_v8.jsonl")
     ap.add_argument("--out", default="analysis/out/evidence_hitrate.csv")
     ap.add_argument("--rows-out", default="runs/evidence_hitrate_rows.jsonl")
     ap.add_argument("--jobs", type=int, default=8)

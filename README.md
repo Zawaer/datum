@@ -7,10 +7,10 @@ Dutch) and get the answer with its proof drawn on the drawing.** Our Junction 20
 On a drawing, the *datum* is the fixed reference point every measurement is taken from; every Datum answer
 traces back to the drawing.
 
-On **all 25,420 questions of a held-out test split** (every question in every language, not a sample) we are right **90.0 %** of the time
-[95 % CI 89.7–90.4], for **$0.013 per 1,000 questions** in API fees (+ ~$0.006 local compute) and 0.04 s per question.
+On **all 25,420 questions of a held-out test split** (every question in every language, not a sample) we are right **90.7 %** of the time
+[95 % CI 90.4–91.1], for **$0.013 per 1,000 questions** in API fees (+ ~$0.009 local compute) and 0.06 s per question.
 The fair frontier comparison, **Claude Sonnet 5.5 given the drawing *and* its sibling CAD / IFC files** (the
-same inputs our solvers read), gets **69.8 %** [60.9–78.4] at **$25.76 per 1,000**. That is +20 points at
+same inputs our solvers read), gets **69.8 %** [60.9–78.4] at **$25.76 per 1,000**. That is +21 points at
 about 1/1,900 of the cost. The evaluation was **cross-audited by a second AI agent (Codex, OpenAI)**,
 and every finding was re-checked: no leakage between dev and test, no test data in
 training, tuning or calibration, no gold lookups at inference, and the headline recount reproduces.
@@ -84,27 +84,31 @@ ticks up.
 **Measured on Stoa's example sheets** (41 questions on the four sheets; gold is the printed value, or our own
 measurement where the sheet does not print one, scored with a wider tolerance), uploaded through the real API in
 every form a judge might use ([`analysis/stoa_examples_eval.py`](analysis/stoa_examples_eval.py),
-[`runs/stoa_examples_final_forms.summary.md`](runs/stoa_examples_final_forms.summary.md)):
+[`runs/stoa_examples_v8_forms.summary.md`](runs/stoa_examples_v8_forms.summary.md)):
 
 | upload form | right | dormitory floor plan | school floor plan | slab plan | piping plan |
 |---|---:|---:|---:|---:|---:|
 | vector PDF page | **40/41** | 8/8 | 7/8 | 12/12 | 13/13 |
-| full-resolution PNG | 36/41 | 7/8 | 7/8 | 12/12 | 10/13 |
-| 2,000 px JPG (screenshot size) | 31/41 | 7/8 | 1/8 | 12/12 | 11/13 |
-| 2,500 px PNG | 28/41 | 7/8 | 3/8 | 7/12 | 11/13 |
-| simulated scan (150 dpi, skewed, noisy, in a PDF) | 28/41 | 6/8 | 3/8 | 8/12 | 11/13 |
+| full-resolution PNG | 37/41 | 8/8 | 7/8 | 12/12 | 10/13 |
+| 2,000 px JPG (screenshot size) | 33/41 | 8/8 | 2/8 | 12/12 | 11/13 |
+| 2,500 px PNG | 26/41 | 8/8 | 1/8 | 6/12 | 11/13 |
+| simulated scan (150 dpi, skewed, noisy, in a PDF) | 27/41 | 8/8 | 1/8 | 7/12 | 11/13 |
 
 Before the specialists, the generic reader got 22, 18, 15, 17 and 18 of the original 34 questions on these five
 forms ([`runs/stoa_examples_baseline_forms.summary.md`](runs/stoa_examples_baseline_forms.summary.md)); the
-specialists get 33, 29, 24, 24 and 23. On 11 questions about sibling sheets from the same public drawing sets,
-never used while building, the full-resolution run gets 10. API cost for all 41 questions: $0.003 on the vector
-PDFs, $0.03 to $0.12 on the images.
+specialists get 33, 30, 26, 23 and 23. On 11 questions about sibling sheets from the same public drawing sets,
+never used while building, the full-resolution run gets 9 (it misses a first-floor common-area total and the
+radial bar size on a tank slab). API cost for all 41 questions: $0.003 on the vector PDFs, $0.09 to $0.18 on the
+images.
 
 **Where it is weak.** Low-resolution school plans: shrunk to 2,000 px, the school sheet is too coarse for single
-rooms (walls a few pixels thick), and only 1 of its 8 questions comes out right. Such coarse sheets now answer
+rooms (walls a few pixels thick), and only 2 of its 8 questions come out right (1 of 8 at 2,500 px and from the
+simulated scan). Such coarse sheets now answer
 only totals and the footprint, and say why. Window counts on the school plan are scored wrong on every form: we
 find 67 exterior windows (68 by our own hand count) plus 11 internal glazed panels, while the example gold,
-counted earlier, says about 101; we have not settled which count is right. Slab areas on unseen sheets: on the held-out imperial slab plan S-100A the areas
+counted earlier, says about 101; we have not settled which count is right. The example slab plan is solid from the
+PDF, the full-resolution PNG and the 2,000 px JPG (12/12) but drops to 6 and 7 of 12 from the 2,500 px PNG and the
+scan (slab areas by type, control-joint panels, a trench length). Slab areas on unseen sheets: on the held-out imperial slab plan S-100A the areas
 come out 23 to 41 % low, and the answer says it is unsure. On a harder set of 40 questions written the way a
 site engineer would ask them (13 sheets, Finnish / English / German / Swedish, 5 that must be declined), a run
 at midday got 91 of 160 answers right across four upload forms
@@ -138,13 +142,13 @@ says how far to trust each answer; if you only accept answers with confidence �
 | Swiss apartment plans: counts | 5,580 | 99.96 % | 99.96 % | 0 % |
 | Swiss apartment plans: room areas | 2,634 | 99.92 % | 99.92 % | 0 % |
 | IFC models: counts, areas, volumes, lengths | 600 | 100 % | 100 % | 0 % |
-| Finnish raster plans (CubiCasa, YOLO11m detector) | 16,496 | 85.1 % | 93.4 % | 19.0 % |
+| Finnish raster plans (CubiCasa, YOLO11m detector + VLM arbiter) | 16,496 | 86.1 % | 93.1 % | 17.2 % |
 | IFC-Bench free text (LLM judge; our weakest area) | 110 | 38.2 % | 41.1 % | 13.6 % |
-| **all** | **25,420** | **90.0 %** | **95.8 %** | **12.4 %** |
+| **all** | **25,420** | **90.7 %** | **95.6 %** | **11.2 %** |
 
 Stricter thresholds trade coverage for accuracy: on the Finnish plans, answering the most confident half (50.0 %)
-is 97.3 % right. On the same 400 sampled questions, Sonnet with sibling files is right on 3 that we miss; we are
-right on 56 that it misses. Per-source tables for every system: [docs/RESULTS.md](docs/RESULTS.md) §2; coverage
+is 97.1 % right. On the same 400 sampled questions, Sonnet with sibling files is right on 3 that we miss; we are
+right on 57 that it misses. Per-source tables for every system: [docs/RESULTS.md](docs/RESULTS.md) §2; coverage
 curves: §3.
 
 ¹ **Frontier numbers come from a 400-question sample of the test split, stratified by source × type**
@@ -154,9 +158,10 @@ answer. Gemini cannot
 take a raw `.ifc` file inline, so the 61 sampled questions that come as an `.ifc` file (IFC-Bench text and some
 IFC counts) abstain and count as wrong, by design; they are 0.5 % of the test mix after re-weighting.
 
-Sources: ours = [`runs/router_full_test_v7.summary.md`](runs/router_full_test_v7.summary.md) (was 88.2 % in v4; the
+Sources: ours = [`runs/router_full_test_v8.summary.md`](runs/router_full_test_v8.summary.md) (was 88.2 % in v4; the
 +1.3 points to v5 are the new CubiCasa detector, 82.2 % → 84.2 %; v6 adds the richer IFC fact sheet, free text 36.4 % → 38.2 %;
-v7 (89.5 % → 90.0 %) adds flip test-time augmentation to the detector, 84.2 % → 85.1 %, chosen on dev only); frontier =
+v7 (89.5 % → 90.0 %) adds flip test-time augmentation to the detector, 84.2 % → 85.1 %, chosen on dev only; v8 (90.0 % →
+90.7 %) adds the VLM arbiter, 85.10 % → 86.15 %, its per-template rule fit on dev-val only); frontier =
 `runs/baseline_{sonnetfair,sonnet,haiku,gemini,nemotron}_full400.jsonl`; all tables rebuilt by
 `analysis/run_all.sh` into [docs/RESULTS.md](docs/RESULTS.md) and `analysis/out/*.csv`.
 
@@ -172,11 +177,11 @@ plus a cross-audit of the whole evaluation by a second AI agent and a robustness
    an item or adding a missed one recomputes the answer on the spot ([`docs/EVIDENCE.md`](docs/EVIDENCE.md)).
    We measured that the boxes are right, not just the totals ([`docs/EVIDENCE_QUALITY.md`](docs/EVIDENCE_QUALITY.md)):
    against independent gold instances, CubiCasa boxes reach over 90 % precision and recall (box centres matched; 91 % / 87 % at
-   IoU ≥ 0.5), and only about 2.3 % of correct counts are right by luck (a missed object and a false box cancelling out).
+   IoU ≥ 0.5), and only about 2.8 % of correct counts are right by luck (a missed object and a false box cancelling out).
 2. **Calibrated confidence.** Measured on the test split, not asserted ([RESULTS.md](docs/RESULTS.md) §3,
    fig. 3; the demo states it per answer from [`app/calibration.json`](app/calibration.json)). Raster-plan
-   answers at confidence ≥ 0.95 are right 98.7 % of the time. If the router answers only at confidence ≥ 0.5 and
-   says "not sure" otherwise, it answers 87.6 % of all questions at 95.8 % accuracy, turning 1,594 wrong answers
+   answers at confidence ≥ 0.95 are right 98.6 % of the time. If the router answers only at confidence ≥ 0.5 and
+   says "not sure" otherwise, it answers 88.8 % of all questions at 95.6 % accuracy, turning 1,354 wrong answers
    into honest abstentions. Known weak spot: a symbol the detector misses entirely cannot lower its confidence.
 3. **Independent cross-check.** A second, independent method re-derives the answer
    ([`runs/crosscheck_test.summary.md`](runs/crosscheck_test.summary.md), `bp/crosscheck.py`): Swiss answers are
@@ -188,11 +193,15 @@ plus a cross-audit of the whole evaluation by a second AI agent and a robustness
    confidence is halved and both sets of marks are shown, never silently swapped. On CubiCasa the two detectors
    share training data, so that check is weaker (90.7 % right on agree vs 47.8 % on conflict, measured with the
    previous primary detector). So on raster plans the second opinion is now the fine-tuned Qwen3-VL-8B, a
-   different model family: on all 16,496 CubiCasa test questions it agrees with the detector on 73.8 %, and
+   different model family: on all 16,496 CubiCasa test questions it agrees with the detector alone on 73.8 %, and
    there the detector is right **94.9 %** (57.3 % on conflict, where the VLM itself is right only 18.6 %, so it
-   never overrides); with the confidence halved on conflict, the router answers 68.6 % of raster questions at
-   96.7 % ([`runs/crosscheck_vlm_test_v7.summary.md`](runs/crosscheck_vlm_test_v7.summary.md)). The demo serves its
-   precomputed answers and boxes.
+   does not override wholesale; [`runs/crosscheck_vlm_test_v7.summary.md`](runs/crosscheck_vlm_test_v7.summary.md)).
+   It does arbitrate narrowly: where they disagree and a per-template rule fit on dev-val says the detector is
+   unsure and the VLM sure, the VLM's answer is taken (CubiCasa 85.10 % → 86.15 %, +1.05 pp, 95 % CI +0.75 to
+   +1.38 over drawings; [`runs/cubicasa_test_vlmarb.summary.md`](runs/cubicasa_test_vlmarb.summary.md)). On the
+   shipped pipeline, with the confidence halved on the remaining conflicts, the router answers 70.6 % of raster
+   questions at 95.9 % ([`runs/crosscheck_vlm_test_v8.summary.md`](runs/crosscheck_vlm_test_v8.summary.md)). The
+   demo serves the VLM's precomputed answers and boxes.
 4. **Provenance of LLM-written numbers.** Free-text answers are the least verifiable part, so
    `bp/provenance.py` traces every number and quoted name in an LLM answer to the fact lines it cited (sums,
    counts and group totals of cited lines included) and flags the answer when they don't match
@@ -201,7 +210,8 @@ plus a cross-audit of the whole evaluation by a second AI agent and a robustness
    where only 1 is unverified), so the flag is shown, not hidden.
 
 **Robustness** ([`docs/ROBUSTNESS.md`](docs/ROBUSTNESS.md)): the 12,654 language-twin pairs (same question in
-English and Finnish / German / ...) agree 100 %; typed paraphrases go through a question normaliser (one cheap
+English and Finnish / German / ...) agree 99.4 % (the 72 that differ are raster plans where the VLM arbiter, whose
+precomputed answers were made per question text, overrode the detector in one language only); typed paraphrases go through a question normaliser (one cheap
 Haiku call, only for questions no parser understands, constrained to names that exist in the drawing) and score
 84.6 % vs 57.7 % before it (originals 86.6 %; on a held-out set of 122 paraphrases written after the code:
 80.3 % vs 49.2 % before, originals 82.8 %); on 65 questions typed the way a user would (casual, typos, square feet,
@@ -225,9 +235,9 @@ labels) for **every** system alike, ours and the baselines.
 **$0.013 per 1,000 questions** in API fees, measured on all 25,420 test questions: numeric answers make no
 paid calls at all; only the 110 free-text IFC questions call Claude Haiku. In the demo, typed questions that
 no parser understands add one cached Haiku call for the normaliser (~$0.0003-0.003). Local compute (CAD / IFC parsing on
-CPU, the detector on one GPU, ~0.17 s per drawing with flip test-time augmentation) prices at about $0.006 per 1,000 questions at $0.50 per
+CPU, the detector on one GPU, ~0.19 s per drawing with flip test-time augmentation; the VLM arbiter only looks up precomputed answers) prices at about $0.009 per 1,000 questions at $0.50 per
 GPU-hour. Building everything (frontier baselines, fine-tuning runs, development calls, demo hosting) cost
-about $197 one-off so far (including the live-model GPU windows on Saturday and Sunday) (the demo server, still running at the time of writing, is costed up to now). Per-answer and build costs, with every line item: [docs/COSTS.md](docs/COSTS.md)
+about $217 one-off so far (including Saturday's live-model GPU window and the 2 × H100 detector / arbiter sweep, ≈ $31; the demo server, still running at the time of writing, is costed up to now). Per-answer and build costs, with every line item: [docs/COSTS.md](docs/COSTS.md)
 (`.venv/bin/python analysis/costs.py` regenerates it).
 
 ## How it works
@@ -260,7 +270,7 @@ answer + confidence + evidence + cross-check ──► web app: numbered boxes /
   rendered from a model are answered from the model itself. Evidence = the GlobalId of every contributing
   element with its own value, highlighted in 3D (three.js) and on the plan.
 - **Raster plans: detector** ([`bp/solvers/cubicasa.py`](bp/solvers/cubicasa.py), [`train/cubicasa/`](train/cubicasa/README.md)).
-  One YOLO11m detector (v4, 85.1 % on all 16,496 test counts with flip test-time augmentation: four flips merged by weighted box fusion, thresholds tuned on dev; 84.2 % without, 82.2 % with YOLO11s), trained on the public CubiCasa5K annotations of non-test drawings only, finds windows,
+  One YOLO11m detector (v4, 85.1 % on all 16,496 test counts with flip test-time augmentation: four flips merged by weighted box fusion, thresholds tuned on dev; 84.2 % without, 82.2 % with YOLO11s; 86.15 % with the VLM arbiter below), trained on the public CubiCasa5K annotations of non-test drawings only, finds windows,
   doors, toilets, sinks, showers, bathtubs, sauna stoves and typed rooms. The question template picks the
   classes; each counted detection is a numbered box with its own score, and the confidence is calibrated on
   dev drawings. Trained on a local RTX 4070.
@@ -269,10 +279,11 @@ answer + confidence + evidence + cross-check ──► web app: numbered boxes /
   counted item, so the count always equals the boxes. Round 3 scores 73.0 % on a 1,000-question test sample
   (round 2: 64.4 %; [`runs/vlm_q3vl8b_r3c2200_test1000.summary.md`](runs/vlm_q3vl8b_r3c2200_test1000.summary.md)),
   below the detector and the CAD path, so it does not answer on its own: it is the cross-check's second
-  opinion on raster plans. On all 16,496 CubiCasa test questions it scores 74.9 % alone (detector 85.1 %), agrees
-  with the detector on 73.8 %, and where it agrees the detector is right 94.9 %
+  opinion on raster plans and a narrow arbiter (taken only where the detector is unsure and the VLM sure, per a
+  per-template rule fit on dev-val; CubiCasa 85.10 % → 86.15 %). On all 16,496 CubiCasa test questions it scores
+  74.9 % alone (detector 85.1 %), agrees with the detector on 73.8 %, and where it agrees the detector is right 94.9 %
   ([`runs/vlm_r3_cubicasa_test_full.summary.md`](runs/vlm_r3_cubicasa_test_full.summary.md),
-  [`runs/crosscheck_vlm_test_v7.summary.md`](runs/crosscheck_vlm_test_v7.summary.md)); $0.16 per 1,000 questions on
+  [`runs/crosscheck_vlm_test_v7.summary.md`](runs/crosscheck_vlm_test_v7.summary.md), [`runs/cubicasa_test_vlmarb.summary.md`](runs/cubicasa_test_vlmarb.summary.md)); $0.16 per 1,000 questions on
   one H100. A PaliGemma 2 fine-tune was weaker (52 % on dev) and is not shipped.
 - **Generic grounded fallback** ([`bp/solvers/generic.py`](bp/solvers/generic.py)). For uploads and other
   sources: the text layer of vector PDFs / DXF is split into segments with ids and an LLM must answer *by
@@ -342,8 +353,10 @@ every baseline answers the same 400 questions.
 python eval.py --solver router --split test --jobs 8 --name router_check     # all 25,420, no --judge
 ```
 
-This scores free text with a token-F1 proxy instead of the LLM judge, so expect 90.0 % (ifc_bench text
-34.5 % instead of 38.2 %; every other cell as in [`runs/router_full_test_v7.summary.md`](runs/router_full_test_v7.summary.md)).
+This scores free text with a token-F1 proxy instead of the LLM judge, so expect 90.7 % (ifc_bench text
+34.5 % instead of 38.2 %; every other cell as in [`runs/router_full_test_v8.summary.md`](runs/router_full_test_v8.summary.md)).
+The VLM arbiter needs the precomputed VLM answers (`runs/vlm_r3_cubicasa_test_full.jsonl`); without them the raster
+rows fall back to the detector alone (85.1 %).
 Do not pass `--judge` without the Claude CLI: a failed judge call scores the answer as wrong. A
 `--sample N` run is stratified by source × type, not weighted to the test mix, so compare its
 per-source rows, not its "ALL" row, with the headline.
@@ -351,7 +364,7 @@ per-source rows, not its "ALL" row, with the headline.
 The full set (the baselines need the keys above):
 
 ```bash
-python eval.py --solver router --split test --jobs 8 --judge --name router_full_test_v7      # 90.0 %, all 25,420
+python eval.py --solver router --split test --jobs 8 --judge --name router_full_test_v8      # 90.7 %, all 25,420
 python eval.py --solver claude@sonnet --split test --sample 400 --jobs 6 --name baseline_sonnet_full400
 S=runs/baseline_sonnet_full400.jsonl
 python eval.py --solver claude@sonnet+twins --split test --ids-from $S --jobs 6 --name baseline_sonnetfair_full400
@@ -363,7 +376,9 @@ python eval.py --solver router --split test --source swiss_dwellings --source if
   --crosscheck --name crosscheck_test                                                         # cross-check
 .venv/bin/python analysis/crosscheck_vlm_report.py runs/router_full_test_v7.jsonl crosscheck_vlm_test_v7 \
   "YOLO11m v4 with flip TTA" > runs/crosscheck_vlm_test_v7.summary.md                        # VLM second opinion
-BP_OURS_RUN=router_full_test_v7 bash analysis/run_all.sh   # judge baseline text answers, re-weighting, CIs,
+.venv/bin/python analysis/crosscheck_vlm_report.py runs/router_full_test_v8.jsonl crosscheck_vlm_test_v8 \
+  "flip-TTA YOLO11m v4 + VLM arbiter, the shipped pipeline" > runs/crosscheck_vlm_test_v8.summary.md
+BP_OURS_RUN=router_full_test_v8 bash analysis/run_all.sh   # judge baseline text answers, re-weighting, CIs,
                                                            # figures, docs/RESULTS.md, analysis/out/*.csv
 .venv/bin/python analysis/costs.py                          # docs/COSTS.md
 ```

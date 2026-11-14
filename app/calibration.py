@@ -1,6 +1,6 @@
 """What does a confidence mean, and what did frontier models answer? Two small tables the demo reads.
 
-    .venv/bin/python -m app.calibration [runs/router_full_test_v7.jsonl]
+    .venv/bin/python -m app.calibration [runs/router_full_test_v8.jsonl]
         -> app/calibration.json   per-method calibration from the full held-out test run
         -> app/frontier.json      per-question answers of the frontier baselines (400-question test sample)
 
@@ -114,7 +114,7 @@ def build_frontier(runs: Path = Path("runs")) -> dict:
 
 
 if __name__ == "__main__":
-    run = Path(sys.argv[1] if len(sys.argv) > 1 else "runs/router_full_test_v7.jsonl")
+    run = Path(sys.argv[1] if len(sys.argv) > 1 else "runs/router_full_test_v8.jsonl")
     OUT.write_text(json.dumps(build(run), indent=1) + "\n")
     print(OUT.read_text()[:400], "...")
     fr = build_frontier()

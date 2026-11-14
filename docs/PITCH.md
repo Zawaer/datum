@@ -71,12 +71,12 @@ or what the driver does. Numbers are written the way you say them.
 
 > We tested on drawings we never trained on.
 > **All twenty-five thousand, four hundred and twenty questions.** Every one, not a sample.
-> We're right **ninety point zero percent** of the time.
+> We're right **ninety point seven percent** of the time.
 > Claude Sonnet, given the same files: sixty-nine point eight.
-> That's twenty points better, at about **one nineteen-hundredth of the cost**.
+> That's twenty-one points better, at about **one nineteen-hundredth of the cost**.
 > One point three cents per thousand questions, against twenty-five dollars seventy-six.
 > On CAD plans and BIM models we're at essentially one hundred percent.
-> Scanned plans are the hard part. There we get eighty-five point one, and Sonnet gets sixty-three point six.
+> Scanned plans are the hard part. There we get eighty-six point one, and Sonnet gets sixty-three point six.
 
 ### 1:55–2:20 · Verification (live demo, tab 1; slide 3 if the demo is down)
 
@@ -91,8 +91,9 @@ or what the driver does. Numbers are written the way you say them.
 *[Point at the confidence line under the answer.]*
 
 > **Confidence you can take literally.** On a scan, at zero point nine five or more, it's right
-> ninety-eight point seven percent of the time. When it's unsure, it says "not sure".
-> And on scans, our own fine-tuned vision model re-counts, and flags any disagreement.
+> ninety-eight point six percent of the time. When it's unsure, it says "not sure".
+> And on scans, our own fine-tuned vision model re-counts: it flags disagreements, and settles the few where
+> it is sure and the detector is not.
 
 ### 2:20–2:45 · Stoa's sheets (live demo, tab 5; slide 9 if the demo is down)
 
@@ -103,10 +104,10 @@ one and the total ticks up to 18,472 SF.]*
 > Your final round uses sheets nobody has seen. Floor plans, slab plans, piping plans
 > go to specialists that read the sheet's own text and lines.
 > **Eighteen thousand four hundred and seventy-two square feet**, added up from the cells it outlined.
-> On your four example sheets: **forty of forty-one** from the PDF, thirty-one from the small screenshots.
+> On your four example sheets: **forty of forty-one** from the PDF, thirty-three from the small screenshots.
 > Scans and low-res school plans are the weak spot, and it says so.
 
-(Checked: this question on the dormitory PDF answers 18,472 from the sheet's schedule, `runs/stoa_examples_final_pdf.summary.md`, dorm5.)
+(Checked: this question on the dormitory PDF answers 18,472 from the sheet's schedule, `runs/stoa_examples_v8_pdf.summary.md`, dorm5.)
 
 ### 2:45–3:00 · Close (slide 10, then 11)
 
@@ -142,7 +143,7 @@ About 250 words. Same order, fewer switches: one demo moment at the start, then 
 | 0:00–0:15 | demo: door plan, mic, X-ray count, **See it in 3D** | *(into the mic)* "Kuinka monta ovea?" ... "I asked this plan, in Finnish, how many doors. **Twenty. Each one numbered, each one checkable.** No AI model call. Zero cents." |
 | 0:15–0:30 | slide 2 | "Takeoff is slow by hand, and nobody trusts AI with it. Claude Sonnet said this apartment is ninety-four square metres. It's one hundred and eight. And it sounded just as sure." |
 | 0:30–0:45 | slide 4 | "So we route every question to the cheapest method that's exact: the CAD layers, the BIM model, or a small detector we trained. Only zero point four percent of questions ever touch a language model." |
-| 0:45–1:00 | slide 6 | "On all twenty-five thousand, four hundred and twenty held-out questions, we're right **ninety point zero percent**. Sonnet, given the same files: sixty-nine point eight. Twenty points better, at **one nineteen-hundredth of the cost**." |
+| 0:45–1:00 | slide 6 | "On all twenty-five thousand, four hundred and twenty held-out questions, we're right **ninety point seven percent**. Sonnet, given the same files: sixty-nine point eight. Twenty-one points better, at **one nineteen-hundredth of the cost**." |
 | 1:00–1:10 | slide 3 | "And you can check every answer. The evidence adds up to the number. The confidence means what it says. A second method re-checks it." |
 | 1:10–1:22 | slide 9 | "Uploaded sheets go to specialists that read their own text and lines. On Stoa's example sheets, forty of forty-one right from the PDF; scans are harder, and it says so." |
 | 1:22–1:30 | slide 10 | "For Stoa: a takeoff engine **a professional can sign off on**. Datum: blueprints that talk." |
@@ -230,20 +231,21 @@ from the PDF alone (it even caught one of our own area errors).
 
 **"Will it work on the unseen sheets in the final round?"**
 That is what the sheet specialists are for, and we measured them the way the final round works: Stoa's four
-example sheets uploaded through the app's API in five forms. 41 questions: 40 right from the vector PDF, 36 from
-the full-resolution PNG, 31 from the 2,000 px screenshots, 28 from a 2,500 px PNG and 28 from a simulated scan.
-On sibling sheets from the same public sets, never used while building, 10 of 11. Before the specialists, the
+example sheets uploaded through the app's API in five forms. 41 questions: 40 right from the vector PDF, 37 from
+the full-resolution PNG, 33 from the 2,000 px screenshots, 26 from a 2,500 px PNG and 27 from a simulated scan.
+On sibling sheets from the same public sets, never used while building, 9 of 11. Before the specialists, the
 generic reader got 22 of the original 34 on the PDFs.
 
 **"What's weak on sheets?"**
-Two things. Low-resolution school plans: at 2,000 px only 1 of the school sheet's 8 questions is right, so
-coarse sheets now answer only totals and the footprint and say why. And slab areas on a sheet we never tuned on:
+Two things. Low-resolution school plans: below full resolution only 1 or 2 of the school sheet's 8 questions are
+right, so coarse sheets now answer only totals and the footprint and say why (the slab plan also drops to 6-7 of
+12 from a 2,500 px PNG or a scan). And slab areas on a sheet we never tuned on:
 on the held-out imperial slab plan the areas come out 23 to 41 % low, and the answer says it is unsure. On a
 harder set of 40 questions worded like a site engineer would (four languages, 5 that must be declined), a run at
 midday got 91 of 160 across four upload forms; per-room door counts and slab volumes were the misses.
 
 **"How does it do on real-world scans?"**
-The Finnish plans are raster scans: 85.1 % on all 16,496 test questions, 93.4 % when it answers, against 63.6 %
+The Finnish plans are raster scans: 86.1 % on all 16,496 test questions, 93.1 % when it answers, against 63.6 %
 for Sonnet. On 30 messy uploads (phone photos, sideways scans, a 120-page set, broken files) nothing crashed, but
 that is hand-checked, not a measured accuracy, so the app says "no track record yet" on uploads.
 
@@ -252,14 +254,14 @@ We measured it: Claude Sonnet 5.5 given the same CAD and IFC files gets 69.8 % a
 (Gemini 3.1 Pro, drawing only: 64.2 % at $52.47), and neither shows you why. We use a frontier model where it's strong (the 0.4 %
 free-text questions) and any better model plugs into the same evidence contract; we did not benchmark GPT.
 
-**"What's the 10 % you get wrong?"**
-Almost all of it is on the scanned Finnish plans (85.1 %): mostly counts off by one, with windows the weakest
+**"What's the 9 % you get wrong?"**
+Almost all of it is on the scanned Finnish plans (86.1 %): mostly counts off by one, with windows the weakest
 template (53 % exact), plus free text at 38.2 %. The confidence catches most of it: answering only at ≥ 0.5
-turns 1,594 wrong answers into "not sure", and 95.8 % of the rest are right.
+turns 1,354 wrong answers into "not sure", and 95.6 % of the rest are right.
 
 **"What does it cost at scale?"**
-$0.013 in API fees per 1,000 questions plus about $0.006 of local compute, so a million questions is roughly $13
-plus $6, at 0.04 s each. Numeric answers make no paid calls at all, so cost grows with CPU/GPU time, not tokens.
+$0.013 in API fees per 1,000 questions plus about $0.009 of local compute, so a million questions is roughly $13
+plus $9, at 0.06 s each. Numeric answers make no paid calls at all, so cost grows with CPU/GPU time, not tokens.
 
 **"How would Stoa integrate it?"**
 It's an HTTP service: upload a drawing or model, ask a question, get back `{answer, confidence, method, cost_usd,
@@ -269,7 +271,8 @@ infrastructure; next is re-asking every question on every drawing revision and f
 
 **"What's fine-tuned and what's off-the-shelf?"**
 Trained by us: the YOLO11m symbol detector (on a local RTX 4070, non-test CubiCasa drawings only) and a
-Qwen3-VL-8B LoRA second opinion (cloud H100s, dev drawings only; 74.9 % alone, so it never answers alone).
+Qwen3-VL-8B LoRA second opinion (cloud H100s, dev drawings only; 74.9 % alone, so it never answers alone; it overrides the detector only where a
+rule fit on dev says the detector is unsure and it is sure, which lifts the scans from 85.1 % to 86.1 %).
 Off-the-shelf: ezdxf, Shapely and IfcOpenShell for the geometry, and Claude Haiku 5.5 for free text and for
 rewording unusual questions.
 
@@ -293,9 +296,10 @@ the recount reproduces.
 
 - *"Why is Sonnet's confidence interval so wide?"* The frontier runs are a 400-question sample (about 54 per
   source × type cell), re-weighted to the real test mix, so 69.8 % has a CI of 60.9–78.4; ours is every question,
-  89.7–90.4.
+  90.4–91.1.
 - *"Does it really work in six languages?"* The 12,654 pairs of the same question in English and in Finnish,
-  German, French, Italian or Dutch agree on 100 %.
+  German, French, Italian or Dutch agree on 99.4 %; the 72 that differ are scans where the vision model's
+  second reading, made per question text, settled one language's answer and not the other's.
 - *"Isn't 0.4 % LLM a benchmark artefact?"* On the test set, yes, only the 110 free-text questions call Haiku. In
   the demo, a typed question no parser understands adds one cached Haiku call to reword it (about $0.0003–0.003),
   and the app shows "read as: ...".

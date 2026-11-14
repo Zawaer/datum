@@ -31,7 +31,7 @@ sys.path.insert(0, os.environ.get("BP_CODE_ROOT") or str(ROOT))
 from bp.data import load_questions  # noqa: E402
 from bp.score import is_correct  # noqa: E402
 
-RUN = ROOT / os.environ.get("BP_TWINS_RUN", "runs/router_full_test_v7.jsonl")
+RUN = ROOT / os.environ.get("BP_TWINS_RUN", "runs/router_full_test_v8.jsonl")
 TWINS = ROOT / "runs/robustness_twins.jsonl"
 PARA = ROOT / "runs/robustness_paraphrases.jsonl"
 PARA_FRESH = ROOT / "runs/robustness_paraphrases_fresh.jsonl"
@@ -536,20 +536,23 @@ def _typed_section():
 FINDINGS = """## Summary
 
 - **Typed questions are now read, not just templates.** Paraphrase accuracy on the first set (149 Haiku
-  paraphrases): **57.7 % → 85.9 %**, equal to the originals (85.9 %); abstentions 34 → 0, and no paraphrase is
-  wrong where its original was right. On a **held-out set** of 122 casual, chat-style paraphrases written after the
-  code: **49.2 % → 81.1 %** (originals 82.0 %). That set's first run (77.9 %) exposed two more gaps, both fixed
+  paraphrases): **57.7 % → 84.6 %** (originals 86.6 %); 3 paraphrases are wrong where their original was right
+  (re-run Sat 12:10 after the typed-question normaliser changes in section 5; before them 85.9 %, 0). On a **held-out set** of 122 casual, chat-style paraphrases written after the
+  code: **49.2 % → 80.3 %** (originals 82.8 %; 81.1 % before the section 5 changes, within Haiku's run-to-run noise). That set's first run (77.9 %) exposed two more gaps, both fixed
   before the final run: unquoted IFC room/storey names fell back to a model-wide total at 0.95 (3 confident
   wrong answers), and unquoted Swiss labels did not reach the normaliser.
-- **Must-abstain: 44/50 → 50/50.** Unknown IFC storeys ('Level 99', 'Basement -7', '17. Obergeschoss') now
+- **Must-abstain: 44/50 → 49/50** (50/50 before section 5: "How many elevators?" on a Swiss plan now reads as rooms labelled 'Ascenseur' and answers 2, showing that reading). Unknown IFC storeys ('Level 99', 'Basement -7', '17. Obergeschoss') now
   abstain with the list of real storeys instead of answering for the whole model. The normaliser sees 23 of
   these questions (the ones no parser understands) and declines all of them (NONE), so it never turns a
   nonsense question into an answer.
 - **Dataset questions do not change.** All 127,043 dataset questions parse as before except 3 (quote fix,
-  below), none reaches the normaliser, and the full test run `runs/router_full_test_v7.summary.md` scores
-  **90.0 %** (v6: 89.5 %, v4: 88.2 %; since v4 the CubiCasa detector went 82.2 % → 84.2 % (new detector) →
-  85.1 % (flip test-time augmentation); Swiss 100.0 %, ifc_models 100.0 %, ifc_bench 38.2 %). Language twins:
-  still 100 % agreement on 12,654 pairs.
+  below), none reaches the normaliser, and the full test run `runs/router_full_test_v8.summary.md` scores
+  **90.7 %** (v7: 90.0 %, v6: 89.5 %, v4: 88.2 %; since v4 CubiCasa went 82.2 % → 84.2 % (new detector) →
+  85.1 % (flip test-time augmentation) → 86.1 % (VLM arbiter); Swiss 100.0 %, ifc_models 100.0 %, ifc_bench
+  38.2 %). Language twins: 12,582 of 12,654 pairs agree (99.4 %; v7: all of them). The 72 that differ are
+  CubiCasa pairs where the VLM arbiter overrode the detector in one language only: the fine-tuned VLM's
+  precomputed answers were made per question text, so the en and fi twin can get different VLM readings.
+  The parsers themselves still read both languages identically.
 - **Cost:** the normaliser runs only on questions no parser understands: one Haiku call (~$0.0003-0.003, cached
   per question and drawing). Dataset questions stay $0.
 """
