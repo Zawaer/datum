@@ -264,7 +264,7 @@ function cameraOver2D(d) {
 
 // ------------------------------------------------------------ evidence in 3D
 const fill = (color, opacity) => new THREE.MeshBasicMaterial({color, transparent: true, opacity, depthWrite: false,
-  polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2});
+  polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8});
 const mats = {
   // painted on the floor, flat (unlit) like the 2D overlay: the drawing's lines stay readable through the paint
   count: fill(COL.ev, 0.78), countOff: fill(COL.off, 0.35),
@@ -296,7 +296,7 @@ function signature() {
 function clearEvidence() {
   if (!evGroup) return;
   for (const o of [...evGroup.children]) { evGroup.remove(o); o.traverse(x => x.geometry && x.geometry.dispose()); }
-  for (const s of data ? data.symbols : []) if (s.glass) s.glass.visible = true;
+  for (const s of data ? data.symbols : []) { if (s.glass) s.glass.visible = true; if (s.mesh) s.mesh.visible = true; }
   labs.innerHTML = ''; ev = []; hot = null; selI = null; br = null;
 }
 
@@ -340,6 +340,7 @@ function applyEvidence(animate) {
       } else if (best && best.h && best.kind !== 'door') {
         const g = prism([shape(best.pts)], 0, best.h + 0.02), m = mesh(g, it.on ? mats.solid : mats.solidOff, false, false);
         m.userData.mat = m.material; m.renderOrder = 2; add(m); foot = best.h;
+        if (best.mesh) best.mesh.visible = false;  // same footprint as the highlight: hide it, or the two faces flicker
       }
       [px, py] = best ? best.c : [cx, cy];
       it.anchor = W3(px, py, PIN_H); it.name = best ? best.kind : (e.label || '');
