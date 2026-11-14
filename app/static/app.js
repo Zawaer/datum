@@ -643,13 +643,13 @@ function setupEvidence() {
     // the plan items are the IFC elements, in the same order: count on the drawing, light up the same ones in 3D
     primary = 'paired';
     items = plan2d.map((e, i) => ({...e, label: (e.label || '').replace(/^\d+\.\s*/, ''), value: e.value ?? three[i].value,
-                                   guids: [...(e.guids || []), ...(three[i].guids || [])], on: true}));
+                                   guids: [...(e.guids || []), ...(three[i].guids || [])], ...onInit(e)}));
     marks = txt.filter(onShown).map(e => ({...e, mark: true}));
   } else if (primary === 'ifc') {
-    items = three.map(e => ({...e, on: true}));
+    items = three.map(e => ({...e, ...onInit(e)}));
     marks = [...two, ...txt].filter(onShown).map(e => ({...e, mark: true}));
   } else {
-    items = (two.length ? plan2d : three).map(e => ({...e, on: true}));
+    items = (two.length ? plan2d : three).map(e => ({...e, ...onInit(e)}));
     marks = txt.filter(onShown).map(e => ({...e, mark: true}));
   }
   marks = marks.filter(e => e.bbox || e.points);
@@ -777,7 +777,7 @@ function traceHTML(r) {
   const route = (t.route || []).map(x => `<div><span class="pill">${esc(ROUTE[x.solver] || x.solver)}</span> ${esc(x.why)}</div>`).join('');
   const read = (t.read || []).map(x => `<li>${esc(x)}</li>`).join('');
   const a = t.arith;
-  const corrected = typeof r.answer === 'number' && items.some(e => !e.on || e.added);
+  const corrected = typeof r.answer === 'number' && items.some(edited);
   const cv = corrected ? items.filter(e => e.on).reduce((s, e) => s + contrib(e), 0) : null;
   const arith = a ? `${corrected ? '<div class="mut">before your correction:</div>' : ''}<div class="mono">${esc(a.expr)} = <b>${fmt(a.total, r.type)}${u ? ' ' + u : ''}</b></div>
     <div class="${a.matches ? 'okt' : 'mut'}">${a.matches ? `✓ the ${a.n} items listed under Evidence add up to the answer exactly` : 'the answer is not a plain sum of the listed items (it also weighs how likely each count is)'}</div>`
@@ -887,7 +887,7 @@ function renderAnswer(shownSoFar) {
   let val = res.answer;
   if (counting) val = items.slice(0, shownSoFar).reduce((s, e) => s + contrib(e), 0);
   // a correction (items dropped / added) changes the headline number too; the line under it keeps the solver's value
-  else if (typeof val === 'number' && items.some(e => !e.on || e.added)) val = items.filter(e => e.on).reduce((s, e) => s + contrib(e), 0);
+  else if (typeof val === 'number' && items.some(edited)) val = items.filter(e => e.on).reduce((s, e) => s + contrib(e), 0);
   if (counting && a.dataset.xseq === String(res._seq) && a.querySelector('.big.counting .bn')) {  // mid-count: only the number moves
     a.querySelector('.big.counting .bn').textContent = fmtS(val, t);
     ghostMove(a, val);
@@ -901,7 +901,7 @@ function renderAnswer(shownSoFar) {
     const g = +res.gold, p = +res.answer;
     oursOk = t === 'count' ? Math.round(p) === Math.round(g) : Math.abs(p - g) <= 0.02 * Math.abs(g);
     // after a correction the headline is the user's number, not the solver's: say plainly what the badge compares
-    const corrected = items.some(e => !e.on || e.added);
+    const corrected = items.some(edited);
     if (!counting) gold = corrected ? `<span class="pill">dataset answer: ${fmt(g, t)} (${oursOk ? 'matches' : 'differs from'} the solver's answer)</span>`
       : `<span class="pill ${oursOk ? 'ok' : 'bad'}">${oursOk ? '✓ matches' : '✗ differs from'} the dataset answer ${fmt(g, t)}</span>`;
   }
@@ -910,7 +910,7 @@ function renderAnswer(shownSoFar) {
   const num = typeof res.answer === 'number';
   const baseS = res.baseline_latency_s || 8;
   const h = howOf(res);
-  const corrected = num && !counting && items.some(e => !e.on || e.added);
+  const corrected = num && !counting && items.some(edited);
   if (num && res.answer === 0 && !items.length && h.cls !== 'geo') h.how = 'it found nothing to box, so there is nothing to check on the drawing: look at the plan yourself before relying on 0';
   const qrow = `<div class="qrow"><div class="qecho" title="${esc(res.question)}">${esc(res.question)}</div><span class="qtools" id="qtools"></span></div>`;
   if (res.method === 'rate-limit') {  // the demo's per-visitor limit: no abstain card, no comparison, no cost
@@ -1033,7 +1033,7 @@ function wireAnswerActions(a) {
 async function answerAction(act, b) {
   if (act === 'second') { showSecond = !showSecond; draw(false); renderAnswer(null); return; }
   if (act === 'csv') { exportTakeoff(); return; }
-  if (act === 'undo') { items = items.filter(e => !e.added); items.forEach(e => { e.on = true; }); redraw(); return; }
+  if (act === 'undo') { items = items.filter(e => !e.added); items.forEach(e => { e.on = !e.off0; }); redraw(); return; }
   const row = takeoffRow(res); if (!row) return;
   if (act === 'unsign') { delete row.signed_by; delete row.signed_at; saveTakeoff(); renderAnswer(null); return; }
   if (act === 'sign') {  // inline initials field instead of a prompt() box
@@ -1058,7 +1058,7 @@ async function answerAction(act, b) {
   }
 }
 function currentCorrection() {
-  if (!res || typeof res.answer !== 'number' || !items.some(e => !e.on || e.added)) return null;
+  if (!res || typeof res.answer !== 'number' || !items.some(edited)) return null;
   return +items.filter(e => e.on).reduce((s, e) => s + contrib(e), 0).toFixed(3);
 }
 function exportTakeoff() {
@@ -1367,6 +1367,10 @@ const uOf = () => {  // the answer's unit: a sheet answer says it (SF, mm, ft); 
   return unitOf(res && res.type);
 };
 // a counted item adds one; a measured one its value; a measured one without a value (a zone drawn for context) nothing
+// an item the reader marked but left out of its answer (a closet door: "on": false) starts unticked; the judge can
+// tick it back in. edited: the ticks differ from what the reader answered
+const onInit = e => (e.on === false ? {on: false, off0: true} : {on: true});
+const edited = e => e.added || e.on === !!e.off0;
 const contrib = e => typeof e.value === 'number' ? e.value : (!res || res.type === 'count' ? 1 : 0);
 const thou = v => Math.abs(v) >= 1000 && Math.abs(v - Math.round(v)) < 1e-9 ? Math.round(v).toLocaleString('en-US') : round2(v);
 function itemUnit(e) {  // the unit of an item's value: its own, the answer's, else by its kind (and the sheet's units)
@@ -1677,7 +1681,7 @@ QA.addEventListener('change', () => { placePicker(); sheetFull(false); pickTip(n
 
 function recompute() {
   if (!res || typeof res.answer !== 'number') return;
-  const changed = items.some(e => !e.on || e.added);
+  const changed = items.some(edited);
   const v = items.filter(e => e.on).reduce((s, e) => s + contrib(e), 0);
   const el = $('#corr'); if (!el) return;
   const solverHad = items.some(e => !e.added);
@@ -1699,7 +1703,7 @@ function setFb(st) { fb.state = st; const n = $('#fbnote'); if (n) n.textContent
 function queueFeedback(changed, v) {
   if (!res || res.answer == null) return;
   if (fb.res !== res) { fb.res = res; fb.sent = ''; fb.state = ''; }
-  const removed = items.filter(e => !e.on && !e.added), added = items.filter(e => e.on && e.added);
+  const removed = items.filter(e => !e.on && !e.off0 && !e.added), added = items.filter(e => e.on && (e.added || e.off0));
   const sig = JSON.stringify([removed.map(e => items.indexOf(e)), added.map(e => e.bbox)]);
   if (tour) return;  // the tour's scripted correction is not a visitor's feedback
   if (!changed && !fb.sent) return;  // nothing changed and nothing to revert
@@ -2127,7 +2131,7 @@ function speakTools(counting, refresh) {
   if (speak.seq != null && speak.seq !== res._seq) speakStop();  // a new answer silences the old one
   // no button mid-count: each tick re-renders the card, so a click there would land on a button that is gone
   // a corrected answer is not read aloud: the spoken sentence is the solver's, with its verification
-  const corrected = typeof res.answer === 'number' && items.some(e => !e.on || e.added);
+  const corrected = typeof res.answer === 'number' && items.some(edited);
   if (corrected && speak.seq === res._seq) speakStop();
   const off = !speak.on || !res.speak_id || res.method === 'rate-limit' || counting || corrected;
   let b = box.querySelector('.speakbtn'), t = box.querySelector('.speakauto');

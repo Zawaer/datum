@@ -1163,6 +1163,7 @@ def _closet_ev(cs, mode="exclude"):
         e = _ev(d["bbox"], f"other door {i}: not counted" if mode == "only" else
                 f"closet door {i}: not counted ({d['why']})")
         e["value"] = None
+        e["on"] = False  # the viewer shows it unticked (not in the sum); a judge can tick it back in
         out.append(e)
     return out
 

@@ -782,7 +782,8 @@ STOP = {"the", "of", "what", "is", "area", "areas", "floor", "room", "in", "on",
         "gross", "excluding", "except", "without", "wet", "different", "do", "need", "we", "are", "there",
         "length", "lengths", "find", "calculate", "compute", "approximately", "size", "space", "spaces", "main",
         "metres", "meters", "base", "boards", "skirtings", "inside", "within", "by", "to", "be", "should",
-        "rooms", "every", "whole", "building", "overall", "footprint", "much", "big", "large", "required", "needed"}
+        "rooms", "every", "whole", "building", "overall", "footprint", "much", "big", "large", "required", "needed",
+        "does", "doe", "need", "needs", "have", "has", "get", "install", "lay", "fit"}
 
 
 def _close(a, b):
@@ -895,7 +896,7 @@ def answer(path, question, meta):
         # names read off coarse crops: a half match ("Hall" for "Multi-Purpose Hall" when the hall's own name was
         # unreadable, a "Dining Room" via the hall synonym) is not trusted; the room list is offered instead
         lw = lambda r: {SYN.get(w, w) for w in _norm(r["label"])}  # noqa: E731
-        sel = [r for r in sel if sum(1 for w in qw if any(_close(w, x) for x in lw(r))) == len(qw)]
+        sel = [r for r in sel if all(any(_close(w, x) for x in lw(r)) for w in set(qw))]
     if qw and not sel and not seg.get("_crop_read"):
         # the question names a room we have no label for: read the unlabelled / larger rooms' own crops (budgeted)
         cand = [r for r in rooms if r["area_m2"] >= 1.5]
