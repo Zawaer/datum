@@ -97,7 +97,7 @@ def _bucket(hits: dict, request: Request, n: int, window: float, msg: str, lock=
     with lock:
         if now - _last_prune[0] > _PRUNE_EVERY:  # forget visitors whose window has passed (bounded memory)
             _last_prune[0] = now
-            for tab in (_hits, _heavy_hits, _fb_hits):
+            for tab in (_hits, _heavy_hits, _fb_hits, _tts_hits, _free_hits):
                 for k in [k for k, d in tab.items() if not d or d[-1] < now - max(window, RATE_S, FEEDBACK_S)]:
                     del tab[k]
         dq = hits[ip]
@@ -113,6 +113,38 @@ def _rate_limit(request: Request):
         return
     _bucket(_hits, request, RATE_N, RATE_S, f"this public demo allows {RATE_N} questions per {RATE_S // 60} minutes "
                                             "per visitor; please try again in a few minutes")
+
+
+# asks: every ask counts against a generous bucket (CPU); only asks that made a paid model call count against
+# BP_RATE_LIMIT, so the tour and the $0 geometry/cached answers don't use up a visitor's questions
+FREE_ASK_N = int(os.environ.get("BP_FREE_ASK_N", 0) or 0) or RATE_N * 10
+_free_hits: dict[str, collections.deque] = collections.defaultdict(collections.deque)
+
+
+def _ask_limit(request: Request):
+    """Before an ask: refuse once the paid allowance is used up (the answer might need a paid call), and count the
+    ask in the free bucket."""
+    if not RATE_N:
+        return
+    ip, now = client_key(request), time.time()
+    with _hits_lock:
+        dq = _hits[ip]
+        while dq and dq[0] < now - RATE_S:
+            dq.popleft()
+        full = len(dq) >= RATE_N
+    if full:
+        _rate_limit(request)  # raises the usual 429
+    _bucket(_free_hits, request, FREE_ASK_N, RATE_S, f"this public demo allows {FREE_ASK_N} questions per "
+                                                     f"{RATE_S // 60} minutes per visitor; please try again shortly")
+
+
+def _ask_charge(request: Request, res: dict):
+    """After an ask: a paid model call costs one of the visitor's BP_RATE_LIMIT questions."""
+    if not RATE_N or not (res.get("cost_usd") or 0) > 0:
+        return
+    ip = client_key(request)
+    with _hits_lock:
+        _hits[ip].append(time.time())
 
 
 def _heavy_limit(request: Request):
@@ -1322,7 +1354,7 @@ def frontier_for(ids: list) -> list:
 
 @app.post("/api/ask")
 def ask(req: Ask, request: Request):
-    _rate_limit(request)
+    _ask_limit(request)
     if req.path.startswith("uploads/"):
         q, known, same = _upload_question(req), None, []
     else:
@@ -1381,6 +1413,7 @@ def ask(req: Ask, request: Request):
     if q["source"] == "upload" and res.get("route") == "-" and res.get("answer") is None and res.get("method") == "none":
         res["explanation"] = (f"uploads of this kind ({q.get('kind')}) are not routed to a solver yet; "
                               "nothing was guessed")
+    _ask_charge(request, res)
     res["latency_s"] = round(time.time() - t0, 3)
     res["type"] = q["type"]
     res["source"] = q["source"]
@@ -1410,6 +1443,10 @@ def ask(req: Ask, request: Request):
         res["rule"] = rule_for(res, q)
         res["frontier"] = frontier_for([x["id"] for x in same]) if known else []
     except Exception:  # noqa: BLE001  the extras never break an answer
+        traceback.print_exc()
+    try:
+        res["speak_id"] = _speak_remember(res, req.question)
+    except Exception:  # noqa: BLE001  nor does the spoken version
         traceback.print_exc()
     try:
         return JSONResponse(json.loads(json.dumps(res, default=str)))
@@ -1794,24 +1831,233 @@ async def transcribe(request: Request, lang: str = "", secs: float = 0.0):
             "audio_s": round(dur, 2)}
 
 
+
+# ---------------------------------------------------------------- spoken answers: ElevenLabs text-to-speech
+# Each /api/ask answer gets a `speak_id`; POST /api/speak {id, lang} turns that answer into one short sentence in the
+# question's language (app/speak.py builds it from the stored answer: the browser never sends text, so this is not a
+# free TTS service) and returns it as audio/mpeg. Audio is cached in memory by text; every paid call is logged.
+# ELEVENLABS_TTS_API_KEY  a separate key for TTS if set (environment or data/secrets/elevenlabs.env), else the STT key
+# BP_TTS_VOICE / BP_TTS_MODEL   stock voice id (default "George", calm narrator) and model (Flash v2.5: ~100 ms,
+#                               32 languages incl. fi/sv/nl, $0.04 per 1K characters on the ElevenLabs API price list)
+# BP_TTS_DAILY_USD_CAP    daily budget (default $2); BP_TTS_LEDGER the JSONL spend log; BP_TTS_RATE "<n>/<s>" per IP
+# A key without the text_to_speech permission answers 401/403 "missing_permissions": the feature then reports
+# available:false and is re-checked every BP_TTS_RECHECK_S (180 s), so enabling it lights the button up, no restart.
+TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice}?output_format={fmt}"
+TTS_VOICE = os.environ.get("BP_TTS_VOICE", "JBFqnCBsd6RMkjVDRZzb")
+TTS_MODEL = os.environ.get("BP_TTS_MODEL", "eleven_flash_v2_5")
+TTS_FORMAT = os.environ.get("BP_TTS_FORMAT", "mp3_44100_64")
+TTS_USD_PER_CHAR = float(os.environ.get("BP_TTS_USD_PER_1K_CHARS", 0.04) or 0.04) / 1000
+TTS_DAILY_CAP = float(os.environ.get("BP_TTS_DAILY_USD_CAP", 2) or 0)
+TTS_LEDGER = Path(os.environ.get("BP_TTS_LEDGER", "cache/tts_spend.jsonl"))
+_TTS_RL = os.environ.get("BP_TTS_RATE", "") or "20/600"
+TTS_RATE_N, TTS_RATE_S = (int(x) for x in _TTS_RL.split("/"))
+TTS_TIMEOUT_S, TTS_MAX_CHARS, TTS_RECHECK_S = 15, 300, float(os.environ.get("BP_TTS_RECHECK_S", 180) or 180)
+_tts_lock = threading.Lock()
+_tts_hits: dict[str, collections.deque] = collections.defaultdict(collections.deque)
+_tts_state = {"ok": None, "checked": 0.0, "key": ""}  # ok: None = not checked yet, False = key lacks TTS permission
+_tts_audio: collections.OrderedDict[str, bytes] = collections.OrderedDict()  # sha1(voice, model, lang, text) -> mp3
+_speak_answers: collections.OrderedDict[str, dict] = collections.OrderedDict()  # speak_id -> what the answer was
+TTS_CACHE_N, SPEAK_ANSWERS_N = 300, 5000
+
+
+class TTSUnavailable(Exception):
+    pass
+
+
+def _tts_key() -> str:
+    if os.environ.get("ELEVENLABS_TTS_API_KEY"):
+        return os.environ["ELEVENLABS_TTS_API_KEY"].strip()
+    for f in (Path("data/secrets/elevenlabs.env"), APP.parent / "data/secrets/elevenlabs.env"):
+        try:
+            for line in f.read_text().splitlines():
+                k, _, v = line.partition("=")
+                if k.strip() == "ELEVENLABS_TTS_API_KEY" and v.strip():
+                    return v.strip().strip("'\"")
+        except OSError:
+            continue
+    return _stt_key()
+
+
+def _speak_remember(res: dict, question: str, lang_hint: str | None = None) -> str:
+    """Keep what /api/speak needs to say this answer; the id is the only thing the browser sends back."""
+    from app.speak import detect_lang, norm_lang
+
+    sid = os.urandom(8).hex()
+    rec = {"question": (question or "")[:500], "answer": res.get("answer"), "type": res.get("type"),
+           "method": res.get("method"), "crosscheck": {"status": (res.get("crosscheck") or {}).get("status")},
+           "lang": norm_lang(lang_hint) or detect_lang(question)}
+    c = res.get("calibration") or {}
+    rec["calibration"] = {"measured": c.get("measured"), "right": c.get("right"), "n": c.get("n")}
+    if isinstance(rec["answer"], str):
+        rec["answer"] = rec["answer"][:2000]
+    with _tts_lock:
+        _speak_answers[sid] = rec
+        while len(_speak_answers) > SPEAK_ANSWERS_N:
+            _speak_answers.popitem(last=False)
+    return sid
+
+
+def _tts_spent_today() -> float:
+    day, tot = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"), 0.0
+    try:
+        lines = TTS_LEDGER.read_text().splitlines()
+    except OSError:
+        return 0.0
+    for line in lines:
+        try:
+            r = json.loads(line)
+            tot += float(r.get("cost_usd") or 0) if r.get("day") == day else 0.0
+        except (ValueError, AttributeError):
+            continue
+    return tot
+
+
+def _tts_log(text: str, lang: str, latency: float, kind: str = "speak"):
+    rec = {"day": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"), "ts": round(time.time(), 1),
+           "kind": kind, "model": TTS_MODEL, "voice": TTS_VOICE, "lang": lang, "chars": len(text),
+           "latency_s": round(latency, 2), "cost_usd": round(len(text) * TTS_USD_PER_CHAR, 8)}
+    with _tts_lock:
+        TTS_LEDGER.parent.mkdir(parents=True, exist_ok=True)
+        with TTS_LEDGER.open("a") as f:
+            f.write(json.dumps(rec) + "\n")
+
+
+def _tts_call(text: str, lang: str, key: str) -> bytes:
+    """POST the sentence to ElevenLabs; raise TTSUnavailable when the key is not allowed to use text-to-speech."""
+    import urllib.error
+    import urllib.request
+
+    body = json.dumps({"text": text, "model_id": TTS_MODEL, "language_code": lang}).encode()
+    req = urllib.request.Request(TTS_URL.format(voice=TTS_VOICE, fmt=TTS_FORMAT), data=body, method="POST", headers={
+        "xi-api-key": key, "Content-Type": "application/json", "Accept": "audio/mpeg"})
+    try:
+        with urllib.request.urlopen(req, timeout=TTS_TIMEOUT_S) as r:
+            return r.read()
+    except urllib.error.HTTPError as e:
+        detail = e.read()[:300].decode("utf-8", "replace")
+        print(f"[tts] ElevenLabs HTTP {e.code}: {detail}", flush=True)
+        if e.code in (401, 403):
+            raise TTSUnavailable(detail)
+        if e.code == 429:
+            raise HTTPException(429, "the text-to-speech service is busy; please try again in a moment")
+        raise HTTPException(502, "text-to-speech failed")
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        print(f"[tts] ElevenLabs unreachable: {type(e).__name__}", flush=True)
+        raise HTTPException(504, "text-to-speech timed out")
+
+
+def _tts_mark(key: str, ok: bool):
+    _tts_state.update(ok=ok, checked=time.time(), key=hashlib.sha1(key.encode()).hexdigest())
+
+
+def _tts_ok(probe: bool = True) -> bool:
+    """Is text-to-speech usable with the current key? A new key, or a refusal older than TTS_RECHECK_S, is probed
+    once with a two-character sentence (a fraction of a cent, logged like any other call)."""
+    key = _tts_key()
+    if not key:
+        return False
+    st = _tts_state
+    if st["key"] and st["key"] != hashlib.sha1(key.encode()).hexdigest():
+        st["ok"] = None  # the key in the file changed: forget what the old one could do
+    stale = st["ok"] is None or (st["ok"] is False and time.time() - st["checked"] > TTS_RECHECK_S)
+    if stale and probe and _tts_probe_lock.acquire(blocking=False):
+        try:
+            t0 = time.time()
+            _tts_call("OK.", "en", key)
+            _tts_log("OK.", "en", time.time() - t0, kind="probe")
+            _tts_mark(key, True)
+        except TTSUnavailable:
+            _tts_mark(key, False)
+        except HTTPException:
+            pass  # busy / unreachable: not a verdict on the key, try again next time
+        finally:
+            _tts_probe_lock.release()
+    return st["ok"] is not False
+
+
+_tts_probe_lock = threading.Lock()
+
+
+class Speak(BaseModel):
+    id: str
+    lang: str | None = None
+
+
+@app.get("/api/speak")
+def speak_info():
+    """Whether spoken answers are on (the page shows the "Read aloud" button and speaks voice questions' answers)."""
+    if not _tts_ok():
+        return {"available": False}
+    return {"available": True, "provider": "ElevenLabs", "over_cap": bool(TTS_DAILY_CAP) and
+            _tts_spent_today() >= TTS_DAILY_CAP, "recheck_s": TTS_RECHECK_S}
+
+
+@app.post("/api/speak")
+def speak(req: Speak, request: Request):
+    """{id: the answer's speak_id, lang: optional ISO code} -> audio/mpeg of one short sentence about that answer."""
+    import urllib.parse
+
+    from app.speak import norm_lang, sentence
+
+    _heavy_limit(request)
+    if not re.fullmatch(r"[0-9a-f]{16}", req.id or ""):
+        raise HTTPException(400, "bad answer id")
+    with _tts_lock:
+        rec = _speak_answers.get(req.id)
+    if rec is None:
+        raise HTTPException(404, "that answer is no longer on the server; ask again to hear it")
+    lang = norm_lang(req.lang) or rec["lang"]
+    text = sentence(rec, lang)[:TTS_MAX_CHARS]
+    ck = hashlib.sha1(f"{TTS_VOICE}\x00{TTS_MODEL}\x00{TTS_FORMAT}\x00{lang}\x00{text}".encode()).hexdigest()
+    hdr = {"Cache-Control": "private, max-age=3600", "X-Speak-Lang": lang,
+           "X-Speak-Text": urllib.parse.quote(text, safe=" ,.;:!?'-%")}
+    with _tts_lock:
+        audio = _tts_audio.get(ck)
+        if audio is not None:
+            _tts_audio.move_to_end(ck)
+    if audio is not None:
+        return Response(audio, media_type="audio/mpeg", headers={**hdr, "X-Speak-Cache": "hit"})
+    key = _tts_key()
+    if not key or not _tts_ok(probe=False):
+        raise HTTPException(503, "spoken answers are not available on this server")
+    _bucket(_tts_hits, request, TTS_RATE_N, TTS_RATE_S, "too many spoken answers for this visitor; "
+                                                         "please wait a few minutes")
+    if TTS_DAILY_CAP and _tts_spent_today() + len(text) * TTS_USD_PER_CHAR > TTS_DAILY_CAP:
+        raise HTTPException(429, "spoken answers have used up today's budget on this public demo")
+    t0 = time.time()
+    try:
+        audio = _tts_call(text, lang, key)
+    except TTSUnavailable:
+        _tts_mark(key, False)
+        raise HTTPException(503, "spoken answers are not available on this server")
+    _tts_mark(key, True)
+    _tts_log(text, lang, time.time() - t0)
+    if len(audio) < 100:
+        raise HTTPException(502, "text-to-speech returned no audio")
+    with _tts_lock:
+        _tts_audio[ck] = audio
+        while len(_tts_audio) > TTS_CACHE_N:
+            _tts_audio.popitem(last=False)
+    return Response(audio, media_type="audio/mpeg", headers={**hdr, "X-Speak-Cache": "miss"})
+
 # ---------------------------------------------------------------- pages
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def index():
     return HTMLResponse(_with_root((STATIC / "index.html").read_text()))
 
 
-@app.get("/results")
+@app.api_route("/results", methods=["GET", "HEAD"])
 def results_page():
     return HTMLResponse(_with_root((STATIC / "results.html").read_text()))
 
 
-@app.get("/how")
+@app.api_route("/how", methods=["GET", "HEAD"])
 def how_page():
     return HTMLResponse(_with_root((STATIC / "how.html").read_text()))
 
 
-@app.get("/static/{name}")
+@app.api_route("/static/{name}", methods=["GET", "HEAD"])
 def static(name: str, request: Request):
     p = (STATIC / name).resolve()
     if not p.is_relative_to(STATIC.resolve()) or not p.exists():

@@ -30,7 +30,8 @@ echo "== secrets + caps (chmod 600 on the VM)"
   echo "BP_RATE_LIMIT=${BP_RATE_LIMIT:-150/600}"
   echo "BP_DAILY_USD_CAP=${BP_DAILY_USD_CAP:-5}"
   # ask by voice: ElevenLabs speech-to-text key (+ optional BP_STT_* caps); absent -> browser speech recognition only
-  [ -f data/secrets/elevenlabs.env ] && grep -E '^(ELEVENLABS_API_KEY|BP_STT_[A-Z_]+)=' data/secrets/elevenlabs.env || true
+  # spoken answers: ElevenLabs text-to-speech (same key, or ELEVENLABS_TTS_API_KEY; optional BP_TTS_* caps)
+  [ -f data/secrets/elevenlabs.env ] && grep -E '^(ELEVENLABS_API_KEY|ELEVENLABS_TTS_API_KEY|BP_STT_[A-Z_]+|BP_TTS_[A-Z_]+)=' data/secrets/elevenlabs.env || true
   # live VLM second opinion for uploads (deploy/vlm/serve.sh writes data/secrets/vlm.env); absent -> precomputed only
   if [ -f data/secrets/vlm.env ]; then grep -E '^BP_VLM_(URL|KEY|SERVED|LIVE_TIMEOUT)=' data/secrets/vlm.env || true
   elif [ -n "${BP_VLM_URL:-}" ]; then echo "BP_VLM_URL=$BP_VLM_URL"; fi
