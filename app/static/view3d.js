@@ -2,6 +2,9 @@
 // Storey focus clips everything above the storey so interior elements (rooms, inner walls) are visible.
 // Two view controls live in the viewer itself: "Explode storeys" lifts the floors apart (each one labelled), and
 // "X-ray" turns everything that is not evidence into faint glass with its outlines kept, so the counted items stand out.
+// The answer is also painted where it applies: the floor area of every room (IfcSpace) in the evidence is filled on its
+// slab (one sequential blue by m², or the accent when rooms are counted), counted elements get a pin (a pole and a
+// number chip) above them, and one legend bar (bottom left) says what the colours mean.
 // Rendering is on demand: frames are drawn only while something moves, never while the view is idle.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -36,7 +39,24 @@ const offLine = new THREE.LineBasicMaterial({ color: 0x5b6470, transparent: true
 const markTint = new THREE.MeshBasicMaterial({ color: 0x0072b2, transparent: true, opacity: 0.25, side: THREE.FrontSide,
   depthTest: false, depthWrite: false });
 const markLine = new LineMaterial({ color: 0x00324f, linewidth: 2, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false });
-for (const m of [ctxMat, ctxLine, hlLine, pulseMat, offMat, offLine, markTint, markLine]) m.clippingPlanes = [clip];
+// rooms painted on their floor: flat, unlit, one colour per evidence item (vertex colours), over the slab
+const footMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85, side: THREE.DoubleSide,
+  depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+for (const m of [ctxMat, ctxLine, hlLine, pulseMat, offMat, offLine, markTint, markLine, footMat]) m.clippingPlanes = [clip];
+const HEAT = ['#e3eef7', '#bcd7ec', '#8bbadc', '#4f95c6', '#1a6fa6'];  // the 2D heat-map's sequential blue, light = small
+const EV = '#0072b2', OFF = '#c9ced6', WHITE = new THREE.Color(1, 1, 1);
+// the answer on show, read from the app (a classic script: its top-level bindings are visible here); absent = none
+const appRes = () => { try { return res; } catch (e) { return null; } };  // eslint-disable-line no-undef
+const appNumber = it => {  // the item's number on the plan and in the list (null when it has none)
+  try { if (!numbered(it)) return null; const i = items.indexOf(it); return i < 0 ? null : items.slice(0, i + 1).filter(numbered).length; }  // eslint-disable-line no-undef
+  catch (e) { return null; }
+};
+function breaks(vals) {  // the 2D heat-map's breaks: four round steps, five classes
+  const mx = Math.max(1, ...vals);
+  const nice = [2, 2.5, 4, 5, 6, 8, 10, 15, 20, 25, 30, 40, 50, 60, 80, 100, 150, 200].find(x => x * 5 >= mx) || Math.ceil(mx / 5);
+  return [1, 2, 3, 4].map(k => k * nice);
+}
+const heatClass = (a, br) => { const i = br.findIndex(b => a < b); return i < 0 ? 4 : i; };
 
 function b64(s, Type) {
   const bin = atob(s), u8 = new Uint8Array(bin.length);
@@ -45,7 +65,7 @@ function b64(s, Type) {
 }
 
 // ------------------------------------------------------------ in-viewer controls and storey labels (DOM owned here)
-let bar, btnExplode, btnXray, labLayer, labels = [], floorEl = null;
+let bar, btnExplode, btnXray, labLayer, labels = [], floorEl = null, pinLayer = null, legEl = null;
 let focusSi = null, homeSi = null;  // the storey on show (null = whole building), and the one the evidence is on
 const CSS = `
 .v3bar { position: absolute; left: 12px; top: 12px; display: flex; gap: 0; z-index: 4; font: 500 13px var(--font, system-ui); }
@@ -77,6 +97,27 @@ const CSS = `
 .v3floor button { border: 1px solid var(--line2, #c3c8cf); background: var(--panel2, #f5f6f8); color: var(--text, #16191d);
   border-radius: var(--r1, 4px); padding: 3px 9px; font: 500 12px var(--font, system-ui); cursor: pointer; min-height: 26px; }
 .v3floor button:hover { border-color: var(--ev, #0072b2); color: var(--ev-ink, #005f94); }
+.v3pins { position: absolute; inset: 0; pointer-events: none; z-index: 3; overflow: hidden; }
+.v3pin { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; will-change: transform;
+  pointer-events: auto; cursor: pointer; }
+.v3pin span { display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: var(--ev, #0072b2);
+  color: #fff; font: 600 11px/1 var(--font, system-ui); border: 1.5px solid #fff; box-shadow: 0 1px 2px rgba(22,25,29,.25); font-feature-settings: "tnum"; }
+.v3pin i { display: block; width: 1.5px; height: 16px; background: #3c4450; }
+.v3pin.off span { background: #fff; color: #6b7584; border-color: #7a8594; text-decoration: line-through; box-shadow: none; } .v3pin.off i { background: #9aa2ad; }
+.v3pin.hot span { background: var(--hl, #f0e442); color: var(--ink, #16191d); border-color: var(--ink, #16191d); } .v3pin.hot { z-index: 2; }
+.v3leg { position: absolute; left: 12px; bottom: 30px; z-index: 4; background: var(--panel, #fff); border: 1px solid var(--line2, #c3c8cf);
+  border-radius: var(--r1, 4px); padding: 5px 9px; font: 11px var(--font, system-ui); color: var(--mut, #5b6470); display: flex; gap: 12px;
+  align-items: center; pointer-events: none; max-width: calc(100% - 24px); box-shadow: 0 1px 3px rgba(22,25,29,.08); }
+.v3leg[hidden] { display: none; }
+.v3leg i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+.v3leg .sc { display: inline-flex; flex-direction: column; gap: 1px; }
+.v3leg .sc span, .v3leg .sc em { display: grid; grid-template-columns: repeat(5, 22px); gap: 1px; }
+.v3leg .sc span i { width: 22px; height: 8px; margin: 0; border-radius: 0; }
+.v3leg .sc em { font: 400 9px/1 var(--font, system-ui); font-style: normal; font-feature-settings: "tnum"; }
+.v3leg .sc em b { font-weight: 400; transform: translateX(-50%); } .v3leg .sc em b:first-child { transform: none; }
+.v3leg .pin { display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 7px; background: var(--ev, #0072b2); color: #fff;
+  font: 600 8px/1 var(--font, system-ui); vertical-align: -2px; margin-right: 6px; border: 1px solid #fff; box-shadow: 0 0 0 1px var(--ev, #0072b2); }
+@media (max-width: 700px) { .v3leg .v3wide { display: none; } .v3leg { bottom: 26px; } }
 .v3lab.r { flex-direction: row-reverse; } .v3lab.r i { margin: 0 6px 0 0; }
 @media (max-width: 700px) { .v3floor { left: 8px; top: 52px; font-size: 12px; } .v3floor button { min-height: 32px; }
   .v3bar { left: 8px; top: 8px; font-size: 12px; } .v3bar button { padding: 4px 8px; min-height: 36px; }
@@ -90,6 +131,17 @@ function buildUI() {
     const st = document.createElement('style'); st.id = 'v3css'; st.textContent = CSS; document.head.appendChild(st);
   }
   labLayer = document.createElement('div'); labLayer.className = 'v3labs'; host.appendChild(labLayer);
+  pinLayer = document.createElement('div'); pinLayer.className = 'v3pins'; host.appendChild(pinLayer);
+  legEl = document.createElement('div'); legEl.className = 'v3leg'; legEl.hidden = true; host.appendChild(legEl);
+  // a pin is the element's handle: hover lights its row, a click selects it (the app opens its card beside the pin)
+  pinLayer.addEventListener('pointerdown', e => { if (e.target.closest('.v3pin')) e.stopPropagation(); });
+  pinLayer.addEventListener('click', e => {
+    const p = e.target.closest('.v3pin'); if (!p) return; e.stopPropagation();
+    const r = p.getBoundingClientRect();
+    if (cbs.onPick) cbs.onPick(p.dataset.g, { x: r.left + r.width / 2, y: r.top + 10 });
+  });
+  pinLayer.addEventListener('pointerover', e => { const p = e.target.closest('.v3pin'); if (p && cbs.onHover) cbs.onHover(p.dataset.g); });
+  pinLayer.addEventListener('pointerout', e => { const p = e.target.closest('.v3pin'); if (p && cbs.onHover && !p.contains(e.relatedTarget)) cbs.onHover(null); });
   bar = document.createElement('div'); bar.className = 'v3bar'; bar.setAttribute('role', 'group'); bar.setAttribute('aria-label', '3D view');
   btnExplode = document.createElement('button'); btnExplode.type = 'button';
   btnExplode.innerHTML = ICON_EXPLODE + '<span>Explode storeys</span>';
@@ -195,7 +247,7 @@ export function requestRender() {
     inFrame = true; const moving = controls.update(); inFrame = false;
     if (tweens.size || (moving && (held || now - released < DAMP_MS))) requestRender();  // still easing out
     renderer.render(scene, camera);
-    placeLabels();
+    placeLabels(); placePins();
     window.__v3renders++;
   });
 }
@@ -415,7 +467,10 @@ export function clear() {
   if (anim) { clearInterval(anim); anim = null; const d = animDone; animDone = null; if (d) d(); }  // never leave a count half-way
   for (const m of [hl, offMesh, hotMesh, hlEdges, offEdges, pulse]) if (m) { scene.remove(m); m.geometry.dispose(); }
   hl = offMesh = hotMesh = hlEdges = offEdges = pulse = null;
-  setMark('hot', null); setMark('sel', null);
+  if (foot) { scene.remove(foot); foot.geometry.dispose(); foot = null; footSrc = null; }
+  for (const p of pins) p.el.remove(); pins = [];
+  if (legEl) legEl.hidden = true;
+  setMark('hot', null); setMark('sel', null); pinSets.hot.clear(); pinSets.sel.clear();
   if (hlMat) { hlMat.dispose(); hlMat = null; }
   evStoreys = new Map();
   applyLook(); updateLabels();
@@ -494,6 +549,11 @@ function applyExplode() {
   const pa = positions.array, nv = positions.count, t = explodeT;
   for (let i = 0; i < nv; i++) pa[i * 3 + 1] = baseY[i] + offsets[vStorey[i]] * t;
   positions.needsUpdate = true;
+  if (foot) {  // the painted floors ride with their storey
+    const fa = foot.geometry.attributes.position;
+    for (let j = 0; j < footSrc.length; j++) fa.array[j * 3 + 1] = pa[footSrc[j] * 3 + 1] + 0.03;
+    fa.needsUpdate = true;
+  }
   for (const k of ['hot', 'sel']) if (marks[k]) markOutline(marks[k]);  // the 2 px outlines hold copies: follow the lift
 }
 
@@ -659,6 +719,7 @@ export function highlight(items, animate = true, onStep = null, reframe = true, 
   updateLabels();
   requestRender();
   if (!on.length) {  // every item dropped: keep them in view as faint outlines, so they can be found and put back
+    paint(items);
     applyLook();
     if (reframe && offMesh && !(explodeTo > 0)) frame(offMesh, clip.constant < 1e8);
     revealListener && revealListener(items.length, items.length);
@@ -670,7 +731,7 @@ export function highlight(items, animate = true, onStep = null, reframe = true, 
   // solid (depth-writing) context still hides what is behind a wall
   hlMat = new THREE.MeshLambertMaterial({ color: 0x0072b2, emissive: 0x002a44,
     side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, clippingPlanes: [clip],
-    transparent: true, opacity: volumes ? 0.14 : 1, depthWrite: !volumes });
+    transparent: true, opacity: volumes ? 0.07 : 1, depthWrite: !volumes });
   hlMat.userData.volumes = volumes;
   hl = subMesh(on, hlMat);
   hl.renderOrder = 2;
@@ -679,6 +740,7 @@ export function highlight(items, animate = true, onStep = null, reframe = true, 
   hlEdges = subEdges(groups, hlLine, eEnds);
   if (hlEdges) { hlEdges.renderOrder = 3; scene.add(hlEdges); }
   // the pulse: the item that has just lit up, flashed light blue and fading into the evidence blue
+  paint(items);
   const pg = new THREE.BufferGeometry();
   pg.setAttribute('position', positions); pg.setAttribute('normal', hl.geometry.getAttribute('normal')); pg.setIndex(hl.geometry.index);
   pulse = new THREE.Mesh(pg, pulseMat); pulse.frustumCulled = false; pulse.renderOrder = 5; pg.setDrawRange(0, 0);
@@ -688,7 +750,9 @@ export function highlight(items, animate = true, onStep = null, reframe = true, 
   if (reframe) { if (explodeTo > 0) requestRender(); else frame(hl, clip.constant < 1e8); }
   const total = items.length;
   if (!animate) { revealListener && revealListener(total, total); onDone && onDone(); return; }
-  hl.geometry.setDrawRange(0, 0); if (hlEdges) hlEdges.geometry.setDrawRange(0, 0); requestRender();
+  hl.geometry.setDrawRange(0, 0); if (hlEdges) hlEdges.geometry.setDrawRange(0, 0);
+  if (foot) foot.geometry.setDrawRange(0, 0); for (const p of pins) p.shown = false;
+  requestRender();
   // time-based, so a slow GPU (or a software renderer) skips steps instead of stretching the count out
   const step = Math.max(20, Math.min(120, 1800 / Math.max(1, total))), dur = step * total, t0 = performance.now();
   let i = 0, pulseAt = 0, pulseFrom = 0;
@@ -703,20 +767,101 @@ export function highlight(items, animate = true, onStep = null, reframe = true, 
   const finish = () => {
     clearInterval(anim); anim = null; animDone = null; revealSkip = null;
     hl.geometry.setDrawRange(0, Infinity); if (hlEdges) hlEdges.geometry.setDrawRange(0, Infinity);
+    if (foot) foot.geometry.setDrawRange(0, Infinity); for (const p of pins) p.shown = true;
     requestRender();
     revealListener && revealListener(total, total);
     onDone && onDone();
   };
   revealSkip = () => { if (!anim) return; i = total; onStep && onStep(i); finish(); };
-  animDone = () => { revealSkip = null; hl && hl.geometry.setDrawRange(0, Infinity); onDone && onDone(); };
+  animDone = () => { revealSkip = null; hl && hl.geometry.setDrawRange(0, Infinity); if (foot) foot.geometry.setDrawRange(0, Infinity); for (const p of pins) p.shown = true; onDone && onDone(); };
   anim = setInterval(() => {
     const prev = i;
     i = Math.min(total, Math.max(i + 1, Math.floor((performance.now() - t0) / dur * total)));
     hl.geometry.setDrawRange(0, ends[i - 1]); if (hlEdges) hlEdges.geometry.setDrawRange(0, eEnds[i - 1]);
+    if (foot) foot.geometry.setDrawRange(0, fEnds[i - 1]);
     pulseFrom = prev > 0 ? ends[prev - 1] : 0; pg.setDrawRange(pulseFrom, ends[i - 1] - pulseFrom); pulseAt = performance.now();
+    for (const p of pins) p.shown = p.k < i;
     requestRender(); onStep && onStep(i); revealListener && i < total && revealListener(i, total);
     if (i >= total) finish();
   }, step);
+}
+
+// ------------------------------------------------------------ the answer painted on the floor: rooms, pins, legend
+let foot = null, footSrc = null, fEnds = [], pins = [];
+// items: as highlight(). Each room (IfcSpace) of an item gets its floor faces copied a few cm above the slab, coloured
+// by the item: the m² class when rooms are measured, the accent when counted, grey when dropped. Counted items get a pin.
+function paint(items) {
+  const r = appRes(), count = !!r && r.type === 'count';
+  const isSpace = it => (it.guids || []).some(g => (byGuid.get(g) || {}).type === 'IfcSpace');
+  const vals = count ? [] : items.filter(it => isSpace(it) && it.value != null).map(it => +it.value);
+  const br = vals.length ? breaks(vals) : null;
+  const pa = positions.array, P = [], C = [], src = [], col = new THREE.Color();
+  fEnds = [];
+  for (const it of items) {
+    col.set(!it.on ? OFF : br && it.value != null ? HEAT[heatClass(+it.value, br)] : EV);
+    if (it.on && !(br && it.value != null)) col.lerp(WHITE, 0.3);  // counted rooms: the accent, a touch lighter so a marked one stands out
+    for (const g of it.guids || []) {
+      const e = byGuid.get(g); if (!e || e.type !== 'IfcSpace') continue;
+      let lo = Infinity; for (let t = e.start, end = e.start + e.count; t < end; t++) lo = Math.min(lo, pa[allIdx[t] * 3 + 1]);
+      for (let t = e.start, end = e.start + e.count; t < end; t += 3) {
+        const a = allIdx[t] * 3, b = allIdx[t + 1] * 3, c = allIdx[t + 2] * 3;
+        if (pa[a + 1] > lo + 0.2 || pa[b + 1] > lo + 0.2 || pa[c + 1] > lo + 0.2) continue;  // the floor face only
+        const ux = pa[b] - pa[a], uz = pa[b + 2] - pa[a + 2], vx = pa[c] - pa[a], vz = pa[c + 2] - pa[a + 2];
+        if (Math.abs(ux * vz - uz * vx) < 1e-6) continue;  // a wall face seen edge-on
+        for (const v of [a, b, c]) { P.push(pa[v], pa[v + 1] + 0.03, pa[v + 2]); C.push(col.r, col.g, col.b); src.push(v / 3); }
+      }
+    }
+    fEnds.push(P.length / 3);
+  }
+  if (P.length) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(P), 3).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(C), 3));
+    foot = new THREE.Mesh(g, footMat); foot.renderOrder = 1; foot.frustumCulled = false; footSrc = Uint32Array.from(src);
+    scene.add(foot);
+  }
+  // pins: one per numbered item (a count), as long as there are few enough to read
+  if (pinLayer && count && items.length <= 150) items.forEach((it, k) => {
+    const n = appNumber(it), list = (it.guids || []).map(g => byGuid.get(g)).filter(Boolean);
+    if (n == null || !list.length) return;
+    const el = document.createElement('div'); el.className = 'v3pin' + (it.on ? '' : ' off'); el.dataset.g = list[0].guid;
+    el.innerHTML = `<span>${n}</span><i></i>`; el.title = it.label || '';
+    pinLayer.appendChild(el);
+    pins.push({ el, list, k, shown: true, space: list.every(e => e.type === 'IfcSpace'), w: 0, h: 0 });
+  });
+  pinMark('hot', [...pinSets.hot]);
+  // the legend: what the colours on the floor mean
+  if (legEl) {
+    const n = items.filter(it => it.on).length, off = items.length - n;
+    let h = br ? `<span class="sc"><span>${HEAT.map(c => `<i style="background:${c}"></i>`).join('')}</span><em><b>0</b>${br.map(b => `<b>${b}</b>`).join('')}</em></span><span>m² per room · ${n} measured</span>`
+      : count ? `<span><i class="pin"></i>${n} counted</span>` : `<span><i style="background:${EV}"></i>${n} in the total</span>`;
+    if (off) h += `<span><i style="background:#e9ebee;border:1px solid #9aa2ad"></i>${off} dropped</span>`;
+    h += `<span class="v3wide">${P.length ? 'Rooms painted on their floor · ' : ''}the rest of the model in grey</span>`;
+    legEl.innerHTML = h; legEl.hidden = false;
+  }
+}
+const pinSets = { hot: new Set(), sel: new Set() };
+function pinMark(kind, guids) {
+  pinSets[kind] = new Set(guids || []);
+  for (const p of pins) p.el.classList.toggle('hot', p.list.some(e => pinSets.hot.has(e.guid) || pinSets.sel.has(e.guid)));
+  requestRender();
+}
+// a pin stands on top of its element (a room: on its floor), cut at the storey; its pole is drawn in pixels
+const _pb = new THREE.Box3(), _pv = new THREE.Vector3();
+function placePins() {
+  if (!pins.length) return;
+  const W = host.clientWidth, H = host.clientHeight, pa = positions.array;
+  for (const p of pins) {
+    _pb.makeEmpty();
+    for (const e of p.list) for (let t = e.start, end = e.start + e.count; t < end; t += 3) { const k = allIdx[t] * 3; _pb.expandByPoint(_pv.set(pa[k], pa[k + 1], pa[k + 2])); }
+    const top = Math.min(p.space ? _pb.min.y + 0.1 : _pb.max.y, clip.constant);
+    _pv.set((_pb.min.x + _pb.max.x) / 2, top, (_pb.min.z + _pb.max.z) / 2).project(camera);
+    const vis = p.shown && _pb.min.y < clip.constant && _pv.z < 1 && Math.abs(_pv.x) < 1.1 && Math.abs(_pv.y) < 1.1;
+    p.el.style.display = vis ? '' : 'none';
+    if (!vis) continue;
+    if (!p.w) { p.w = p.el.offsetWidth; p.h = p.el.offsetHeight; }
+    p.el.style.transform = `translate(${((_pv.x + 1) / 2 * W - p.w / 2).toFixed(1)}px, ${((1 - _pv.y) / 2 * H - p.h).toFixed(1)}px)`;
+  }
 }
 
 // hover ('hot') and selection ('sel'): a light accent tint and a 2 px outline over the element(s)
@@ -742,9 +887,9 @@ function setMark(kind, guids) {
   markOutline(m);
   marks[kind] = m; requestRender();
 }
-export function hot(guids) { setMark('hot', guids); }
+export function hot(guids) { setMark('hot', guids); pinMark('hot', guids); }
 // the selected element (a click in 3D, or a row of the evidence list): stays marked until something else is selected
-export function select(guids) { setMark('sel', guids); }
+export function select(guids) { setMark('sel', guids); pinMark('sel', guids); }
 // where an element is on screen (the middle of its box), for a tooltip beside it; null when behind the camera
 export function screenPos(guids) {
   const list = (guids || []).map(g => byGuid.get(g)).filter(Boolean); if (!list.length) return null;

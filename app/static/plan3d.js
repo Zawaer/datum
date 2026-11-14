@@ -59,7 +59,7 @@ css.textContent = `
 .p3leg .sc em { display: grid; grid-template-columns: repeat(5, 22px); gap: 1px; font: 400 9px/1 var(--font); font-style: normal; color: var(--mut); font-feature-settings: "tnum" 1; }
 .p3leg .sc em b { font-weight: 400; transform: translateX(-50%); } .p3leg .sc em b:first-child { transform: none; }
 .p3leg .pin { display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 7px; background: var(--ev); color: #fff;
-  font: 600 8px/1 var(--font); margin-right: 4px; vertical-align: -2px; border: 1px solid #fff; box-shadow: 0 0 0 1px var(--ev); }
+  font: 600 8px/1 var(--font); margin-right: 6px; vertical-align: -2px; border: 1px solid #fff; box-shadow: 0 0 0 1px var(--ev); }
 .p3load { position: absolute; inset: 0; display: grid; place-items: center; font-size: 13px; color: var(--mut); pointer-events: none; }
 @media (max-width: 860px) { .p3leg .p3wide { display: none; } .p3leg { bottom: 26px; } }
 `;
@@ -281,7 +281,7 @@ const fmtA = v => (Math.round(v * 100) / 100).toFixed(2);
 // the 2D heat-map's breaks (four round steps, five classes), over the measured values of this answer
 function breaks(vals) {
   const mx = Math.max(1, ...vals);
-  const nice = [2, 2.5, 4, 5, 6, 8, 10, 15, 20, 25].find(x => x * 5 >= mx) || Math.ceil(mx / 5);
+  const nice = [2, 2.5, 4, 5, 6, 8, 10, 15, 20, 25, 30, 40, 50, 60, 80, 100, 150, 200].find(x => x * 5 >= mx) || Math.ceil(mx / 5);
   return [1, 2, 3, 4].map(k => k * nice);
 }
 const heatClass = (a, br) => { const i = br.findIndex(b => a < b); return i < 0 ? 4 : i; };
@@ -398,7 +398,7 @@ function legend() {
   else if (br) {
     what = `<span class="sc"><span>${HEAT.map(c => `<i style="background:${c}"></i>`).join('')}</span>` +
       `<em><b>0</b>${br.map(b => `<b>${b}</b>`).join('')}</em></span><span>m² per room · ${n} measured</span>`;
-  } else what = `<span><i class="pin">1</i>${n} counted</span>`;
+  } else what = `<span><i class="pin"></i>${n} counted</span>`;
   if (ev.length && off) what += `<span><i style="background:#e9ebee;border:1px solid #9aa2ad"></i>${off} dropped</span>`;
   leg.innerHTML = `${what}<span class="p3wide">Floor: the drawing · walls from the CAD layers, cut at ${WALL_H} m</span>`;
 }
