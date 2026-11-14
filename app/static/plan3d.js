@@ -1,13 +1,16 @@
-// "See it in 3D" for the Swiss CAD plans: the plan's DXF twin (walls, doors, windows, fixtures, rooms) rises into a
-// small architectural model, and the current answer's evidence is lit inside it (counted doors glow, measured rooms
-// are tinted, each with the number or m² it carries on the drawing and in the list). Read-only, render on demand.
+// "See it in 3D" for the Swiss CAD plans: the drawing itself lies on the floor (the same page the 2D view shows,
+// registered to the CAD twin), and the plan's walls rise out of it as a low cut-away model ("dollhouse": 1.2 m, no
+// ceilings, the plan readable through the open top). Opening it tilts the 2D view up into 3D in one move. The answer
+// is painted on the floor: measured rooms filled on one sequential blue by m², counted symbols lit in the accent with
+// a pin (a pole and a number chip) above each, and one legend bar. Read-only, render on demand.
 // Self-contained: it reads app.js's state (cur / res / items are global bindings of that classic script), watches the
 // DOM for changes, and never calls anything in app.js except rowHot() for hover linking.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-const WALL_H = 2.6, DOOR_H = 2.1, SILL = 0.9, HEAD = 2.2;  // assumed heights (the DXF is 2D): said so in the legend
-const RISE_MS = 1000;
+const WALL_H = 1.2, SILL = 0.75, PIN_H = 1.9;  // cut-away heights (the DXF is 2D): said so in the legend
+const RISE_MS = 1100;
+const HEAT = ['#e3eef7', '#bcd7ec', '#8bbadc', '#4f95c6', '#1a6fa6'];  // the 2D heat-map's sequential blue, light = small
 const COL = {
   paper: 0xe3e6ea, base: 0xf3f4f6, floor: 0xffffff, outdoor: 0xe4e8ec, wall: 0xf5f4f1, cut: 0x2b3036, edge: 0x5b6470,
   glass: 0xa9c4d6, fixture: 0xffffff, ev: 0x0072b2, evTint: 0xb3d4ea, off: 0x9aa2ad, offTint: 0xe9ebee, hl: 0xf0e442,
@@ -34,7 +37,8 @@ css.textContent = `
 #viewer.p3on .zoom, #viewer.p3on #stage, #viewer.p3on .ptools, #viewer.p3on .hlegend { visibility: hidden; }
 #p3modes { z-index: 6; }
 .p3labs { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-.p3l { position: absolute; left: 0; top: 0; will-change: transform; opacity: 0; transition: opacity .25s ease; white-space: nowrap; }
+.p3l { position: absolute; left: 0; top: 0; will-change: transform; opacity: 0; transition: opacity .25s ease; white-space: nowrap;
+  pointer-events: auto; cursor: pointer; }
 .p3l.in { opacity: 1; }
 .p3n { display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: var(--ev);
   color: #fff; font: 600 11px/1 var(--font); border: 1.5px solid #fff; box-shadow: 0 1px 2px rgba(22,25,29,.25); }
@@ -47,8 +51,15 @@ css.textContent = `
 .p3l.hot .p3n, .p3l.hot .p3a { background: var(--hl); color: var(--ink); border-color: var(--ink); }
 .p3l.hot .p3a b { color: var(--ink); } .p3l.hot { z-index: 2; }
 .p3leg { position: absolute; left: 12px; bottom: 30px; z-index: 4; background: var(--panel); border: 1px solid var(--line2); border-radius: var(--r1);
-  padding: 4px 8px; font-size: 11px; color: var(--mut); display: flex; gap: 10px; align-items: center; pointer-events: none; max-width: calc(100% - 24px); }
+  padding: 5px 9px; font-size: 11px; color: var(--mut); display: flex; gap: 12px; align-items: center; pointer-events: none;
+  max-width: calc(100% - 24px); box-shadow: 0 1px 3px rgba(22,25,29,.08); }
 .p3leg i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+.p3leg .sc { display: inline-flex; flex-direction: column; gap: 1px; }
+.p3leg .sc span { display: grid; grid-template-columns: repeat(5, 22px); gap: 1px; } .p3leg .sc span i { width: 22px; height: 8px; margin: 0; border-radius: 0; }
+.p3leg .sc em { display: grid; grid-template-columns: repeat(5, 22px); gap: 1px; font: 400 9px/1 var(--font); font-style: normal; color: var(--mut); font-feature-settings: "tnum" 1; }
+.p3leg .sc em b { font-weight: 400; transform: translateX(-50%); } .p3leg .sc em b:first-child { transform: none; }
+.p3leg .pin { display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 7px; background: var(--ev); color: #fff;
+  font: 600 8px/1 var(--font); margin-right: 4px; vertical-align: -2px; border: 1px solid #fff; box-shadow: 0 0 0 1px var(--ev); }
 .p3load { position: absolute; inset: 0; display: grid; place-items: center; font-size: 13px; color: var(--mut); pointer-events: none; }
 @media (max-width: 860px) { .p3leg .p3wide { display: none; } .p3leg { bottom: 26px; } }
 `;
@@ -148,12 +159,12 @@ function edges(g, opacity = 0.32) {
 }
 const centroid = pts => { let x = 0, y = 0; for (const p of pts) { x += p[0]; y += p[1]; } return [x / pts.length, y / pts.length]; };
 
-// soft contact shading baked into one texture over the whole base: blurred wall footprints darken the floor along
-// every wall, which reads as ambient occlusion at no per-frame cost (shapes and slabs get uv = plan metres)
+// soft contact shading baked into one texture: blurred wall footprints darken the floor along every wall, which reads
+// as ambient occlusion at no per-frame cost. Transparent where there is no shade, so it lies over the drawing.
 function bakeAO(walls, x0, y0, w, h) {
   const S = Math.min(2048, Math.ceil(Math.max(w, h) * 48)), k = S / Math.max(w, h), OFF = 4 * S;
   const c = document.createElement('canvas'); c.width = Math.ceil(w * k); c.height = Math.ceil(h * k);
-  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+  const g = c.getContext('2d');
   const pass = (blur, alpha) => {
     g.save(); g.shadowColor = `rgba(30,38,50,${alpha})`; g.shadowBlur = blur * k; g.shadowOffsetX = -OFF; g.fillStyle = '#000';
     g.beginPath();
@@ -162,7 +173,7 @@ function bakeAO(walls, x0, y0, w, h) {
     }
     g.fill('evenodd'); g.restore();
   };
-  pass(0.7, 0.34); pass(0.18, 0.3);
+  pass(0.5, 0.3); pass(0.14, 0.26);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
   // shape uv = (x - cx, y - cy): map that onto the canvas (v up = +y)
   t.repeat.set(1 / w, 1 / h); t.offset.set(-(x0 - center[0]) / w, -(y0 - center[1]) / h);
@@ -170,6 +181,21 @@ function bakeAO(walls, x0, y0, w, h) {
   return t;
 }
 
+// the page as plan metres: to_page maps x, y (m) to normalised page u, v (v down), so its inverse places the sheet
+function pageRect(d) {
+  const [ax, bx, ay, by] = d.to_page, xs = [(0 - bx) / ax, (1 - bx) / ax], ys = [(0 - by) / ay, (1 - by) / ay];
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+}
+// the drawing as a texture over shape uv (x - cx, y - cy): u = ax x + bx, and v flipped (texture v runs up)
+function pageTexture(d, im) {
+  const t = new THREE.Texture(im); t.needsUpdate = true; t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy(); t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  const [ax, bx, ay, by] = d.to_page;
+  t.repeat.set(ax, -ay); t.offset.set(ax * center[0] + bx, 1 - (ay * center[1] + by));
+  return t;
+}
+
+let pageTex = null;
 function build(d) {
   built = d;
   if (root) { scene.remove(root); root.traverse(o => { o.geometry && o.geometry.dispose(); }); }
@@ -178,19 +204,18 @@ function build(d) {
   radius = Math.hypot(bx1 - bx0, by1 - by0) / 2;
   const m = 1.2, x0 = bx0 - m, y0 = by0 - m, w = bx1 - bx0 + 2 * m, h = by1 - by0 + 2 * m;
   aoTex && aoTex.dispose(); aoTex = bakeAO(d.walls, x0, y0, w, h);
+  pageTex && pageTex.dispose(); pageTex = d.img ? pageTexture(d, d.img) : null;
 
-  // the base board (model on a plinth), room floors, then everything that rises
-  const baseMat = new THREE.MeshStandardMaterial({color: COL.base, map: aoTex, roughness: 0.95});
-  const sideMat = new THREE.MeshStandardMaterial({color: 0xdfe2e6, roughness: 1});
-  const rect = [[x0, y0], [x0 + w, y0], [x0 + w, y0 + h], [x0, y0 + h]];
-  const base = mesh(prism([shape(rect)], -0.35, 0), [baseMat, sideMat], false, true); root.add(base); root.add(edges(base.geometry, 0.25));
-  const floorMat = new THREE.MeshStandardMaterial({color: COL.floor, map: aoTex, roughness: 0.9});
-  const outMat = new THREE.MeshStandardMaterial({color: COL.outdoor, map: aoTex, roughness: 0.95});
-  for (const r of d.rooms) {
-    const g = new THREE.ShapeGeometry(shape(r.pts)); g.rotateX(-Math.PI / 2); g.translate(0, 0.015, 0);
-    root.add(mesh(g, r.outdoor ? outMat : floorMat, false, true));
-  }
+  // the sheet: the drawing itself, unlit so it reads exactly as in 2D, on a thin board; then the contact shade over it
+  const [px0, py0, px1, py1] = d.img ? pageRect(d) : [x0, y0, x0 + w, y0 + h];
+  const sheet = new THREE.MeshBasicMaterial({color: 0xffffff, map: pageTex});
+  const sideMat = new THREE.MeshStandardMaterial({color: 0xd6dade, roughness: 1});
+  const rect = (a, b, c, e) => [[a, b], [c, b], [c, e], [a, e]];
+  const base = mesh(prism([shape(rect(px0, py0, px1, py1))], -0.08, 0), [sheet, sideMat], false, true); root.add(base);
+  const ag = new THREE.ShapeGeometry(shape(rect(x0, y0, x0 + w, y0 + h))); ag.rotateX(-Math.PI / 2); ag.translate(0, 0.004, 0);
+  root.add(mesh(ag, new THREE.MeshBasicMaterial({map: aoTex, transparent: true, depthWrite: false}), false, false));
   rise = new THREE.Group(); root.add(rise);
+  // white walls with dark tops (the cut, as on the drawing); doors stay open, windows keep a sill and glass above it
   const wallMat = [new THREE.MeshStandardMaterial({color: COL.cut, roughness: 0.8}), new THREE.MeshStandardMaterial({color: COL.wall, roughness: 0.85})];
   const wg = prism(d.walls.map(p => shape(p.outer, p.holes)), 0, WALL_H);
   rise.add(mesh(wg, wallMat)); rise.add(edges(wg));
@@ -199,12 +224,10 @@ function build(d) {
   d.symbols.forEach((s, k) => {
     const sh = [shape(s.pts)];
     s.c = centroid(s.pts); s.k = k;
-    if (s.kind === 'door') {
-      const g = prism(sh, DOOR_H, WALL_H); rise.add(mesh(g, wallMat)); rise.add(edges(g));
-    } else if (s.kind === 'window') {
-      for (const [a, b] of [[0, SILL], [HEAD, WALL_H]]) { const g = prism(sh, a, b); rise.add(mesh(g, wallMat)); rise.add(edges(g)); }
-      const gl = mesh(prism(sh, SILL, HEAD), glassMat, false, false); gl.userData.sym = k; rise.add(gl); s.glass = gl;
-    } else if (s.h) {
+    if (s.kind === 'window') {
+      const g = prism(sh, 0, SILL); rise.add(mesh(g, wallMat)); rise.add(edges(g));
+      const gl = mesh(prism(sh, SILL, WALL_H), glassMat, false, false); gl.userData.sym = k; rise.add(gl); s.glass = gl;
+    } else if (s.kind !== 'door' && s.h) {
       const g = prism(sh, 0, s.h); const f = mesh(g, fixMat); rise.add(f); rise.add(edges(g, 0.4)); s.mesh = f;
     }
   });
@@ -216,27 +239,52 @@ function build(d) {
 }
 
 // camera on a sphere around the plan: polar 0 = straight down (the 2D view), azimuth 0 = plan north up
-function frame(polar, az, k = 1) {
+const fitDist = (k = 1) => {
   const fov = camera.fov * Math.PI / 180, aspect = Math.max(0.4, camera.aspect);
-  const dist = k * radius / Math.sin(fov / 2) / Math.min(1, aspect) * 1.02;
-  const t = new THREE.Vector3(0, 0.6, 0);
+  return k * radius / Math.sin(fov / 2) / Math.min(1, aspect) * 1.02;
+};
+function place(t, dist, polar, az) {
   camera.position.set(t.x + dist * Math.sin(polar) * Math.sin(az), t.y + dist * Math.cos(polar), t.z + dist * Math.sin(polar) * Math.cos(az));
   camera.up.set(0, 1, 0); controls.target.copy(t); camera.lookAt(t);
 }
+// where the 2D view has the drawing right now, as a camera straight above the floor: the same point in the middle of
+// the viewer and the same metres per pixel, so the first 3D frame is the 2D frame (null when the 2D view shows another page)
+function cameraOver2D(d) {
+  const im = $('#img'), c = app.cur();
+  if (!im || !im.naturalWidth || !c || !(im.getAttribute('src') || '').includes(encodeURIComponent(c.path))) return null;
+  const ir = im.getBoundingClientRect(), vr = viewer.getBoundingClientRect();
+  if (!ir.width || !ir.height || !vr.height) return null;
+  const [ax, bx, ay, by] = d.to_page;
+  const u = (vr.left + vr.width / 2 - ir.left) / ir.width, v = (vr.top + vr.height / 2 - ir.top) / ir.height;
+  const x = (u - bx) / ax, y = (v - by) / ay, pxm = Math.abs(ay) * ir.height;  // screen px per plan metre
+  const dist = (vr.height / pxm) / 2 / Math.tan(camera.fov * Math.PI / 360);
+  if (!isFinite(dist) || dist <= 0) return null;
+  return {t: new THREE.Vector3(x - center[0], 0, -(y - center[1])), dist};
+}
 
 // ------------------------------------------------------------ evidence in 3D
+const fill = (color, opacity) => new THREE.MeshBasicMaterial({color, transparent: true, opacity, depthWrite: false,
+  polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2});
 const mats = {
-  door: new THREE.MeshStandardMaterial({color: COL.ev, emissive: COL.ev, emissiveIntensity: 0.5, transparent: true, opacity: 0.72, roughness: 0.4, depthWrite: false}),
-  doorOff: new THREE.MeshStandardMaterial({color: COL.off, transparent: true, opacity: 0.3, roughness: 0.8, depthWrite: false}),
-  // room tints are flat (unlit), like the 2D overlay: a lit floor facing the sky would wash the tint out to white
-  room: new THREE.MeshBasicMaterial({color: COL.evTint}),
-  roomOff: new THREE.MeshBasicMaterial({color: COL.offTint}),
+  // painted on the floor, flat (unlit) like the 2D overlay: the drawing's lines stay readable through the paint
+  count: fill(COL.ev, 0.78), countOff: fill(COL.off, 0.35),
+  heat: HEAT.map(c => fill(new THREE.Color(c), 0.8)), roomOff: fill(COL.offTint, 0.75),
+  // lit evidence that stands up (a fixture, a window's glass)
+  solid: new THREE.MeshStandardMaterial({color: COL.ev, emissive: COL.ev, emissiveIntensity: 0.45, transparent: true, opacity: 0.8, roughness: 0.4, depthWrite: false}),
+  solidOff: new THREE.MeshStandardMaterial({color: COL.off, transparent: true, opacity: 0.3, roughness: 0.8, depthWrite: false}),
   // hover / selection: a light accent tint with a dark outline (lineHot), never a saturated solid colour
-  hotRoom: new THREE.MeshBasicMaterial({color: 0x8dbde0}),
-  hot: new THREE.MeshStandardMaterial({color: COL.ev, emissive: COL.ev, emissiveIntensity: 0.25, transparent: true, opacity: 0.45, roughness: 0.6, depthWrite: false}),
+  hot: fill(0x8dbde0, 0.9),
   line: new THREE.LineBasicMaterial({color: COL.ev}), lineOff: new THREE.LineBasicMaterial({color: COL.off}), lineHot: new THREE.LineBasicMaterial({color: COL.cut}),
+  pole: new THREE.LineBasicMaterial({color: 0x3c4450}), poleOff: new THREE.LineBasicMaterial({color: COL.off}),
 };
 const fmtA = v => (Math.round(v * 100) / 100).toFixed(2);
+// the 2D heat-map's breaks (four round steps, five classes), over the measured values of this answer
+function breaks(vals) {
+  const mx = Math.max(1, ...vals);
+  const nice = [2, 2.5, 4, 5, 6, 8, 10, 15, 20, 25].find(x => x * 5 >= mx) || Math.ceil(mx / 5);
+  return [1, 2, 3, 4].map(k => k * nice);
+}
+const heatClass = (a, br) => { const i = br.findIndex(b => a < b); return i < 0 ? 4 : i; };
 
 function toPlan(u, v) { const [ax, bx, ay, by] = data.to_page; return [(u - bx) / ax, (v - by) / ay]; }
 
@@ -248,71 +296,93 @@ function signature() {
 function clearEvidence() {
   if (!evGroup) return;
   for (const o of [...evGroup.children]) { evGroup.remove(o); o.traverse(x => x.geometry && x.geometry.dispose()); }
-  for (const s of data ? data.symbols : []) if (s.glass) s.glass.material = s.glass.userData.base || s.glass.material;
-  labs.innerHTML = ''; ev = []; hot = null; selI = null;
+  for (const s of data ? data.symbols : []) if (s.glass) s.glass.visible = true;
+  labs.innerHTML = ''; ev = []; hot = null; selI = null; br = null;
 }
 
+const W3 = (x, y, h) => new THREE.Vector3(x - center[0], h, -(y - center[1]));
+function flat(ring, h, mat) {
+  const g = new THREE.ShapeGeometry(shape(ring)); g.rotateX(-Math.PI / 2); g.translate(0, h, 0);
+  const m = mesh(g, mat, false, false); m.userData.mat = mat; m.renderOrder = 1; return m;
+}
+const grow = (ring, d) => { const [cx, cy] = centroid(ring); return ring.map(([x, y]) => { const l = Math.hypot(x - cx, y - cy) || 1; return [x + (x - cx) / l * d, y + (y - cy) / l * d]; }); };
+
+let br = null;  // the m² class breaks of the answer on show (null: a count)
 function applyEvidence(animate) {
   if (!data || !evGroup) return;
   evSig = signature();
   clearEvidence();
   const r = app.res(), list = app.items(), type = r && r.type;
+  const vals = list.filter(e => e.kind === 'polygon' && e.value != null && type !== 'count').map(e => +e.value);
+  br = vals.length ? breaks(vals) : null;
   let k = 0;
   list.forEach((e, i) => {
     const numbered = e.kind === 'box' || (e.kind === 'polygon' && type === 'count');
     if (numbered) k++;
     if (e.kind !== 'box' && e.kind !== 'polygon') return;
     const it = {i, e, on: !!e.on, meshes: [], lines: [], anchor: null, el: null, n: numbered ? k : null};
+    const add = (m, line) => { m.userData.i = i; evGroup.add(m); it.meshes.push(m); if (line) { const l = new THREE.LineLoop(line, it.on ? mats.line : mats.lineOff); evGroup.add(l); it.lines.push(l); } };
+    const loop = (ring, h) => new THREE.BufferGeometry().setFromPoints(ring.map(([x, y]) => W3(x, y, h)));
+    let foot = 0.03, px, py;
     if (e.kind === 'box') {
+      // a counted symbol: its footprint painted in the accent on the floor, a pin above it with its number
       const [u0, v0, u1, v1] = e.bbox, a = toPlan(u0, v0), b = toPlan(u1, v1);
       const pad = 0.1, rx0 = Math.min(a[0], b[0]) + pad, rx1 = Math.max(a[0], b[0]) - pad, ry0 = Math.min(a[1], b[1]) + pad, ry1 = Math.max(a[1], b[1]) - pad;
       const cx = (rx0 + rx1) / 2, cy = (ry0 + ry1) / 2;
       let best = null, bd = 0.35;
       for (const s of data.symbols) { const d = Math.hypot(s.c[0] - cx, s.c[1] - cy); if (d < bd) { bd = d; best = s; } }
-      let g, top;
-      if (best && best.kind === 'door') { g = prism([shape(best.pts)], 0.01, DOOR_H); top = WALL_H; }
-      else if (best && best.kind === 'window') { g = prism([shape(best.pts)], SILL, HEAD); top = WALL_H; best.glass.visible = false; it.hideGlass = best.glass; }
-      else if (best && best.h) { g = prism([shape(best.pts)], 0, best.h + 0.02); top = Math.max(best.h, 1.2); }
-      else { const rr = [[rx0, ry0], [rx1, ry0], [rx1, ry1], [rx0, ry1]]; g = prism([shape(rr)], 0.01, 0.6); top = 1.4; }
-      const m = mesh(g, it.on ? mats.door : mats.doorOff, false, false); m.userData.i = i; m.renderOrder = 2; evGroup.add(m); it.meshes.push(m);
-      const ol = new THREE.LineSegments(new THREE.EdgesGeometry(g, 28), it.on ? mats.line : mats.lineOff); m.add(ol); it.lines.push(ol);
-      const [px, py] = best ? best.c : [cx, cy];
-      it.anchor = new THREE.Vector3(px - center[0], top + 0.55, -(py - center[1]));
-      const stem = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(px - center[0], top, -(py - center[1])), it.anchor]);
-      const l = new THREE.Line(stem, it.on ? mats.line : mats.lineOff); evGroup.add(l); it.lines.push(l);
+      const ring = best ? grow(best.pts, 0.08) : [[rx0, ry0], [rx1, ry0], [rx1, ry1], [rx0, ry1]];
+      add(flat(ring, 0.02, it.on ? mats.count : mats.countOff), loop(ring, 0.025));
+      if (best && best.kind === 'window') {
+        const g = prism([shape(best.pts)], SILL, WALL_H + 0.01), m = mesh(g, it.on ? mats.solid : mats.solidOff, false, false);
+        m.userData.mat = m.material; m.renderOrder = 2; add(m); best.glass.visible = false; foot = WALL_H;
+      } else if (best && best.h && best.kind !== 'door') {
+        const g = prism([shape(best.pts)], 0, best.h + 0.02), m = mesh(g, it.on ? mats.solid : mats.solidOff, false, false);
+        m.userData.mat = m.material; m.renderOrder = 2; add(m); foot = best.h;
+      }
+      [px, py] = best ? best.c : [cx, cy];
+      it.anchor = W3(px, py, PIN_H); it.name = best ? best.kind : (e.label || '');
     } else {
+      // a room: filled on the floor, by its m² (the 2D heat-map's blue) or in the accent when it is counted
       const pts = e.points.map(([u, v]) => toPlan(u, v));
       const num = (e.label || '').split(' ')[0];
       const room = data.rooms.find(q => q.number && q.number === num);
       const ring = room ? room.pts : pts;
-      const g = new THREE.ShapeGeometry(shape(ring)); g.rotateX(-Math.PI / 2); g.translate(0, 0.035, 0);
-      const m = mesh(g, it.on ? mats.room : mats.roomOff, false, true); m.userData.i = i; m.renderOrder = 1; evGroup.add(m); it.meshes.push(m);
-      const outline = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(ring.map(([x, y]) => new THREE.Vector3(x - center[0], 0.05, -(y - center[1])))), it.on ? mats.line : mats.lineOff);
-      evGroup.add(outline); it.lines.push(outline);
-      const [lx, ly] = room && room.label ? room.label : centroid(ring);
-      it.anchor = new THREE.Vector3(lx - center[0], 1.5, -(ly - center[1]));
-      const stem = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(lx - center[0], 0.05, -(ly - center[1])), it.anchor]);
-      const l = new THREE.Line(stem, it.on ? mats.line : mats.lineOff); evGroup.add(l); it.lines.push(l);
+      const mat = !it.on ? mats.roomOff : br && e.value != null ? mats.heat[heatClass(+e.value, br)] : mats.count;
+      add(flat(ring, 0.03, mat), loop(ring, 0.035));
+      [px, py] = room && room.label ? room.label : centroid(ring);
+      it.anchor = W3(px, py, numbered ? PIN_H : 1.55);
       it.name = room ? room.name : (e.label || '');
     }
-    const el = document.createElement('div'); el.className = 'p3l' + (it.on ? '' : ' off');
+    const pole = new THREE.Line(new THREE.BufferGeometry().setFromPoints([W3(px, py, foot), it.anchor]), it.on ? mats.pole : mats.poleOff);
+    evGroup.add(pole); it.pole = pole;
+    const el = document.createElement('div'); el.className = 'p3l' + (it.on ? '' : ' off'); el.dataset.i = i;
     if (it.n != null) el.innerHTML = `<span class="p3n">${it.n}</span>`;
     else el.innerHTML = `<span class="p3a"><b>${e.value != null ? fmtA(e.value) + ' m²' : ''}</b>${it.name ? `<small>${esc(it.name)}</small>` : ''}</span>`;
+    el.addEventListener('pointerenter', () => hover(i)); el.addEventListener('pointerleave', () => hover(null));
+    el.addEventListener('click', ev2 => { ev2.stopPropagation(); select(i, el); });
     labs.appendChild(el); it.el = el;
     ev.push(it);
   });
   legend();
-  // light them up one after the other (the 2D view counts them out the same way)
+  // paint them one after the other (the 2D view counts them out the same way): each spreads up from the floor
   const step = Math.max(25, Math.min(90, 900 / Math.max(1, ev.length)));
   ev.forEach((it, j) => {
-    const show = () => { it.el.classList.add('in'); };
+    const show = () => { it.el.classList.add('in'); it.pole.visible = true; };
     if (!animate || reduced) { show(); return; }
-    for (const m of it.meshes) m.scale.set(1, 0.001, 1);
+    for (const m of it.meshes) m.visible = false;
     for (const l of it.lines) l.visible = false;
+    it.pole.visible = false;
     setTimeout(() => {
       if (!ev.includes(it)) return;
       for (const l of it.lines) l.visible = true;
-      tween(320, k2 => { for (const m of it.meshes) m.scale.y = Math.max(0.001, ease(k2)); });
+      const fades = it.meshes.map(m => { m.visible = true; const c = m.userData.mat.clone(); m.material = c; return c; });
+      const base = fades.map(c => c.opacity);
+      tween(320, k2 => fades.forEach((c, q) => { c.opacity = base[q] * ease(k2); }), () => {
+        for (const m of it.meshes) m.material = hot === it ? mats.hot : m.userData.mat;
+        for (const c of fades) c.dispose();
+        requestRender();
+      });
       show();
     }, j * step);
   });
@@ -320,12 +390,17 @@ function applyEvidence(animate) {
 }
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 
+// one compact bar, bottom left: what the colours on the floor mean
 function legend() {
-  const r = app.res(), n = ev.filter(x => x.on).length;
-  const what = !ev.length ? 'Ask a question to light up its evidence'
-    : r && r.type === 'count' ? `<span><i style="background:var(--ev)"></i>${n} counted</span>`
-    : `<span><i style="background:#bcd9ed;border:1px solid var(--ev)"></i>${n} measured</span>`;
-  leg.innerHTML = `${what}<span class="p3wide">Walls, doors and windows from the CAD layers · heights assumed (2.6 m)</span>`;
+  const r = app.res(), n = ev.filter(x => x.on).length, off = ev.length - n;
+  let what;
+  if (!ev.length) what = '<span>Ask a question to paint its evidence on the floor</span>';
+  else if (br) {
+    what = `<span class="sc"><span>${HEAT.map(c => `<i style="background:${c}"></i>`).join('')}</span>` +
+      `<em><b>0</b>${br.map(b => `<b>${b}</b>`).join('')}</em></span><span>m² per room · ${n} measured</span>`;
+  } else what = `<span><i class="pin">1</i>${n} counted</span>`;
+  if (ev.length && off) what += `<span><i style="background:#e9ebee;border:1px solid #9aa2ad"></i>${off} dropped</span>`;
+  leg.innerHTML = `${what}<span class="p3wide">Floor: the drawing · walls from the CAD layers, cut at ${WALL_H} m</span>`;
 }
 
 // numbers and m² labels follow their anchors on every rendered frame; a label that would sit on an earlier one
@@ -379,8 +454,8 @@ function setHot(i) {
   if (it === hot) return;
   for (const x of [hot, it]) {
     if (!x) continue;
-    const on = x === it, room = x.e.kind === 'polygon';
-    for (const m of x.meshes) m.material = on ? (room ? mats.hotRoom : mats.hot) : room ? (x.on ? mats.room : mats.roomOff) : (x.on ? mats.door : mats.doorOff);
+    const on = x === it;
+    for (const m of x.meshes) m.material = on ? mats.hot : m.userData.mat;
     for (const l of x.lines) l.material = on ? mats.lineHot : x.on ? mats.line : mats.lineOff;
     x.el.classList.toggle('hot', on);
   }
@@ -400,16 +475,23 @@ async function load(p) {
   if (!r.ok) throw new Error('no 3D for this drawing');
   const d = await r.json();
   if (!d.walls || !d.walls.length) throw new Error('no walls on this drawing');
+  // the page the 2D view shows, sharper, to lie on the floor (a model without it still opens, on a plain board)
+  d.img = await new Promise(ok => {
+    const im = new Image(); im.decoding = 'async';
+    im.onload = () => ok(im); im.onerror = () => ok(null);
+    im.src = '/api/render?dpi=200&path=' + encodeURIComponent(p);
+  });
   return d;
 }
 
 async function open() {
   const c = app.cur(); if (!isSwiss(c) || opened) return;
   opened = true; path = c.path;
+  initGL();
   box.classList.add('on'); viewer.classList.add('p3on');
   tog.querySelector('#p3plan').classList.remove('on'); tog.querySelector('#p3go').classList.add('on');
   tog.querySelector('#p3plan').setAttribute('aria-pressed', 'false'); tog.querySelector('#p3go').setAttribute('aria-pressed', 'true');
-  initGL(); resize();
+  resize();
   let d;
   loadEl.hidden = false;
   try { d = await load(path); } catch (err) { loadEl.hidden = true; close(); hintMsg('No 3D model could be built from this plan'); return; }
@@ -418,14 +500,18 @@ async function open() {
   data = d; dataPath = path;
   if (built !== d) build(d);
   applyEvidence(false);
-  for (const it of ev) { for (const m of it.meshes) m.scale.y = 0.001; for (const l of it.lines) l.visible = false; it.el.classList.remove('in'); }
-  // the rise: from the plan seen straight down, walls grow while the camera tilts to a three-quarter view
-  rise.scale.y = 0.001; frame(0.0001, 0);
-  const P1 = 0.62, A1 = -0.5;
+  for (const it of ev) { for (const m of it.meshes) m.visible = false; for (const l of it.lines) l.visible = false; it.pole.visible = false; it.el.classList.remove('in'); }
+  // the tilt: the camera starts where the 2D view is (straight down, same scale), then swings to a three-quarter view
+  // while the walls rise out of the drawing
+  camera.aspect = box.clientWidth / Math.max(1, box.clientHeight); camera.updateProjectionMatrix();
+  const from = cameraOver2D(d) || {t: new THREE.Vector3(0, 0, 0), dist: fitDist(1)};  // the 2D view keeps its layout, hidden
+  const T1 = new THREE.Vector3(0, 0.3, 0), D1 = fitDist(0.86), P1 = 0.78, A1 = -0.42, t = new THREE.Vector3();
+  rise.scale.y = 0.001; place(from.t, from.dist, 0.0001, 0);
   tween(window.__p3riseMs || RISE_MS, k => {
-    const e = ease(k);
-    rise.scale.y = Math.max(0.001, e);
-    frame(0.0001 + (P1 - 0.0001) * e, A1 * e, 1 + 0.06 * e);
+    const e = ease(k), e2 = ease(Math.max(0, (k - 0.15) / 0.85));
+    rise.scale.y = Math.max(0.001, e2);
+    t.lerpVectors(from.t, T1, e);
+    place(t, from.dist + (D1 - from.dist) * e, 0.0001 + (P1 - 0.0001) * e, A1 * e);
   }, () => { if (opened) applyEvidence(true); });
 }
 
