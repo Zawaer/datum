@@ -46,9 +46,10 @@ class CubicasaSolver:
         self.thresh = json.loads(tf.read_text()) if tf.exists() else {}
         cf = Path(self.weights).with_name(f"calib{sfx}.json")
         self.calib = json.loads(cf.read_text()) if cf.exists() else {}
-        # detector-vs-VLM arbitration (train/cubicasa/arbiter_dev.py): arbiter.json next to the weights, on unless
-        # CUBICASA_ARBITER=off; uses the precomputed / live VLM answer of bp.crosscheck.vlm_answer when one exists
-        af = Path(self.weights).with_name("arbiter.json")
+        # detector-vs-VLM arbitration (train/cubicasa/arbiter_dev.py): arbiter[_flip].json next to the weights (fit on
+        # that mode's dev confidences), on unless CUBICASA_ARBITER=off; uses the precomputed / live VLM answer of
+        # bp.crosscheck.vlm_answer when one exists
+        af = Path(self.weights).with_name(f"arbiter{sfx}.json")
         self.arbiter = json.loads(af.read_text()) if af.exists() and os.environ.get("CUBICASA_ARBITER") != "off" else None
         self.imgsz = str(self.thresh.pop("_imgsz", 1024))
         self.cls_imgsz = self.thresh.pop("_cls_imgsz", {})
