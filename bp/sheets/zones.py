@@ -554,8 +554,107 @@ def rows(meta) -> list[dict]:
         st["cost_usd"] = st.get("cost_usd", 0.0) + cost
         if not meta.get("words"):
             _disk_put(meta, f"rows_v{ZONES_VERSION}", rs)
+    if not meta.get("words"):
+        _repair_labels(rs)
     st["rows"] = rs
     return rs
+
+
+# words a schedule row label is made of: a scan's misread label word ("TOTAL COMMON Pace", "OTAL") is put back to
+# the nearest of these or of the words the table's other rows spell the same way
+_LABEL_WORDS = {"TOTAL", "SUBTOTAL", "FLOOR", "FIRST", "SECOND", "THIRD", "FOURTH", "GROUND", "BASEMENT", "AREA",
+                "SPACE", "COMMON", "CIRCULATION", "DORMITORY", "DORMS", "UTILITY", "WING", "NORTH", "SOUTH", "EAST",
+                "WEST", "EXTERIOR", "INTERIOR", "STAIR", "STAIRS", "ROOM", "ROOMS", "OFFICE", "STORAGE", "GROSS",
+                "NET", "MECHANICAL", "ELECTRICAL", "LOBBY", "CORRIDOR", "KITCHEN", "LAUNDRY", "LOUNGE", "SUPPORT"}
+
+
+def _lev(a: str, b: str) -> int:
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+def _split_words(w: str, vocab: set) -> str:
+    """'EASTWINGCIRCULATION' -> 'EAST WING CIRCULATION' when it is made of vocabulary words, else unchanged."""
+    u = w.upper()
+    best: dict = {0: []}
+    for i in range(len(u)):
+        if i not in best:
+            continue
+        for v in vocab:
+            if u.startswith(v, i) and (i + len(v) not in best or len(best[i]) + 1 < len(best[i + len(v)])):
+                best[i + len(v)] = best[i] + [v]
+    return " ".join(best[len(u)]) if len(u) in best and len(best[len(u)]) > 1 else w
+
+
+def _repair_labels(rs: list[dict]) -> None:
+    """Scan misreads of table row labels, in place (the value is left as read):
+    - a word that is no word of the table's other rows nor of _LABEL_WORDS -> the nearest such word within 1-2
+      edits ("Pace" -> SPACE, "OTAL" -> TOTAL), so "total common space" finds TOTAL COMMON SPACE;
+    - a row of a repeated group that lost its last word: WEST WING DORMITORY / WEST WING CIRCULATION / TOTAL WEST
+      WING, ..., NORTH WING DORMITORY / NORTH WING / TOTAL NORTH WING -> NORTH WING CIRCULATION."""
+    by_table: dict = {}
+    for r in rs:
+        by_table.setdefault(r.get("table"), []).append(r)
+    for tr in by_table.values():
+        vocab = set(_LABEL_WORDS)
+        for r in tr:
+            vocab |= {w for w in re.findall(r"[A-Z]{4,}", r["label"]) if w in _LABEL_WORDS or
+                      sum(w in re.findall(r"[A-Z]{4,}", o["label"]) for o in tr) >= 2}
+        for r in tr:  # "NORTH WING.CIRCULATION", "EASTWINGCIRCULATION": words run together on a scan
+            lab = re.sub(r"(?<=[A-Za-z])[.,_](?=[A-Za-z])", " ", r["label"])
+            lab = re.sub(r"[A-Za-z]{9,}", lambda m: _split_words(m.group(0), vocab), lab)
+            if lab != r["label"]:
+                r["label_read"], r["label"] = r["label"], lab
+        for r in tr:
+            def fix(m):
+                w = m.group(0)
+                if w.upper() in vocab or len(w) < 3:
+                    return w
+                best = min(vocab, key=lambda v: (_lev(w.upper(), v), abs(len(v) - len(w))))
+                return best if _lev(w.upper(), best) <= (1 if len(w) <= 4 else 2) else w
+            lab = re.sub(r"[A-Za-z]{3,}", fix, r["label"])
+            if lab != r["label"]:
+                r["label_read"], r["label"] = r["label"], lab
+                r["total"] = bool(re.search(r"\b(sub)?total\b", lab, re.I))
+        # a total whose label lost its first words ("SPACE = 4,499" for TOTAL COMMON SPACE): its value is the sum of
+        # the rows since the last total, the first of which it names
+        start = 0
+        for i, r in enumerate(tr):
+            if r.get("total"):
+                start = i + 1
+                continue
+            grp = tr[start:i]
+            if len(grp) >= 2 and abs(sum(g["value"] for g in grp) - r["value"]) < 0.5 and \
+                    set(re.findall(r"[A-Z]{3,}", r["label"].upper())) <= set(re.findall(r"[A-Z]{3,}", grp[0]["label"].upper())):
+                r["label_read"], r["label"] = r["label"], "TOTAL " + grp[0]["label"].strip()
+                r["total"] = True
+                start = i + 1
+        # groups: "<stem> <suffix>" rows followed by "TOTAL <stem>"
+        totals = [(i, re.sub(r"^TOTAL\s+", "", r["label"].upper()).strip()) for i, r in enumerate(tr)
+                  if re.match(r"TOTAL\s+\w", r["label"], re.I)]
+        pos: dict = {}  # (rows above the TOTAL row, suffix) -> how many groups print it there
+        for i, stem in totals:
+            for back in range(1, 5):
+                if i - back < 0:
+                    break
+                lab = tr[i - back]["label"].upper().strip()
+                if lab.startswith(stem + " "):
+                    pos[(back, lab[len(stem) + 1:])] = pos.get((back, lab[len(stem) + 1:]), 0) + 1
+        for i, stem in totals:
+            for back in range(1, 5):
+                if i - back < 0:
+                    break
+                r = tr[i - back]
+                if r["label"].upper().strip() != stem:
+                    continue
+                cand = [(n, suf) for (b, suf), n in pos.items() if b == back and n >= 2]
+                if len(cand) == 1:
+                    r["label_read"], r["label"] = r["label"], f"{r['label'].strip()} {cand[0][1]}"
 
 
 # ---------------------------------------------------------------------------------------------------- legend
@@ -1003,7 +1102,9 @@ Rules: one group per number in the answer. A group of one row reads that row; a 
 (only when no printed total row already gives that number: prefer the printed TOTAL row). For a question about the
 areas of the different areas / zones / types, give one group per category (e.g. dormitory = the wings' dormitory
 rows, circulation = all circulation rows, common space, utility, ...) and nothing for totals. Counts (rooms, dorms)
-come from count rows. If the tables do not answer it, "groups": []."""
+come from count rows. What the question excludes ("excluding / without / except / not counting the exterior
+stair") is left out: pick the printed row that already leaves it out (a SUBTOTAL above it), never the excluded row
+itself. If the tables do not answer it, "groups": []."""
 
 
 def _pick_llm(meta, question, rs):
@@ -1059,8 +1160,32 @@ def _guard_pick(question, rs, pick):
     part that no row has (a row OCR lost) is not answered from the total."""
     qm = _mtoks(question)
     asks_total = bool(TOTAL_RX.search(question))
+    excl = re.search(r"\b(?:excluding|excludes?|without|except(?:\s+for)?|not\s+(?:counting|including)|"
+                     r"exclusive\s+of|minus|less)\b(.+)$", question, re.I)
+    ex_t = (_mtoks(excl.group(1)) - {"total", "area", "floor", "the"}) if excl else set()
+    if ex_t:  # a question that leaves a row out is never answered by that row
+        groups = []
+        for g in pick["groups"]:
+            if len(g["ids"]) == 1 and ex_t & _mtoks(rs[g["ids"][0]]["label"]):
+                r = rs[g["ids"][0]]
+                subs = [x for x in rs if x["kind"] == r["kind"] and re.search(r"\bsub\s?total\b", x["label"], re.I)]
+                if subs:
+                    sub = min(subs, key=lambda x: abs(x["bbox"][1] - r["bbox"][1]))
+                    g = {**g, "name": sub["label"], "ids": [sub["id"]],
+                         "guard": f"the question excludes {r['label']}: the subtotal without it"}
+                else:
+                    continue
+            elif len(g["ids"]) > 1:
+                g = {**g, "ids": [i for i in g["ids"] if not ex_t & _mtoks(rs[i]["label"])]}
+                if not g["ids"]:
+                    continue
+            groups.append(g)
+        pick = {**pick, "groups": groups}
     out = []
     for g in pick["groups"]:
+        if ex_t and not ex_t & set().union(*(_mtoks(rs[i]["label"]) for i in g["ids"])):
+            out.append(g)  # already free of the excluded row: not switched to a row the question names
+            continue
         if len(g["ids"]) >= 3:
             # a sum is of one category: rows lacking the word most of them share (EXTERIOR STAIR among the
             # ...CIRCULATION rows) are not part of it

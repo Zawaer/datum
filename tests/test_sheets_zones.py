@@ -241,3 +241,35 @@ def test_vision_answer_with_dotted_thousands_is_an_integer():
     assert _thousands('{"answer": 1,050}', None) == 1050
     assert _thousands('{"answer": 4.47}', 4.47) == 4.47
     assert _thousands('{"answer": "12 doors"}', "12 doors") == "12 doors"
+
+
+def _row(i, label, value, y, total=False):
+    return {"id": i, "table": "SQUARE FOOTAGE", "label": label, "value": value, "unit": "SF", "kind": "area",
+            "total": total, "bbox": [0.75, y, 0.9, y + 0.01], "value_bbox": [0.85, y, 0.9, y + 0.01],
+            "label_bbox": [0.75, y, 0.84, y + 0.01]}
+
+
+def test_scan_misread_row_labels_repaired():
+    """A-1 / A-3 as rough scans: 'NORTH WING' lost CIRCULATION, 'EASTWINGCIRCULATION' ran together, 'TOTAL COMMON
+    Pace' and a total read as 'SPACE' only. Repaired from the table's own pattern; the values are left as read."""
+    labs = [("WEST WING DORMITORY", 6095), ("WEST WING CIRCULATION", 914), ("TOTAL WEST WING", 7009),
+            ("EAST WING DORMITORY", 6092), ("EASTWINGCIRCULATION", 913), ("TOTAL EAST WING", 7005),
+            ("NORTH WING DORMITORY", 6285), ("NORTH WING", 1403), ("TOTAL NORTH WING", 7688),
+            ("COMMON SPACE", 2169), ("COMMON SPACE CIRCULATION", 1274), ("UTILITY", 1056), ("SPACE", 4499),
+            ("SUBTOTAL", 26201), ("EXTERIOR STAIR (1/2 SF)", 381), ("TOTAL THIRD FLOOR", 26582)]
+    rs = [_row(i, lab, v, 0.2 + 0.015 * i, total=lab.startswith(("TOTAL", "SUBTOTAL"))) for i, (lab, v) in enumerate(labs)]
+    Z._repair_labels(rs)
+    got = {r["label"] for r in rs}
+    assert {"EAST WING CIRCULATION", "NORTH WING CIRCULATION", "TOTAL COMMON SPACE", "COMMON SPACE"} <= got
+    assert next(r for r in rs if r["value"] == 4499)["total"]
+    rs2 = [_row(0, "TOTAL COMMON Pace", 6687, 0.2, True), _row(1, "COMMON SPACE", 4379, 0.19)]
+    Z._repair_labels(rs2)
+    assert rs2[0]["label"] == "TOTAL COMMON SPACE"
+
+
+def test_excluded_row_is_never_the_answer():
+    rs = [_row(0, "SUBTOTAL", 28389, 0.5, True), _row(1, "EXTERIOR STAIR (1/2 SF)", 381, 0.52),
+          _row(2, "TOTAL FIRST FLOOR", 28770, 0.55, True)]
+    pick = {"groups": [{"name": "stair", "ids": [1]}], "confidence": "high", "note": ""}
+    g = Z._guard_pick("What is the floor area excluding the exterior stair?", rs, pick)["groups"]
+    assert g[0]["ids"] == [0]
