@@ -40,7 +40,11 @@ REPO_URL = "github.com/Zawaer/datum"
 
 # Baselines still being run. Fill in (label, accuracy %, spoken) to add a bar on the frontier card and a
 # line to its voice-over, e.g. ("Gemini 3.1 Pro, drawing only", 61.0, "Gemini three point one Pro, sixty-one.").
-EXTRA_BASELINES: list[tuple[str, float, str]] = []
+EXTRA_BASELINES: list[tuple[str, float, str]] = [
+    ("Gemini 3.1 Pro, drawing only ($52.47 per 1,000)", 64.2,
+     "Gemini three point one Pro: sixty-four, at over fifty dollars per thousand."),
+    # Nemotron 3.5 Super VL: still running; add it here when docs/RESULTS.md has its number.
+]
 
 # A line is (caption, spoken) or just text when both are the same. Numbers are spelled out where the TTS
 # could misread them. Sources for every number: docs/STATUS.md, docs/RESULTS.md, docs/COSTS.md.
@@ -49,14 +53,12 @@ SCENES = [
     {"kind": "slide", "ref": 2, "lines": [
         ("Quantity takeoff is still done by hand, and AI gets it wrong with total confidence:",
          "Quantity takeoff is still done by hand, and A.I. gets it wrong, with total confidence:"),
-        ("94.73 m² instead of 108.3 for one apartment, even with its CAD file attached.",
-         "ninety-four point seven square metres instead of a hundred and eight for one apartment, "
-         "even with its CAD file attached."),
+        ("94.73 m² instead of 108.3, even with the CAD file attached.",
+         "ninety-four point seven square metres instead of a hundred and eight, even with the CAD file attached."),
     ]},
     {"kind": "card", "ref": "frontier", "lines": [
-        ("We measured frontier models on our held-out test split. Claude Sonnet 5.5, reading the drawing, gets 63 % right.",
-         "We measured frontier models on our held-out test split. Claude Sonnet five point five, reading the drawing, "
-         "gets sixty-three percent right."),
+        ("On our held-out test split, Claude Sonnet 5.5, reading the drawing, gets 63 % right.",
+         "On our held-out test split, Claude Sonnet five point five, reading the drawing, gets sixty-three percent right."),
         ("Even given the drawing's own CAD and IFC files: 70 %.",
          "Even given the drawing's own CAD and I.F.C. files: seventy."),
     ]},
@@ -110,7 +112,7 @@ CREDITS = ("Drawings: Swiss Dwellings v3.0.0 (Archilyse AG, CC BY 4.0) · CubiCa
 def lines_of(scene):
     out = [l if isinstance(l, tuple) else (l, l) for l in scene["lines"]]
     if scene["ref"] == "frontier":
-        out += [(f"{lab}: {acc:.1f} %.", say) for lab, acc, say in EXTRA_BASELINES]
+        out += [(f"{lab.split(',')[0]}: {acc:.0f} %, at over $50 per 1,000.", say) for lab, acc, say in EXTRA_BASELINES]
     return out
 
 
@@ -234,7 +236,8 @@ def bar(label, acc, ours=False):
 
 
 def cards_html():
-    extra = "".join(bar(html.escape(lab), acc) for lab, acc, _ in EXTRA_BASELINES)
+    extra = "".join(bar("<b>{}</b><br>{}".format(*map(html.escape, (lab.split(", ", 1) + [""])[:2])), acc)
+                    for lab, acc, _ in EXTRA_BASELINES)
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>{CARD_CSS}</style></head><body>
 <section class="card dark" id="title">
   <div class="kicker">Junction 2026 · Stoa: Make Blueprints Talk</div>
@@ -253,7 +256,7 @@ def cards_html():
   38.9&nbsp;% of Swiss room areas and under 10&nbsp;% of IFC areas and volumes right, and wrong answers sound exactly as sure as right ones.</p>
   <div class="foot">Accuracy on a 400-question sample of our held-out test split, stratified by source × question type and re-weighted to the
   full test-split mix (95 % CI ±~9 pp). Counts must be exact, measurements within 2 %. Sources: docs/RESULTS.md, runs/baseline_sonnet_full400,
-  runs/baseline_sonnetfair_full400.</div>
+  runs/baseline_sonnetfair_full400{", runs/baseline_gemini_full400. Gemini cannot take .ifc files inline, so its 61 IFC-file questions count as wrong (about 0.5 % of the test mix after re-weighting)" if EXTRA_BASELINES else ""}.</div>
 </section>
 <section class="card" id="results">
   <div class="kicker">Results · held-out test split</div>
