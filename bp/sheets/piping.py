@@ -1570,6 +1570,15 @@ def _find_blocks(q: str, sheet: dict, size: str | None = None):
 
 def _named_size(q, sheet, base) -> dict | None:
     bl, kws = _find_blocks(q, sheet)
+    if re.search(r"\b(tank|vessel|receiver|capacity|volume)\b", q, re.I):
+        # a tank's size is its volume ("150 LITER SURGE TANK"), not a pipe size printed in the same callout
+        for b in bl:
+            m = re.search(r"(\d[\d,.]*)\s*(LITERS?|LITRES?|GALLONS?|GAL\.?|L)\b(?=[^\d]{0,30}\b(?:TANK|VESSEL|RECEIVER))",
+                          b["text"], re.I)
+            if m:
+                return dict(base, answer=f"{m.group(1)} {m.group(2).upper().rstrip('.')}", confidence=0.75, unit=None,
+                            evidence=[_ev(b["bbox"], f'1: "{b["text"][:60]}"')],
+                            explanation=f'Read from the callout "{b["text"]}".')
     found = []
     for b in bl:
         ss = sizes_in(b["text"])
