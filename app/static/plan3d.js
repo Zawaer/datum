@@ -453,7 +453,7 @@ function flat(ring, h, holes = []) {
 const grow = (ring, d) => { const [cx, cy] = centroid(ring); return ring.map(([x, y]) => { const l = Math.hypot(x - cx, y - cy) || 1; return [x + (x - cx) / l * d, y + (y - cy) / l * d]; }); };
 
 let br = null;  // the m² class breaks of the answer on show (null: a count)
-function applyEvidence(animate) {
+function applyEvidence(animate, at) {  // at(i): when item i is painted, in ms (the 2D replay's timeline, app.js rpRun)
   if (!data || !evGroup) return;
   const keep = evSig.split('|')[0] === signature().split('|')[0] ? selI : null;  // same answer: the selection stays
   evSig = signature();
@@ -537,7 +537,7 @@ function applyEvidence(animate) {
         requestRender();
       });
       show();
-    }, j * step);
+    }, at ? Math.max(0, at(it.i) || 0) : j * step);
   });
   requestRender();
 }
@@ -850,4 +850,6 @@ document.addEventListener('keydown', e => {
 });
 q();
 
-window.__p3 = {open, close, get opened() { return opened; }, get ready() { return opened && !!data && !tweens.size; }, get _three() { return {scene, renderer, camera, requestRender}; }, get data() { return data; }};
+// the 2D replay paints the floor on its own timeline (null: everything at once, a skipped replay)
+function replay(at) { if (!opened || !data || !evGroup) return false; applyEvidence(!!at, at); return true; }
+window.__p3 = {open, close, replay, get opened() { return opened; }, get ready() { return opened && !!data && !tweens.size; }, get _three() { return {scene, renderer, camera, requestRender}; }, get data() { return data; }};

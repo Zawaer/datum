@@ -911,6 +911,7 @@ function renderAnswer(shownSoFar) {
       ${corrected ? `<div class="mut">How the solver reached its ${fmt(res.answer, t)}, before your correction:</div>` : ''}
       <div class="how ${h.cls}"><b>${h.cls === 'geo' ? '✓ ' : ''}${esc(h.t)}</b><span>${esc(h.how)}</span></div>
       ${calibHTML(res)}
+      ${rpLinkHTML()}
       ${crossHTML(res)}
       ${res.rule ? `<div class="rule"><b>Rule</b> ${esc(res.rule)}</div>` : ''}
       ${!res.trace ? `<div class="expl">${esc(res.explanation || '')}</div>` : ''}
@@ -1165,9 +1166,8 @@ function rescaleLabels() {
   const fs = labelSize(); lay = layoutLabels(img.naturalWidth, img.naturalHeight, fs);
   ov.querySelectorAll('g[data-i]').forEach(g => { if (+g.dataset.i >= 0) placeLabels(g, lay.get(+g.dataset.i), fs); });
 }
-// X-ray count: the drawing greys back and every item lights up in turn while the big number ticks up to the answer
-// (areas: the running sum). ~60–120 ms an item, never more than 2.5 s; a click or a key skips to the end; instant
-// under prefers-reduced-motion.
+// X-ray: while an answer's steps replay (rpRun, block "replay: watch it work out") the drawing greys back and the big
+// number ticks up to the answer; a click or a key skips to the end; instant under prefers-reduced-motion.
 const RMOTION = matchMedia('(prefers-reduced-motion: reduce)');
 function smooth() { return RMOTION.matches ? 'auto' : 'smooth'; }  // scrolls jump instead of glide under reduced motion
 let xr = null;
@@ -1178,11 +1178,6 @@ function xrayStop() {  // a new draw / answer: drop a running count without fini
 }
 let xrSkipT = 0;
 function xraySkip() { if (xr) { xrSkipT = performance.now(); xr.skip(); } }
-function xrayHud(k, n, val) {
-  const t = res && res.type, noun = t === 'count' ? 'counting' : 'adding up';
-  xhud.innerHTML = `<div class="xl"><span>X-ray · ${noun}</span><b>${k} / ${n}</b></div><div class="xbar"><i style="width:${(100 * k / Math.max(1, n)).toFixed(1)}%"></i></div>`
-    + `<div class="xs">${t && t !== 'count' ? `<b>${fmt(val, t)} ${unitOf(t)}</b> · ` : ''}click or press a key to skip</div>`;
-}
 function draw(animate) {
   xrayStop();
   ov.innerHTML = '';
@@ -1196,26 +1191,7 @@ function draw(animate) {
   const list2d = items.map((e, i) => [e, i]).filter(([e]) => e.kind !== 'ifc');
   const done = () => { animating = false; renderAnswer(null); recompute(); };
   if (!animate || !list2d.length) { list2d.forEach(([e, i]) => placeByArea(shapeFor(e, i, W, H))); done(); return; }
-  const step = Math.min(120, 2500 / list2d.length), r0 = res, n = list2d.length;
-  const pings = document.createElementNS(NS, 'g'); pings.setAttribute('class', 'pings'); ov.appendChild(pings);
-  let k = 0, sum = 0;
-  const show = quiet => {
-    const [e, i] = list2d[k++]; sum += e.value ?? 1;
-    const g = shapeFor(e, i, W, H); placeByArea(g, pings);
-    if (!quiet) {
-      const p = g.firstElementChild.cloneNode(false); p.setAttribute('class', 'ping' + (modelRead(e) ? ' model' : ''));
-      pings.appendChild(p); setTimeout(() => p.remove(), 700);
-    }
-  };
-  const finish = () => { xr = null; viewer.classList.remove('xray'); xhud.hidden = true; pings.remove(); done(); };
-  const tick = () => {
-    if (res !== r0) { xrayStop(); return; }
-    show(false); renderAnswer(k); xrayHud(k, n, sum);
-    if (k < n) xr.t = setTimeout(tick, step); else xr.t = setTimeout(finish, 160);
-  };
-  xr = {t: 0, skip: () => { clearTimeout(xr.t); while (k < n) show(true); finish(); }};
-  animating = true; viewer.classList.add('xray'); xhud.hidden = false; xrayHud(0, n, 0);
-  xr.t = setTimeout(tick, 120);
+  rpRun(list2d, W, H, done);  // the replay plays the answer's steps (block "replay: watch it work out" below)
 }
 viewer.addEventListener('pointerdown', e => { if (xr && !e.target.closest('.caption')) { xraySkip(); e.stopPropagation(); } }, true);
 $('#answer').addEventListener('pointerdown', () => xraySkip(), true);
@@ -2280,3 +2256,188 @@ function gpuWatch(r) {
   };
   w.timer = setTimeout(step, 1500);
 }
+
+// ============================================================ replay: watch it work out
+// When an answer arrives (and on "Replay" under How it was worked out) its reasoning plays on the drawing in 2–4 s.
+// It is driven only by the evidence list (order, kinds, values) and the explanation, so it works for every solver:
+// the scale reference first (a scale bar / dimension box in the evidence, else the scale the explanation names), then
+// rooms and zones fill one by one, numbered pins drop in turn, runs draw themselves along their path, and table cells
+// are outlined before their value flies to the answer card, while a running total ticks up to the answer. A click or
+// a key skips it (xraySkip); under prefers-reduced-motion draw() never animates and the link is not offered.
+// The Swiss / CubiCasa 3D floor paint (plan3d.js, window.__p3.replay) is painted on the same timeline.
+const RP_EASE = p => 1 - Math.pow(1 - p, 3);                               // ease-out: calm, no overshoot
+const RP_INOUT = p => p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;  // a run draws at an even, unhurried pace
+const RP_SCALE = /\bscale\b|dimension|\bdim\.? string|px\/(?:m|ft)\b/i;
+const rpIsScale = e => !!e && !!e.bbox && typeof e.value !== 'number' && RP_SCALE.test(String(e.label || ''));
+function rpScaleText(r) {  // the clause of the explanation that names the scale ('63.3 px/m (printed scale 1:200 …)')
+  const c = String((r && r.explanation) || '').split(/[;|[\]]|\.\s/).map(s => s.trim())
+    .find(s => /\bscale\b|px\/(?:m|ft)\b|\b1:\d{2,4}\b/i.test(s));
+  if (!c) return '';
+  const m = c.match(/(?:printed |graphic )?scale\b.*$/i);
+  const s = (m ? m[0] : c).replace(/^scale\s*(?:bar\s*)?:?\s*/i, '').replace(/\.$/, '');
+  return s.length > 72 ? s.slice(0, 70) + '…' : s;
+}
+// an item's share of the running total: its value; a counted item with none counts one
+const rpVal = e => !e.on ? 0 : typeof e.value === 'number' ? e.value : (res && res.type === 'count' && e.value == null && !rpIsScale(e) ? 1 : 0);
+const rpLen = (pts, W, H) => pts.slice(1).reduce((a, p, k) => a + Math.hypot((p[0] - pts[k][0]) * W, (p[1] - pts[k][1]) * H), 0);
+function rpTarget() {  // where a flying value lands: the answer card's number when it is on screen, else the running total
+  const bn = $('#ahead .big .bn'), r = bn && bn.getBoundingClientRect();
+  if (r && r.width && r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth) return r;
+  return xhud.querySelector('.rpv').getBoundingClientRect();
+}
+function rpRun(list, W, H, done) {
+  const r0 = res, t = res.type, num = typeof res.answer === 'number';
+  const scaleEv = [...list.map(([e]) => e), ...marks].filter(rpIsScale), scaleTxt = rpScaleText(res);
+  const SC = scaleEv.length || scaleTxt ? 650 : 0, T0 = 250;  // the drawing greys back, then the scale
+  const gs = new Map();
+  for (const [e, i] of list) {  // every mark is built now, hidden, and revealed at its step
+    const g = shapeFor(e, i, W, H); placeByArea(g); gs.set(i, g);
+    g.classList.add('rp-wait'); ov.querySelector(`g.leaders line[data-i="${i}"]`)?.classList.add('rp-wait');
+  }
+  // one slot per item; a run takes time by its length on the drawing
+  const work = list.filter(([e]) => !rpIsScale(e)), lens = work.map(([e]) => e.kind === 'polyline' ? rpLen(e.points || [], W, H) : 0);
+  const runs = lens.filter(x => x > 0), mid = runs.length ? runs.slice().sort((a, b) => a - b)[runs.length >> 1] : 1;
+  const w = lens.map(x => x > 0 ? Math.max(0.6, Math.min(3, x / mid)) : 1), wsum = w.reduce((a, b) => a + b, 0) || 1;
+  const budget = Math.min(2700, Math.max(runs.length ? 1300 : 900, work.length * 280));
+  let at = T0 + SC;
+  const steps = work.map(([e, i], k) => {
+    const slot = budget * w[k] / wsum, s = {e, i, g: gs.get(i), start: at, val: rpVal(e), k: k + 1};
+    s.kind = e.kind === 'polyline' ? 'run' : e.kind === 'cell' ? 'cell' : numbered(e) ? 'pin' : e.kind === 'polygon' ? 'fill' : 'box';
+    s.dur = s.kind === 'run' ? Math.max(180, slot) : s.kind === 'cell' ? Math.max(760, slot) : s.kind === 'fill' ? Math.min(700, Math.max(280, slot * 1.6)) : 260;
+    at += s.kind === 'cell' ? Math.max(slot, 0.7 * s.dur) : slot; return s;  // cells one after the other: outline, then fly
+  });
+  const END = Math.max(at, ...steps.map(s => s.start + s.dur)) + 220;
+  const unit = num ? uOf() : (work.find(([e]) => e.unit)?.[0].unit || (work.some(([e]) => e.kind === 'polyline') ? 'm' : unitOf(t)));
+  const fmtT = v => (num ? fmtS(v, t) : t === 'count' && !work.some(([e]) => e.kind === 'polyline') ? String(Math.round(v)) : round2(v)) + (unit ? ' ' + unit : '');
+  const showTotal = num || work.some(([e]) => typeof e.value === 'number');
+  const N = steps.length + (SC ? 1 : 0);
+  xhud.innerHTML = `<div class="rpst"></div><div class="xl"><span class="rpk"></span><b class="rpv"></b></div>`
+    + `<div class="xbar"><i></i></div><div class="xs">click or press a key to skip</div>`;
+  const hS = xhud.querySelector('.rpst'), hK = xhud.querySelector('.rpk'), hV = xhud.querySelector('.rpv'), hB = xhud.querySelector('.xbar i');
+  hV.hidden = !showTotal;
+  const extra = [];  // the scale outline and flying values: removed at the end
+  const card = v => {  // the answer card's number ticks with the running total
+    const bn = num && $('#ahead .big.counting .bn'); if (!bn) return;
+    bn.textContent = fmtS(v, t); ghostMove($('#answer'), v);
+  };
+  let lastRow = null;
+  const row = i => {  // the evidence row of the step on show
+    if (lastRow) lastRow.classList.remove('rpnow');
+    lastRow = i == null ? null : $(`#ev div[data-i="${i}"]`); if (lastRow) lastRow.classList.add('rpnow');
+  };
+  const reveal = g => { g.classList.remove('rp-wait'); ov.querySelector(`g.leaders line[data-i="${g.dataset.i}"]`)?.classList.remove('rp-wait'); };
+  const dash = (el, L, f) => { el.style.strokeDasharray = `${L} ${L}`; el.style.strokeDashoffset = String(L * (1 - f)); };
+  // ---- the scale: its reference outlined (drawn round), what it reads in the HUD
+  let scaleOn = false;
+  const scaleBegin = () => {
+    scaleOn = true;
+    hS.textContent = 'Scale' + (scaleTxt ? ': ' + scaleTxt : scaleEv[0] && scaleEv[0].label ? ': ' + scaleEv[0].label : ' read from the drawing');
+    for (const e of scaleEv) {
+      const g = list.find(([x]) => x === e); if (g) reveal(gs.get(g[1]));
+      const [x0, y0, x1, y1] = e.bbox, px = 0.004 * W, r = document.createElementNS(NS, 'rect');
+      r.setAttribute('x', x0 * W - px); r.setAttribute('y', y0 * H - px);
+      r.setAttribute('width', (x1 - x0) * W + 2 * px); r.setAttribute('height', (y1 - y0) * H + 2 * px); r.setAttribute('rx', px / 2);
+      r.setAttribute('class', 'rpscale'); r.dataset.L = 2 * ((x1 - x0) * W + (y1 - y0) * H + 4 * px); ov.appendChild(r); extra.push(r);
+    }
+  };
+  const scaleFrame = p => extra.filter(x => x.classList.contains('rpscale')).forEach(r => dash(r, +r.dataset.L, RP_EASE(Math.min(1, p / 0.7))));
+  // ---- the items
+  const begin = s => {
+    const g = s.g; reveal(g); row(s.i);
+    const name = itemName(s.e), v = itemVal(s.e);
+    const sv = v && s.val ? `${s.val < 0 ? '− ' : s.k > 1 ? '+ ' : ''}${v.replace(/^-/, '')}` : v;  // − 1.74 m: a deduction
+    hS.textContent = (s.kind === 'pin' ? `#${items.slice(0, s.i + 1).filter(numbered).length} ${name}` : name) + (sv && (s.kind !== 'pin' || s.val !== 1) ? ` · ${sv}` : '');
+    const shp = g.firstElementChild;
+    if (s.kind === 'run') { s.L = shp.getTotalLength ? shp.getTotalLength() : 1; dash(shp, s.L, 0); g.classList.add('rp-run'); }
+    else if (s.kind === 'cell') {
+      const bw = +shp.getAttribute('width'), bh = +shp.getAttribute('height'); s.L = 2 * (bw + bh);
+      dash(shp, s.L, 0); g.classList.add('rp-cell');
+    } else g.style.setProperty('--rpd', s.dur + 'ms'), g.classList.add(s.kind === 'pin' ? 'rp-drop' : s.kind === 'fill' ? 'rp-fill' : 'rp-fade');
+    if (s.kind === 'pin' && s.e.kind === 'polygon') g.classList.add('rp-fill');
+  };
+  const frac = (s, p) => s.kind === 'pin' ? 1 : s.kind === 'cell' ? (p >= 1 ? 1 : 0) : s.kind === 'run' ? RP_INOUT(p) : RP_EASE(p);
+  const frame1 = (s, p) => {
+    const shp = s.g.firstElementChild;
+    if (s.kind === 'run') dash(shp, s.L, RP_INOUT(p));
+    else if (s.kind === 'cell') {
+      const ol = Math.min(1, p / 0.35); dash(shp, s.L, RP_EASE(ol));
+      if (ol >= 1 && !s.fly) {  // outlined: the value lifts off the cell and flies to the card
+        s.g.classList.add('rp-cellin');
+        const a = shp.getBoundingClientRect(), b = rpTarget(), f = document.createElement('div');
+        f.className = 'rpfly'; f.textContent = s.e.text || itemVal(s.e) || ''; document.body.appendChild(f); extra.push(f);
+        const fw = f.offsetWidth, fh = f.offsetHeight, ms = Math.max(300, 0.65 * s.dur - 40);
+        f.style.left = (a.left + a.width / 2 - fw / 2) + 'px'; f.style.top = (a.top + a.height / 2 - fh / 2) + 'px';
+        f.style.transitionDuration = ms + 'ms';
+        const dx = b.left + b.width / 2 - (a.left + a.width / 2), dy = b.top + b.height / 2 - (a.top + a.height / 2);
+        requestAnimationFrame(() => { f.style.transform = `translate(${dx}px, ${dy}px) scale(.9)`; f.style.opacity = '0.4'; });
+        s.fly = f;
+      }
+    }
+  };
+  const end1 = s => {
+    const shp = s.g.firstElementChild; s.g.classList.add('rp-done');
+    if (s.kind === 'run' || s.kind === 'cell') { shp.style.strokeDasharray = ''; shp.style.strokeDashoffset = ''; }
+    if (s.fly) { s.fly.remove(); s.fly = null; }
+  };
+  const cleanup = () => {
+    for (const x of extra) x.remove();
+    row(null);
+    ov.querySelectorAll('.rp-wait').forEach(x => x.classList.remove('rp-wait'));
+    ov.querySelectorAll('.appear').forEach(x => x.classList.remove('appear'));  // or the pop would play once the replay lets go
+    for (const g of gs.values()) {
+      g.classList.remove('rp-run', 'rp-cell', 'rp-cellin', 'rp-drop', 'rp-fill', 'rp-fade', 'rp-done'); g.style.removeProperty('--rpd');
+      const shp = g.firstElementChild; if (shp) { shp.style.strokeDasharray = ''; shp.style.strokeDashoffset = ''; }
+    }
+    viewer.classList.remove('xray', 'rp'); xhud.hidden = true;
+  };
+  const p3 = (fn) => { try { if (window.__p3 && __p3.opened && __p3.replay) fn(__p3); } catch (e) { /* 3D changed */ } };
+  const tok = {t: 0, skip: () => fin(true)};
+  let ended = false;
+  function fin(skipped) {
+    if (ended) return; ended = true;
+    for (const s of steps) { if (!s.on) { s.on = true; begin(s); } if (!s.off) { s.off = true; frame1(s, 1); end1(s); } }
+    if (skipped) p3(P => P.replay(null));
+    xr = null; cleanup(); done();
+    const bn = $('#ahead .big .bn');
+    if (bn && !skipped) { bn.classList.add('rpland'); setTimeout(() => bn.classList.remove('rpland'), 900); }
+  }
+  xr = tok; animating = true; viewer.classList.add('xray', 'rp'); xhud.hidden = false;
+  hK.textContent = `Step 0 of ${N}`; hV.textContent = fmtT(0); hB.style.width = '0%'; hS.textContent = 'Reading the evidence';
+  const starts = new Map(steps.map(s => [s.i, s.start]));
+  p3(P => P.replay(i => starts.get(i) ?? T0));
+  const tS = performance.now();
+  const frame = now => {
+    if (ended) return;
+    if (xr !== tok || res !== r0) { ended = true; for (const s of steps) if (s.fly) s.fly.remove(); for (const x of extra) x.remove(); row(null); viewer.classList.remove('rp'); return; }
+    const el = now - tS;
+    if (SC && el >= T0) { if (!scaleOn) { scaleBegin(); hK.textContent = `Step 1 of ${N}`; } scaleFrame(Math.min(1, (el - T0) / SC)); }
+    let total = 0, kNow = SC && el >= T0 ? 1 : 0;
+    for (const s of steps) {
+      if (el < s.start) break;
+      const p = Math.min(1, (el - s.start) / s.dur);
+      if (!s.on) { s.on = true; begin(s); }
+      if (!s.off) { frame1(s, p); if (p >= 1) { s.off = true; end1(s); } }
+      total += s.val * frac(s, p); kNow = s.k + (SC ? 1 : 0);
+    }
+    hK.textContent = `Step ${kNow} of ${N}`; hV.textContent = fmtT(total); hB.style.width = (100 * Math.min(1, el / END)).toFixed(1) + '%';
+    card(total);
+    if (el >= END) fin(false); else requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
+// "Replay" under How it was worked out: the same steps again, from the top
+function rpLinkHTML() {
+  if (RMOTION.matches || !res || !items.length) return '';
+  if (mode !== '3d' && !items.some(e => PLAN_KINDS.has(e.kind))) return '';
+  return '<div class="rprow"><button type="button" class="linkish rplink" title="Play the steps of this answer on the drawing again">Replay</button> the steps on the drawing</div>';
+}
+function replayNow() {
+  if (!res || !items.length || RMOTION.matches) return;
+  pickTip(null); stepI = -1;
+  const num = typeof res.answer === 'number';
+  if (mode === '3d') { if (window.V3 && V3.hasModel()) { if (num) renderAnswer(0); highlight3d(true); } return; }
+  if (!img.naturalWidth) return;
+  if (num) renderAnswer(0);
+  draw(true);
+}
+$('#answer').addEventListener('click', e => { if (e.target.closest('.rplink')) { e.preventDefault(); e.stopPropagation(); replayNow(); } });
