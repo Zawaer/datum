@@ -1,0 +1,68 @@
+{
+ "image": "dormitory_second_floor_A-2_hires.png",
+ "sheet_kind": "arch",
+ "sheet_title": "SECOND FLOOR PLAN T-SHAPE A-2",
+ "sheet_scale": "1\" = 40'-0\"",
+ "sheet_units": "imperial",
+ "question": "What is the overall length of the building?",
+ "res": {
+  "confidence": 0.8,
+  "cost_usd": 0.0016741,
+  "sheet_type": "arch",
+  "sheet_score": 0.88,
+  "source": "upload",
+  "latency_s": 7.6,
+  "baseline_cost_usd": 0.033848560245454525,
+  "baseline_latency_s": 30.95006500000002,
+  "pages": 1,
+  "page": 0,
+  "crosscheck": {
+   "status": "single",
+   "second": null,
+   "note": "no second method for this kind of question"
+  },
+  "calibration": {
+   "measured": false
+  },
+  "answer": "323'-4\"",
+  "unit": "ft-in",
+  "type": "length",
+  "method": "sheets-text-read",
+  "explanation": "read from the overall dimension string 323'-4\"",
+  "evidence": [
+   {
+    "kind": "text",
+    "page": 0,
+    "bbox": [
+     0.19922,
+     0.86189,
+     0.67969,
+     0.8966
+    ],
+    "label": "Overall horizontal dimension string across the T-shaped building, labeled 323'-4"
+   },
+   {
+    "kind": "text",
+    "page": 0,
+    "bbox": [
+     0.42725,
+     0.8634,
+     0.45312,
+     0.88
+    ],
+    "label": "323'-4\" dimension text"
+   },
+   {
+    "kind": "text",
+    "page": 0,
+    "bbox": [
+     0.09229,
+     0.48528,
+     0.10205,
+     0.53132
+    ],
+    "label": "Overall vertical dimension, 286'-0\" (north-south extent)"
+   }
+  ]
+ }
+}

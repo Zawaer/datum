@@ -800,3 +800,10 @@ svg .ping.model { stroke: var(--chk); }
 @keyframes rpland { from { color: var(--ev); } }
 .rprow { font-size: 12px; color: var(--mut); margin: 4px 0 8px; }
 .rprow .rplink { font-size: 12px; }
+/* a list answer (slab area by type, areas per zone): the total is the number, the parts a compact list under it */
+.lcap { font-size: 12px; color: var(--mut); margin: -12px 0 8px; }
+.alist { margin: 8px 0 16px; font-size: 14px; border-top: 1px solid var(--line); }
+.alist > div { display: flex; justify-content: space-between; gap: 16px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.alist > div span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.alist > div b { font-weight: 600; white-space: nowrap; }
+@media (max-width: 600px) { body:not(.sheetfull) .alist > div:nth-child(n+4) { display: none; } }

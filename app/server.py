@@ -1103,6 +1103,8 @@ def _prepare(d: Path, p: Path, m: dict) -> tuple[Path, str]:
             m["sheet_kind"] = sm.get("kind")
             m["sheet_title"] = sm.get("title")
             m["sheet_scale"] = sm.get("scale") or ""
+            m["sheet_units"] = sm.get("units") or "unknown"
+            m["sheet_low_res"] = bool(sm.get("low_res"))
             m["sheet_cost_usd"] = m.get("sheet_cost_usd", 0.0) + (sm.get("cost_usd") or 0.0)
             sheet_types.warm_upload(sm)  # OCR / the specialist's own reading start now, in the background
         except Exception as e:  # noqa: BLE001
@@ -1251,15 +1253,18 @@ def _sheet_info(m: dict, key: str) -> dict:
     kind = m.get("sheet_kind")
     if kind not in SHEET_LABEL:
         return {"sheet_kind": None, "suggested": []}
-    scale = m.get("sheet_scale")
-    if scale is None:  # prepared before the scale was kept: read it from the sheet meta cache
+    scale, units, low = m.get("sheet_scale"), m.get("sheet_units"), m.get("sheet_low_res")
+    if scale is None or units is None or low is None:  # not kept in meta.json: read them from the sheet meta cache
         try:
-            scale = json.loads((UPLOADS / key / "sheet_meta_p0.json").read_text()).get("scale") or ""
+            sm = json.loads((UPLOADS / key / "sheet_meta_p0.json").read_text())
         except (OSError, ValueError):
-            scale = ""
+            sm = {}
+        scale = (sm.get("scale") or "") if scale is None else scale
+        units = (sm.get("units") or "unknown") if units is None else units
+        low = bool(sm.get("low_res")) if low is None else low
     sug = _upload_suggestions(m.get("kind"), m.get("not_drawing"), kind, f"{m.get('sheet_title') or ''} {m.get('name') or ''}")
     return {"sheet_kind": kind, "sheet_label": SHEET_LABEL[kind], "sheet_title": m.get("sheet_title") or "",
-            "sheet_scale": scale, "suggested": sug[:3]}
+            "sheet_scale": scale, "sheet_units": units, "sheet_low_res": low, "suggested": sug[:3]}
 
 
 # ---------------------------------------------------------------- ask

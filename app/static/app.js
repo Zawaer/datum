@@ -263,7 +263,7 @@ function pickTip(i, pt, at) {  // at: open it at the client point pt whatever th
   const e = items[i], k = items.slice(0, i + 1).filter(numbered).length;
   const name = (e.label || 'item').replace(/^\d+:\s*/, '').replace(/ \d+$/, '').replace(/^Ifc[A-Za-z]+ /, '');
   tip3d.title = e.label || '';
-  const val = res ? esc(itemVal(e)) + (e.kind === 'cell' ? ' · from the sheet\'s table' : '') : '';
+  const val = res ? esc(itemVal(e)) + (tabular(e) ? ' · from the sheet\'s table' : '') : '';
   const score = modelRead(e) && e.score != null ? ` · found by a model, ${Math.round(100 * e.score)} %` : modelRead(e) ? ' · found by a model' : '';
   tip3d.innerHTML = `<span class="tn">${numbered(e) ? `#${k} ` : ''}<b></b></span><span class="ts">${val ? `<b class="tv">${val}</b> · ` : ''}${e.on ? (res && res.type === 'count' ? 'counted' : 'included') : 'dropped'}${score}</span>
     <button type="button" class="tb">${e.on ? 'Drop from answer' : 'Put back'}</button><button type="button" class="tx" aria-label="Close">✕</button>`;
@@ -574,12 +574,13 @@ async function ask() {
   }
   if (seq !== askSeq) return;
   res = r; res._seq = seq; res.question = question; showSecond = false;
-  if (r.sheet_type && UNIT_TYPE[unitKey(r.unit)]) res.type = UNIT_TYPE[unitKey(r.unit)];
+  sheetResult(res);
   recordTakeoff(res);
   syncURL('replace');
   a.classList.add('pop');
   setupEvidence();
-  renderAnswer(items.length && typeof res.answer === 'number' ? 0 : null);
+  if (res.sheet_type && typeof res.answer === 'number' && Math.abs(items.reduce((s, e) => s + contrib(e), 0) - res.answer) > 0.005 * Math.abs(res.answer) + 1e-6) res._nocount = true;
+  renderAnswer(items.length && typeof res.answer === 'number' && !res._nocount ? 0 : null);
   if (primary === 'ifc' && has3d) { await setMode('3d'); highlight3d(true); }
   else {
     if (mode === '3d' && cur.shown) await setMode('2d');  // no plan sheet (IFC-only): stay in 3D
@@ -660,6 +661,7 @@ function howOf(r) {
   if (r.answer == null) return r.budget_exhausted ? {cls: 'none', t: 'Paused: daily budget used', how: 'the $0 solvers for Swiss, CubiCasa and IFC drawings still answer'}
     : {cls: 'none', t: 'Abstained', how: 'when the evidence is not good enough we say so instead of guessing'};
   if (/-na$|-none$/.test(m)) return {cls: 'none', t: 'Not in the model', how: 'nothing in the file states this, so we say so rather than guess'};
+  if (/^sheets-/.test(m) && sheetBadge(r)) return sheetBadge(r);
   if (/^swiss/.test(m)) return {cls: 'geo', t: 'Verified by geometry', how: 'counted and measured on the CAD layers of the drawing; no AI model involved'};
   if (/^ifc-text/.test(m)) return {cls: 'geo', t: 'Looked up in the BIM model', how: 'read from the IFC model by a fixed rule; no AI model involved'};
   if (/^ifc/.test(m) && !/^ifctext/.test(m)) return {cls: 'geo', t: 'Verified by geometry', how: 'queried from the IFC model: every element and quantity that adds up to it is listed'};
@@ -745,7 +747,7 @@ function traceHTML(r) {
   const read = (t.read || []).map(x => `<li>${esc(x)}</li>`).join('');
   const a = t.arith;
   const corrected = typeof r.answer === 'number' && items.some(e => !e.on || e.added);
-  const cv = corrected ? items.filter(e => e.on).reduce((s, e) => s + (e.value ?? 1), 0) : null;
+  const cv = corrected ? items.filter(e => e.on).reduce((s, e) => s + contrib(e), 0) : null;
   const arith = a ? `${corrected ? '<div class="mut">before your correction:</div>' : ''}<div class="mono">${esc(a.expr)} = <b>${fmt(a.total, r.type)}${u ? ' ' + u : ''}</b></div>
     <div class="${a.matches ? 'okt' : 'mut'}">${a.matches ? `✓ the ${a.n} items listed under Evidence add up to the answer exactly` : 'the answer is not a plain sum of the listed items (it also weighs how likely each count is)'}</div>`
     + (corrected ? `<div class="mono">after your correction: ${items.filter(e => e.on).length} item${items.filter(e => e.on).length === 1 ? '' : 's'} = <b>${fmt(cv, r.type)}${u ? ' ' + u : ''}</b></div>` : '') : '';
@@ -813,6 +815,7 @@ function ghostMove(a, val) {  // mid-count: slide our marker and its gap to the 
 function trustHTML(r, h) {
   const badge = `<span class="tbadge ${h.cls}" title="${esc(cap1(h.how))}">${h.cls === 'geo' ? '✓ ' : ''}${esc(h.t)}</span>`;
   if (r.answer == null) return `<div class="trust">${badge}<span>${esc(whyNone(r).short)}</span></div>`;
+  if (h.cls === 'sht') return `<div class="trust">${badge}<span class="tr">${esc(cap1(h.how))}</span></div>`;  // no track record: what to check instead
   const c = r.calibration;
   let tr = '';
   if (c && c.measured) {
@@ -849,11 +852,11 @@ function secondHTML(r) {
 function renderAnswer(shownSoFar) {
   if (!res) return;
   const a = $('#answer'); const t = res.type;
-  const counting = shownSoFar !== null && items.length && typeof res.answer === 'number';
+  const counting = shownSoFar !== null && items.length && typeof res.answer === 'number' && !res._nocount;
   let val = res.answer;
-  if (counting) val = items.slice(0, shownSoFar).reduce((s, e) => s + (e.value ?? 1), 0);
+  if (counting) val = items.slice(0, shownSoFar).reduce((s, e) => s + contrib(e), 0);
   // a correction (items dropped / added) changes the headline number too; the line under it keeps the solver's value
-  else if (typeof val === 'number' && items.some(e => !e.on || e.added)) val = items.filter(e => e.on).reduce((s, e) => s + (e.value ?? 1), 0);
+  else if (typeof val === 'number' && items.some(e => !e.on || e.added)) val = items.filter(e => e.on).reduce((s, e) => s + contrib(e), 0);
   if (counting && a.dataset.xseq === String(res._seq) && a.querySelector('.big.counting .bn')) {  // mid-count: only the number moves
     a.querySelector('.big.counting .bn').textContent = fmtS(val, t);
     ghostMove(a, val);
@@ -896,7 +899,7 @@ function renderAnswer(shownSoFar) {
   $('#ahead').innerHTML = `${qrow}
     ${res.normalized_question && res.normalized_question !== res.question ? `<div class="readas">read as: <i>${esc(res.normalized_question)}</i></div>` : ''}
     ${sheetChipHTML(res)}
-    ${shortText(res) ? `<div class="big short">${shortText(res)}</div>` : typeof res.answer === 'string' ? `<div class="textans">${esc(res.answer.trim().split('\n').map(l => l.replace(/^\s{1,4}(?=\S)/, '')).join('\n'))}</div>`
+    ${listAnswer(res) ? listHTML(listAnswer(res)) : shortText(res) ? `<div class="big short">${shortText(res)}</div>` : typeof res.answer === 'string' ? `<div class="textans">${esc(res.answer.trim().split('\n').map(l => l.replace(/^\s{1,4}(?=\S)/, '')).join('\n'))}</div>`
       : `<div class="big ${abst ? 'abstain' : ''} ${counting ? 'counting' : ''}">${abst ? 'Not sure, so no guess' : num ? `<span class="bn">${fmtS(val, t)}</span>` : ''}${abst || !uOf() ? '' : ` <small>${esc(uOf())}</small>`}</div>`}
     ${sheetNotesHTML(res)}
     ${corrected ? correctedTrustHTML(res, h) : trustHTML(res, h) + secondHTML(res) + gpuWarmHTML(res)}
@@ -1024,7 +1027,7 @@ async function answerAction(act, b) {
 }
 function currentCorrection() {
   if (!res || typeof res.answer !== 'number' || !items.some(e => !e.on || e.added)) return null;
-  return +items.filter(e => e.on).reduce((s, e) => s + (e.value ?? 1), 0).toFixed(3);
+  return +items.filter(e => e.on).reduce((s, e) => s + contrib(e), 0).toFixed(3);
 }
 function exportTakeoff() {
   const cols = ['drawing', 'question', 'answer', 'unit', 'corrected', 'method', 'confidence', 'track_record', 'rule', 'cost_usd', 'signed_by', 'signed_at', 'asked_at', 'credit'];
@@ -1296,7 +1299,7 @@ function renderEvidence() {
     if (numbered(e)) k++;
     const name = e.kind === 'box' ? (e.label || 'item').replace(/^\d+:\s*/, '').replace(/ \d+$/, '') : (e.label || (e.kind === 'polygon' ? 'region' : 'item'));
     const lead = numbered(e) ? `<span class="n">#${k}</span>` : `<span class="n">${i + 1}</span>`;
-    const val = esc(itemVal(e)) + (e.kind === 'cell' ? '<small class="tabn">from the sheet\'s table</small>' : '');
+    const val = esc(itemVal(e)) + (tabular(e) ? '<small class="tabn">from the sheet\'s table</small>' : '');
     const read = modelRead(e) && e.score != null ? `<span class="rd" title="found by a model with score ${Math.round(100 * e.score)} %: please check">${Math.round(100 * e.score)}%</span>` : '';
     const leadTxt = numbered(e) ? `#${k}` : String(i + 1);
     d.innerHTML = `<button class="tg" role="checkbox" aria-checked="${e.on}" title="${e.on ? 'drop this item from the answer' : 'put it back'}" aria-label="Include ${esc(name)} ${leadTxt}">${e.on ? '✓' : ''}</button>${lead}<span class="nm" title="${esc(name)}">${esc(name)}${read}</span><span class="vl">${val}</span>`;
@@ -1311,7 +1314,7 @@ function renderEvidence() {
   });
   if (num) {
     const tot = document.createElement('div'); tot.className = 'tot';
-    const v = items.filter(e => e.on).reduce((s, e) => s + (e.value ?? 1), 0);
+    const v = items.filter(e => e.on).reduce((s, e) => s + contrib(e), 0);
     tot.innerHTML = `<span>${t === 'count' ? 'Count' : 'Sum'} of checked items</span><span>${fmt(v, t)} ${esc(uOf())}</span>`;
     ev.appendChild(tot);
   }
@@ -1322,17 +1325,68 @@ function renderEvidence() {
 // polygons per category (slab types, colour zones) with a legend, and tag lists (FP-1…FP-5) as chips that zoom.
 const UNIT_TYPE = {'m²': 'area', m2: 'area', sf: 'area', 'sq ft': 'area', ft2: 'area', m: 'length', mm: 'length', ft: 'length', lf: 'length', count: 'count'};
 const unitKey = u => String(u || '').trim().toLowerCase();
-const uOf = () => {  // the answer's unit: a sheet answer says it (SF, mm); else the question type's
+const imperial = () => /imperial/i.test(String((cur && cur.sheet_units) || '')) || /\b(sf|sq ?ft|ft|lf)\b/i.test(String((res && res.unit) || ''));
+const uOf = () => {  // the answer's unit: a sheet answer says it (SF, mm, ft); else the question type's
   const u = res && res.sheet_type && res.unit ? String(res.unit).trim() : '';
-  return u && unitKey(u) !== 'count' && unitKey(u) !== 'inch' ? u.replace(/^m2$/i, 'm²') : unitOf(res && res.type);
+  if (u && unitKey(u) !== 'count' && unitKey(u) !== 'inch') return u.replace(/^m2$/i, 'm²');
+  if (res && res.sheet_type && imperial()) return ({area: 'SF', length: 'ft'})[res.type] || unitOf(res.type);
+  return unitOf(res && res.type);
 };
+// a counted item adds one; a measured one its value; a measured one without a value (a zone drawn for context) nothing
+const contrib = e => typeof e.value === 'number' ? e.value : (!res || res.type === 'count' ? 1 : 0);
+const thou = v => Math.abs(v) >= 1000 && Math.abs(v - Math.round(v)) < 1e-9 ? Math.round(v).toLocaleString('en-US') : round2(v);
+function itemUnit(e) {  // the unit of an item's value: its own, the answer's, else by its kind (and the sheet's units)
+  if (e.unit) return e.unit;
+  if (e.kind === 'polyline') return res && res.type === 'length' ? uOf() : imperial() ? 'ft' : 'm';
+  if (e.kind === 'polygon' && !(res && res.type === 'area')) return e.areaUnit || (imperial() ? 'SF' : 'm²');
+  return uOf();
+}
 function itemVal(e) {  // an item's contribution as shown beside it ('' for a counted item)
   if (e.kind === 'cell' && e.text) return String(e.text);
   if (e.value == null || typeof e.value !== 'number') return e.value != null ? String(e.value) : '';
-  if (e.unit) return `${round2(e.value)} ${e.unit}`;
-  if (e.kind === 'polyline' && res && res.type !== 'length') return `${round2(e.value)} m`;
-  if (!res || res.type === 'count') return '';
-  return `${fmt(e.value, res.type)} ${uOf()}`.trim();
+  if (!res || (res.type === 'count' && !e.unit && e.kind !== 'polyline' && e.kind !== 'polygon')) return '';
+  if (res.type === 'count' && e.kind === 'polygon' && !e.unit) return '';
+  return `${thou(e.value)} ${itemUnit(e)}`.trim();
+}
+// a sheet answer as it arrives: a printed number with its unit ("26,562 SF") becomes that number in that unit; the
+// unit sets the question type (a baseboard is a length, not a count); a value read from the sheet's text that the
+// answer is built from becomes an evidence row (it was only a mark before); no count-up unless the items add up
+const NUM_UNIT = /^\s*([\d,]*\d(?:\.\d+)?)\s*(SF|sq\.? ?ft|ft²|m²|m2|mm|cm|m|ft|LF)?\.?\s*$/i;
+function sheetResult(r) {
+  if (!r.sheet_type) return;
+  if (r.low_res == null && cur && cur.sheet_low_res) r.low_res = true;
+  if (typeof r.answer === 'string') {
+    const m = r.answer.match(NUM_UNIT);
+    if (m && (m[2] || r.unit)) { r.answer_text = r.answer; r.answer = +m[1].replace(/,/g, ''); if (m[2]) r.unit = m[2].replace(/^sq\.? ?ft$/i, 'SF').replace(/^ft²$/, 'SF'); }
+  }
+  if (UNIT_TYPE[unitKey(r.unit)]) r.type = UNIT_TYPE[unitKey(r.unit)];
+  for (const e of r.evidence || []) {
+    if (e.kind === 'text' && typeof e.value === 'number' && e.bbox) { e.kind = 'cell'; e.fromText = true; }
+  }
+}
+// "type A: 30.9 m²; type B: 74.6 m² (total 105.5 m²)": a compact list, and the total as the big number
+// a schedule value: a table cell, or a number read from the sheet's text by a schedule / table reader
+const tabular = e => e.kind === 'cell' && (!e.fromText || /schedule|table/.test(String((res && res.method) || '')));
+function listAnswer(r) {
+  if (typeof r.answer !== 'string' || !r.sheet_type) return null;
+  if (r._list !== undefined) return r._list;
+  let a = r.answer.trim(), total = null;
+  const tm = a.match(/[;,(]?\s*\(?\btotal\b[^\d]{0,12}([\d,]*\d(?:\.\d+)?)\s*([A-Za-z²]+)?\)?\.?\s*$/i);
+  if (tm) { total = {v: +tm[1].replace(/,/g, ''), t: tm[1], u: tm[2] || ''}; a = a.slice(0, tm.index).trim(); }
+  const parts = a.split(/\s*(?:;|\n)\s*/).map(p => p.replace(/^[-•·*]\s*/, '')).filter(Boolean);
+  const rows = parts.map(p => p.match(/^(.{1,60}?)\s*[:=]\s*(.+)$/));
+  if (parts.length < 2 || rows.some(m => !m)) return (r._list = null);
+  const list = rows.map(m => {
+    const v = m[2].trim(), n = v.match(/^([\d,]*\d(?:\.\d+)?)\s*([A-Za-z²]+)?/);
+    return {k: m[1].trim(), v, n: n ? +n[1].replace(/,/g, '') : null, u: n ? n[2] || '' : ''};
+  });
+  if (!total && list.every(x => x.n != null && x.u && x.u === list[0].u)) total = {v: list.reduce((s, x) => s + x.n, 0), u: list[0].u, sum: true};
+  return (r._list = {total, rows: list});
+}
+function listHTML(L) {
+  const big = L.total ? `<div class="big">${L.total.t ? esc(L.total.t) : thou(L.total.v)}${L.total.u ? ` <small>${esc(L.total.u)}</small>` : ''}</div>
+    <div class="lcap">${L.total.sum ? 'Sum of the parts' : 'Total'}</div>` : '';
+  return `${big}<div class="alist">${L.rows.map(x => `<div><span>${esc(cap1(x.k))}</span><b>${esc(x.v)}</b></div>`).join('')}</div>`;
 }
 // region categories: Okabe-Ito hues without orange / vermillion (those mean "check" and "conflict" here)
 const CAT_HUES = ['#0072b2', '#56b4e9', '#009e73', '#cc79a7', '#003a5c', '#8a929d'];
@@ -1342,6 +1396,10 @@ const UNTYPED = /untyped|unread|unknown|other|unlabel/i;
 // ("DORMITORY (west): measured 2,862 SF" -> Dormitory), and take the area from the label when the value is empty
 function deriveCats() {
   const pg = items.filter(e => e.kind === 'polygon');
+  for (const e of pg) {  // a zone measured in the label only ("… measured 2,862 SF"): its area, for the legend
+    const m = e.value == null && String(e.label || '').match(/([\d,]+(?:\.\d+)?)\s*(SF|sq ?ft|m²|m2)\b/i);
+    if (m) { e.areaFromLabel = +m[1].replace(/,/g, ''); e.areaUnit = m[2]; }
+  }
   if (pg.length < 2 || pg.some(e => e.category || e.group) || !/by-type|zone|colou?r|schedule/i.test(String(res.method || ''))) return;
   const base = l => {
     const b = String(l || '').split(':')[0].replace(/\s*\((?:west|east|north|south|[a-z]+ wing|part \d+)\)\s*$/i, '').trim();
@@ -1349,8 +1407,6 @@ function deriveCats() {
   };
   for (const e of pg) {
     e.category = base(e.label);
-    const m = e.value == null && String(e.label || '').match(/([\d,]+(?:\.\d+)?)\s*(SF|sq ?ft|m²|m2)\b/i);
-    if (m) { e.areaFromLabel = +m[1].replace(/,/g, ''); e.areaUnit = m[2]; }
   }
 }
 function catList() {
@@ -1385,31 +1441,46 @@ function sheetHow(r) {
   const m = String(r.method || ''), ev = r.evidence || [];
   const sc = String(r.scale || (cur && cur.sheet_scale) || '').match(/1\s*:\s*\d+/);
   const has = k => ev.some(e => e.kind === k);
-  if (has('cell') || /schedule|table/.test(m)) return 'read from the sheet\'s table';
+  if (ev.some(tabular) || /schedule|table/.test(m)) return 'read from the sheet\'s table';
   if (r.sheet_type === 'piping') return items.some(tagOf) ? 'read from tags' : 'read from the sheet text';
   if (/text|textqa|-qa\b|-note|-read\b/.test(m) || (ev.length && ev.every(e => e.kind === 'text'))) return 'read from the printed text';
   if (/detector/.test(m)) return 'symbols detected';
   if (has('polygon') || has('polyline')) return sc ? `measured at ${sc[0].replace(/\s/g, '')}` : 'measured on the drawing';
   return '';
 }
+// the badge for a sheet specialist's answer, by its method: how it was made, never a track record it does not have
+function sheetBadge(r) {
+  const m = String(r.method || ''), ev = r.evidence || [];
+  if (/detector/.test(m)) return {cls: 'vis', t: 'Detected by vision', how: 'a detector found each symbol; every box it counted is on the plan'};
+  if (/schedule|table/.test(m) || ev.some(e => e.kind === 'cell')) return {cls: 'sht', t: 'Read from the sheet\'s table', how: 'the values it used are outlined in the table on the sheet'};
+  if (/^sheets-piping/.test(m) && (r.type === 'count' || ev.some(tagOf))) return {cls: 'sht', t: 'Read from the sheet\'s tags', how: 'every tag it counted is boxed on the drawing'};
+  if (/^sheets-(rooms|slab|pipe_?runs|openings|arch-(rooms|baseboard|colour|noscale)|zones)/.test(m) && ev.some(e => e.kind === 'polygon' || e.kind === 'polyline' || e.kind === 'box')) {
+    const sc = String(r.scale || (cur && cur.sheet_scale) || ''), s1 = sc.match(/1\s*:\s*\d+/);
+    const at = s1 ? ` at ${s1[0].replace(/\s/g, '')}` : sc && sc.length <= 16 ? ` at ${sc}` : '';
+    return {cls: 'sht', t: `Measured on the drawing${at}`, how: 'each measured part is outlined on the drawing, with its value'};
+  }
+  return null;  // text reads and the general reader: an AI model answered
+}
 function sheetChipHTML(r) {
   const k = r.sheet_type || (cur && cur.path.startsWith('uploads/') ? cur.sheet_kind : null);
   if (!k || !SHEET_NAME[k]) return '';
-  const how = r.sheet_type ? sheetHow(r) : 'read by the general reader';
+  const num = (String((cur && cur.sheet_title) || '').match(/\b[A-Z]{1,2}-\d{1,4}[A-Z]?\b/) || [])[0];
+  const how = num || (r.sheet_type ? '' : 'read by the general reader');
   return `<div class="sheetchip" title="${esc((cur && cur.sheet_title) || '')}">${esc(sheetName(k))}${how ? ` · ${esc(how)}` : ''}</div>`;
 }
 // a short printed answer ("16\"", "26,562 SF") reads as the number it is, not as a block of text
 function shortText(r) {
   if (typeof r.answer !== 'string' || !r.sheet_type) return '';
   const a = r.answer.trim(); if (a.length > 16 || /\n/.test(a)) return '';
+  if (/^\d+\s*['′]\s*-?\s*\d+(?:\s+\d+\/\d+)?\s*["″]$/.test(a)) return `<span class="bn">${esc(a.replace(/\s+/g, ''))}</span>`;  // 323'-4"
   const m = a.match(/^([\d.,]+(?:["'″′])?)\s*([A-Za-z²%/. ]{1,8})?$/);
   return m ? `<span class="bn">${esc(m[1])}</span>${m[2] ? ` <small>${esc(m[2].trim())}</small>` : ''}` : esc(a);
 }
 function sheetNotesHTML(r) {
-  const cell = (r.evidence || []).find(e => e.kind === 'cell');
+  const cell = (r.evidence || []).find(tabular);
   const out = [];
   if (cell) out.push(`<div class="tabnote">From the sheet's table${cell.table ? `: ${esc(cell.table)}` : ''}</div>`);
-  if (r.low_res) out.push(`<div class="lowres">${esc(typeof r.low_res === 'string' ? r.low_res : `Low resolution: ${r.sheet_type === 'piping' ? 'tags' : 'labels'} read with lower confidence; a PDF or larger image helps`)}</div>`);
+  if (r.low_res || (r.sheet_type && cur && cur.sheet_low_res)) out.push(`<div class="lowres">${esc(typeof r.low_res === 'string' ? r.low_res : `Low resolution: ${r.sheet_type === 'piping' ? 'tags' : 'labels'} read with lower confidence; a PDF or larger image helps`)}</div>`);
   return out.join('');
 }
 // the legend (category, colour, area) and the tag chips: a block under the answer, plus the legend on the drawing
@@ -1418,8 +1489,8 @@ const catleg = document.createElement('div'); catleg.className = 'catleg ondraw'
 function legendHTML() {
   const cats = catList(); if (!cats.length) return '';
   const sumOf = k => items.filter(e => e.on && catOf(e) === k).reduce((s, e) => s + (typeof e.value === 'number' ? e.value : e.areaFromLabel || 0), 0);
-  const lu = items.find(e => e.areaUnit), u = lu ? lu.areaUnit : res.type === 'area' ? uOf() : 'm²';
-  const big = cats.some(k => sumOf(k) >= 1000), num = v => big ? Math.round(v).toLocaleString('en-US') : round2(v);
+  const u = itemUnit(items.find(e => catOf(e)) || {kind: 'polygon'});
+  const big = cats.some(k => sumOf(k) >= 1000), num = v => big ? Math.round(v).toLocaleString('en-US') : round2(v);  // SF: whole numbers
   const rows = cats.map(k => `<button type="button" class="cl" data-cat="${esc(k)}"><i style="background:${catColour(k)}"></i><span class="cn">${esc(k)}</span><b>${num(sumOf(k))} ${esc(u)}</b></button>`);
   const tot = cats.length > 1 ? `<div class="cl ctot"><i></i><span class="cn">Total</span><b>${num(cats.reduce((s, k) => s + sumOf(k), 0))} ${esc(u)}</b></div>` : '';
   const cap = items.some(e => e.areaFromLabel != null) ? '<div class="lt">Measured on the drawing</div>' : '';  // beside a table read: say which is which
@@ -1565,7 +1636,7 @@ QA.addEventListener('change', () => { placePicker(); sheetFull(false); pickTip(n
 function recompute() {
   if (!res || typeof res.answer !== 'number') return;
   const changed = items.some(e => !e.on || e.added);
-  const v = items.filter(e => e.on).reduce((s, e) => s + (e.value ?? 1), 0);
+  const v = items.filter(e => e.on).reduce((s, e) => s + contrib(e), 0);
   const el = $('#corr'); if (!el) return;
   const solverHad = items.some(e => !e.added);
   el.innerHTML = changed ? `Corrected by you: <b>${fmt(v, res.type)} ${unitOf(res.type)}</b> (the solver said ${fmt(res.answer, res.type)})`

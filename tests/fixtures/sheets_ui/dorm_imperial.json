@@ -1,0 +1,144 @@
+{
+ "image": "dormitory_second_floor_A-2_hires.png",
+ "sheet_kind": "arch",
+ "sheet_title": "SECOND FLOOR PLAN T-SHAPE A-2",
+ "sheet_scale": "1\" = 40'-0\"",
+ "sheet_units": "imperial",
+ "sheet_low_res": true,
+ "question": "Total dormitory area?",
+ "res": {
+  "confidence": 0.8,
+  "cost_usd": 0.0016741,
+  "sheet_type": "arch",
+  "sheet_score": 0.88,
+  "source": "upload",
+  "latency_s": 7.6,
+  "baseline_cost_usd": 0.033848560245454525,
+  "baseline_latency_s": 30.95006500000002,
+  "pages": 1,
+  "page": 0,
+  "crosscheck": {
+   "status": "single",
+   "second": null,
+   "note": "no second method for this kind of question"
+  },
+  "calibration": {
+   "measured": false
+  },
+  "answer": "18,472 SF",
+  "unit": "SF",
+  "type": "text",
+  "method": "sheets-zones-schedule",
+  "explanation": "6,095 + 6,092 + 6,285 = 18,472 SF (the three DORMITORY rows of the square footage table)",
+  "evidence": [
+   {
+    "kind": "text",
+    "bbox": [
+     0.8822533706436021,
+     0.2612199724788677,
+     0.9015166624268633,
+     0.2742626302339296
+    ],
+    "label": "Square Footage: read: '6,095'",
+    "value": 6095.0,
+    "page": 0
+   },
+   {
+    "kind": "text",
+    "bbox": [
+     0.8822533706436021,
+     0.33218517790446234,
+     0.9015166624268633,
+     0.3454244151759387
+    ],
+    "label": "Square Footage: read: '6,092'",
+    "value": 6092.0,
+    "page": 0
+   },
+   {
+    "kind": "text",
+    "bbox": [
+     0.8822533706436021,
+     0.4035435423628858,
+     0.9015166624268633,
+     0.4165862001179477
+    ],
+    "label": "Square Footage: read: '6,285'",
+    "value": 6285.0,
+    "page": 0
+   },
+   {
+    "kind": "polygon",
+    "page": 0,
+    "points": [
+     [
+      0.02,
+      0.62
+     ],
+     [
+      0.27,
+      0.62
+     ],
+     [
+      0.27,
+      0.72
+     ],
+     [
+      0.02,
+      0.72
+     ]
+    ],
+    "label": "DORMITORY: measured 6,095 SF",
+    "value": null
+   },
+   {
+    "kind": "polygon",
+    "page": 0,
+    "points": [
+     [
+      0.41,
+      0.62
+     ],
+     [
+      0.66,
+      0.62
+     ],
+     [
+      0.66,
+      0.72
+     ],
+     [
+      0.41,
+      0.72
+     ]
+    ],
+    "label": "DORMITORY: measured 6,092 SF",
+    "value": null
+   },
+   {
+    "kind": "polygon",
+    "page": 0,
+    "points": [
+     [
+      0.24,
+      0.2
+     ],
+     [
+      0.34,
+      0.2
+     ],
+     [
+      0.34,
+      0.5
+     ],
+     [
+      0.24,
+      0.5
+     ]
+    ],
+    "label": "DORMITORY: measured 6,285 SF",
+    "value": null
+   }
+  ]
+ }
+}

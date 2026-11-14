@@ -82,7 +82,8 @@ def open_fixture(browser, url, name, viewport):
             "questions": [{"question": q, "type": None, "answer": None} for q in sug + ["What is the total floor area?"]],
             "notes": [], "pages": 1, "page_titles": {}, "drawing_pages": [0], "not_drawing": None, "original": None,
             "sheet_kind": fx["sheet_kind"], "sheet_label": fx["sheet_kind"], "sheet_title": fx["sheet_title"],
-            "sheet_scale": fx["sheet_scale"], "suggested": sug}
+            "sheet_scale": fx["sheet_scale"], "sheet_units": fx.get("sheet_units", "metric"),
+            "sheet_low_res": fx.get("sheet_low_res", False), "suggested": sug}
     res = {**fx["res"], "evidence": [{**e, "file": path} for e in fx["res"]["evidence"]]}
     ctx = browser.new_context(viewport=viewport, reduced_motion="reduce", device_scale_factor=1,
                               has_touch=viewport["width"] < 700, is_mobile=viewport["width"] < 700)
@@ -131,6 +132,18 @@ def test_sheet_answer(server, browser, name, vp):
         pg.wait_for_timeout(300)
     if name == "school_baseboard":
         assert pg.inner_text("#ahead .big").replace("\n", " ").strip().startswith("71.7")  # a length, not a rounded count
+    if name == "dorm_imperial":  # "18,472 SF" as a string: the number in its unit; the table reads are evidence rows
+        big = pg.inner_text("#ahead .big").replace("\n", " ")
+        assert "18,472" in big and "SF" in big
+        assert pg.locator("#ov rect.cell").count() == 3
+        assert "SF" in pg.text_content("#ev")
+        assert "Low resolution" in pg.inner_text("#ahead")  # from the sheet meta, not the result
+        assert "SF" in pg.text_content(".catleg") and "m²" not in pg.text_content(".catleg")
+    if name == "dorm_length":
+        assert pg.inner_text("#ahead .big .bn") == "323'-4\""
+    if name == "slab_zones":  # a list answer: the total is the number, the parts a list
+        assert "538" in pg.inner_text("#ahead .big")
+        assert pg.locator("#ahead .alist > div").count() == 3
     if SHOTS:
         Path(SHOTS).mkdir(parents=True, exist_ok=True)
         pg.screenshot(path=f"{SHOTS}/{name}-{'phone' if vp['width'] < 700 else 'desk'}.png")
