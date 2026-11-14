@@ -136,3 +136,13 @@ def test_vector_doors_from_tessellated_arcs(tmp_path):
     assert len(r["doors"]) - len(doors) <= 2
     assert len(doors) == 3
     assert sorted(d["leaves"] for d in doors) == [1, 1, 2]
+
+
+def test_too_coarse_guard():
+    y = {"doors": [{"bbox": [0.1, 0.1, 0.105, 0.105]}] * 20, "windows": []}  # 10 px boxes on a 2000 px image
+    r = O._answer_yolo("doors", y, None, size=(2000, 1400))
+    assert r["answer"] == "at least 20 doors (image too coarse to count reliably)"
+    assert r["confidence"] == 0.25 and "upload the PDF" in r["low_res"]
+    y["doors"] = [{"bbox": [0.1, 0.1, 0.11, 0.11]}] * 20  # 20 px: countable
+    r = O._answer_yolo("doors", y, None, size=(2000, 1400))
+    assert r["answer"] == 20 and r["low_res"] is True

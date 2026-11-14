@@ -935,7 +935,8 @@ def answer(path, question, meta):
         return None
     r = analyse_meta(meta)
     if not r.get("cv_ok", not r["low_res"]):
-        out = _answer_yolo(it, r.get("yolo"), r.get("haiku"))
+        out = _answer_yolo(it, r.get("yolo"), r.get("haiku"), size=(meta.get("w"), meta.get("h")),
+                           px_per_m=r.get("px_per_m"))
         if out is not None:
             _add_schedule_check(out, meta, it)
         return out
@@ -1003,7 +1004,11 @@ def _agree(a, b, tol=0.15):
     return max(a, b) > 0 and abs(a - b) / max(a, b) <= tol
 
 
-def _answer_yolo(it, y, hk=None):
+COARSE_DOOR_PX = 13  # median detector door box (long side, original px): school 2000 px 18, dorm 2000 px 11
+COARSE_PX_PER_M = 15
+
+
+def _answer_yolo(it, y, hk=None, size=None, px_per_m=None):
     """Swings not readable: the detector's boxes at 0.5; a Claude vision count on tiles agreeing within 15 % raises
     it to 0.6 and is quoted; a disagreeing one is ignored (it undercounts dense sheets)."""
     if not y or (it == "doors" and not y["doors"]) or (it == "windows" and not y["windows"]):
@@ -1031,8 +1036,24 @@ def _answer_yolo(it, y, hk=None):
             "this drawing, so expect a few wrong or missed boxes: about 1 in 5 for doors on our test sheet)"
             + ("; " + "; ".join(notes) if notes else "") + ". Every counted item is a numbered box: check the marked "
             "ones; a higher-resolution upload or the PDF gives a more exact count.")
+    low = True
+    # too coarse to count: door symbols only a few pixels across (dorm at 2000 px: the detector finds a third)
+    if it in ("doors", "doors_windows") and y["doors"] and size and size[0] and size[1]:
+        W, H = size
+        med = float(np.median([max((d["bbox"][2] - d["bbox"][0]) * W, (d["bbox"][3] - d["bbox"][1]) * H)
+                               for d in y["doors"]]))
+        if med < COARSE_DOOR_PX or (px_per_m and px_per_m < COARSE_PX_PER_M):
+            n = len(y["doors"])
+            what = f"~{med:.0f} px across" + (f" at {px_per_m:.0f} px per metre" if px_per_m else "")
+            low = f"doors are {what}; upload the PDF or a larger image"
+            ans = f"at least {n} doors (image too coarse to count reliably)" if it == "doors" else \
+                f"at least {n} doors (image too coarse to count reliably) and {len(y['windows'])} windows"
+            conf = 0.25
+            expl = (f"At least {n} doors: the door symbols in this image are only {what}, so the detector misses "
+                    f"many of them (on a test sheet at this size it found a third). Each found door is a numbered "
+                    f"box; upload the PDF or a larger image for a real count.")
     return {"answer": ans, "confidence": conf, "method": f"{METHOD}-yolo", "cost_usd": (hk or {}).get("cost_usd", 0.0),
-            "low_res": True,
+            "low_res": low,
             "explanation": expl, "evidence": ev,
             "counts": {"doors": len(y["doors"]), "windows": len(y["windows"]),
                        "vision_doors": len(hk["doors"]) if hk else None,
