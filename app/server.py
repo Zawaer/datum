@@ -1057,6 +1057,11 @@ def ask(req: Ask, request: Request):
     try:
         res["question_id"] = known["id"] if known else None
         res["calibration"] = calibration_for(res)
+        if q["source"] == "upload" and res["calibration"] and res["calibration"].get("measured"):
+            # the track record is from clean dataset drawings; an upload (a photo, another drawing style) is not
+            # that population, so the UI says "no track record yet" instead of borrowing the number
+            res["calibration_dataset"] = res["calibration"]
+            res["calibration"] = {**res["calibration"], "measured": False}
         res["trace"] = trace_for(res, q)
         res["rule"] = rule_for(res, q)
         res["frontier"] = frontier_for([x["id"] for x in same]) if known else []

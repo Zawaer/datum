@@ -76,6 +76,7 @@ non-drawings, and, for multi-page files, a **page picker** on the drawing.
   * A vision read that returns null is an abstention with 0 % confidence, never "null at 80 %".
   * Below 30 % confidence the answer becomes "Not sure, so no guess". The best guess and its boxes stay visible
     as candidates ("best guess 10, but the evidence was too weak ...").
+  * The held-out track record is not borrowed: uploads show "no track record yet".
   * Paid vision tiles run in parallel, and an upload question stops after 75 s, so a dense sheet answers in
     10-25 s instead of up to 60 s.
 
@@ -117,8 +118,9 @@ answer: 34 s (before the parallel tiles change: 64 s).
   one click.
 * **Dense text questions on vector sets** (e.g. "overall length of the garage") come back at 30 % confidence or
   abstain. The text layer does not say which dimension string belongs to which room.
-* **Track-record badge on YOLO answers for photos** shows the detector's CubiCasa test record. That record was
-  measured on clean scans, not photos.
+* **No track record for uploads.** Answers on uploads say "no track record yet", including the detector's,
+  whose CubiCasa test record (kept in `calibration_dataset`) was measured on clean dataset scans, not on
+  photos or other drawing styles. We have 30 hand-checked files, not a measured accuracy.
 * No OCR on scans: scanned PDFs are read by the vision model only (fine for titles, schedules and labels;
   weaker for long tables).
 * HEIC (iPhone) files are refused with advice to share as JPG. Browsers on iPhone usually convert to JPEG on
