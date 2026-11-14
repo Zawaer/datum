@@ -12,10 +12,16 @@ def to_number(x):
         return None
     if isinstance(x, (int, float)):
         return float(x)
-    m = re.search(r"-?\d[\d\s]*(?:[.,]\d+)?", str(x))
+    s = str(x)
+    # "1,234.5": commas are thousands separators when a dot decimal follows grouped digits
+    t = re.search(r"-?\d{1,3}(?:,\d{3})+\.\d+", s)
+    if t:
+        return float(t.group(0).replace(",", ""))
+    # digit groups may be split by a space, no-break space or narrow no-break space ("2 345,5")
+    m = re.search(r"-?\d[\d \u00a0\u202f\u2009]*(?:[.,]\d+)?", s)
     if not m:
         return None
-    return float(m.group(0).replace(" ", "").replace(",", "."))
+    return float(re.sub(r"[ \u00a0\u202f\u2009]", "", m.group(0)).replace(",", "."))
 
 
 def norm_text(s) -> str:

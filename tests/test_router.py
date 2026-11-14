@@ -30,8 +30,6 @@ def test_guess_type(q, t):
     assert guess_type(q) == t
 
 
-@pytest.mark.xfail(strict=True, reason="BUG bp/router.py:39: the Polish 'ile' alternative has no word boundary, so "
-                                       "'toilet', 'mobile', 'profile', 'tile' make any question a count")
 @pytest.mark.parametrize("q, t", [
     ("What is the area of the toilet?", "area"),
     ("What is the floor area of the mobile home?", "area"),

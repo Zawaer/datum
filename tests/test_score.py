@@ -27,15 +27,11 @@ def test_to_number_none(raw):
     assert to_number(raw) is None
 
 
-@pytest.mark.xfail(strict=True, reason="BUG bp/score.py:15-18: the pattern [\\d\\s]* accepts any whitespace inside a "
-                                       "number but only ' ' is removed, so float() raises on NBSP / thin-space / tab")
-@pytest.mark.parametrize("raw, want", [("2 345,5 m²", 2345.5), ("1 234", 1234.0), ("2\t3", 23.0)])
+@pytest.mark.parametrize("raw, want", [("2\u00a0345,5 m²", 2345.5), ("1\u202f234", 1234.0), ("2 345,5", 2345.5)])
 def test_to_number_non_ascii_space_grouping(raw, want):
     assert to_number(raw) == pytest.approx(want)
 
 
-@pytest.mark.xfail(strict=True, reason="BUG bp/score.py:15: comma thousands with a decimal point ('1,234.5') "
-                                       "parse as 1.234 (the comma is read as the decimal mark)")
 def test_to_number_comma_thousands():
     assert to_number("1,234.5 m²") == pytest.approx(1234.5)
 

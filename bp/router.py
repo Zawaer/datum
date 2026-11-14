@@ -36,7 +36,7 @@ UPLOAD_FALLBACK = {"ifc": "ifctext", "cubicasa": "generic"}
 CUBICASA_SYMBOLS = {"window", "door", "toilet", "sink", "shower_bath", "sauna"}
 
 TYPE_PATTERNS = [
-    ("count", r"how many|kuinka monta|montako|wie viele|combien|quant[ie]|hvor mange|mitu|hur många|hoeveel|ile|"
+    ("count", r"how many|kuinka monta|montako|wie viele|combien|quant[ie]|hvor mange|mitu|hur många|hoeveel|\bile\b|"
               r"\bcount\b|\bnumber of\b|\banzahl\b|\bnombre de\b|\bnumero d|lukumäärä|\baantal\b|\bantal\b|\bliczba\b"),
     ("volume", r"volume|volumen|tilavuus|rumfang|maht|m³|m3"),
     ("length", r"length|länge|pituus|longueur|lunghezza|længde|pikkus|\bm\b(?!²)"),
