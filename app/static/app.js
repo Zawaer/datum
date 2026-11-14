@@ -613,7 +613,7 @@ async function ask() {
   if (primary === 'ifc' && has3d) { await setMode('3d'); highlight3d(true); }
   else {
     if (mode === '3d' && cur.shown) await setMode('2d');  // no plan sheet (IFC-only): stay in 3D
-    const go = () => { zoomToEvidence(); draw(true); };
+    const go = () => { zoomToEvidence(); draw(!res.parts); };  // a two-part answer: no single running count to replay
     if (cur.shown && img.complete && img.naturalWidth && img.getAttribute('src') === '/api/render?path=' + encodeURIComponent(cur.shown) + (cur.page ? '&page=' + cur.page : '')) go();
     else pendingDraw = go;
   }
@@ -930,11 +930,12 @@ function renderAnswer(shownSoFar) {
   $('#ahead').innerHTML = `${qrow}
     ${res.normalized_question && res.normalized_question !== res.question ? `<div class="readas">read as: <i>${esc(res.normalized_question)}</i></div>` : ''}
     ${sheetChipHTML(res)}
-    ${listAnswer(res) ? listHTML(listAnswer(res)) : shortText(res) ? `<div class="big short">${shortText(res)}</div>` : typeof res.answer === 'string' ? `<div class="textans">${esc(res.answer.trim().split('\n').map(l => l.replace(/^\s{1,4}(?=\S)/, '')).join('\n'))}</div>`
+    ${partsHTML(res) ? partsHTML(res) : listAnswer(res) ? listHTML(listAnswer(res)) : shortText(res) ? `<div class="big short">${shortText(res)}</div>` : typeof res.answer === 'string' ? `<div class="textans">${esc(res.answer.trim().split('\n').map(l => l.replace(/^\s{1,4}(?=\S)/, '')).join('\n'))}</div>`
       : `<div class="big ${abst ? 'abstain' : ''} ${counting ? 'counting' : ''}">${abst ? 'Not sure, so no guess' : num ? `<span class="bn">${fmtS(val, t)}</span>` : ''}${abst || !uOf() ? '' : ` <small>${esc(uOf())}</small>`}${!abst && num && res.answer_m2 != null && uOf() !== 'm²' ? ` <small class="approx" title="converted: 1 SF = 0.09290304 m²">(≈ ${esc(thou(res.answer_m2))} m²)</small>` : ''}</div>`}
     ${sheetNotesHTML(res)}
     ${corrected ? correctedTrustHTML(res, h) : trustHTML(res, h) + secondHTML(res) + gpuWarmHTML(res)}
     <div class="corr" id="corr"></div>`;
+  $('#ahead').querySelectorAll('.prow').forEach(b => b.onclick = () => zoomTo(items.map((e, i) => e.part === +b.dataset.part ? i : -1).filter(i => i >= 0)));
   // the rest folds: compared with frontier models, and how it was worked out (method, track record, rule, arithmetic, cost)
   const fr = res.frontier || [], wrong = fr.filter(f => f.correct === false).length;
   const vsSum = wrong ? `<span class="badt">${wrong} of ${fr.length} wrong</span>` : fr.length && fr.every(f => f.correct === true) ? `all ${fr.length} right` : `${fr.length} models`;
@@ -1326,8 +1327,11 @@ function renderEvidence() {
     : primary === 'paired' ? 'Each row is an IFC element, numbered on the plan: click a row to zoom to it, untick it to drop it. Switch to 3D to see the same elements in the model.'
     : 'Click a row to zoom to it; untick it to drop it. Click a mark on the drawing for a card with its value and a drop button. Missed one? Add it.'
       + (items.some(modelRead) ? ' Dashed amber = found by a model, with its score: please check.' : ' Solid = measured from the CAD / IFC geometry.');
-  let k = 0;
+  let k = 0, lastPart = null;
   items.forEach((e, i) => {
+    if (e.part_label && e.part !== lastPart) {  // a two-part answer: each ask's evidence under its own heading
+      lastPart = e.part; const g = document.createElement('div'); g.className = 'evgrp'; g.textContent = e.part_label; ev.appendChild(g);
+    }
     const d = document.createElement('div'); d.className = (e.on ? '' : 'off') + (e.added ? ' added' : ''); d.dataset.i = i;
     if (numbered(e)) k++;
     const name = e.kind === 'box' ? (e.label || 'item').replace(/^\d+:\s*/, '').replace(/ \d+$/, '') : (e.label || (e.kind === 'polygon' ? 'region' : 'item'));
@@ -1421,6 +1425,13 @@ function listAnswer(r) {
   });
   if (!total && list.every(x => x.n != null && x.u && x.u === list[0].u)) total = {v: list.reduce((s, x) => s + x.n, 0), u: list[0].u, sum: true};
   return (r._list = {total, rows: list});
+}
+// a question with two asks ("how many check valves and what size is the discharge header?", bp/intent.py): one
+// compact row per ask with its own number; a row zooms to that ask's evidence group
+function partsHTML(r) {
+  const ps = r.parts; if (!Array.isArray(ps) || ps.length < 2 || r.answer == null) return '';
+  return `<div class="alist parts">${ps.map((p, k) => `<button type="button" class="prow" data-part="${k}" title="${esc(p.question || '')}"><span>${esc(p.label || p.question || '')}</span>${
+    p.answer != null ? `<b>${esc(p.shown || String(p.answer))}</b>` : `<b class="ns">not sure${p.tentative_answer != null ? ` (best guess ${esc(String(p.tentative_answer).slice(0, 24))})` : ''}</b>`}</button>`).join('')}</div>`;
 }
 function listHTML(L) {
   const big = L.total ? `<div class="big">${L.total.t ? esc(L.total.t) : thou(L.total.v)}${L.total.u ? ` <small>${esc(L.total.u)}</small>` : ''}</div>

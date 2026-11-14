@@ -1526,32 +1526,12 @@ class Ask(BaseModel):
 # a sheet specialist's first question may take up to ~62 s (bp/sheets ANSWER_MAX_S; it waits for the upload's
 # warm-up) and the generic reader then still needs its own ~30 s when the specialist abstains
 UPLOAD_TIMEOUT_S = float(os.environ.get("BP_UPLOAD_TIMEOUT_S", "100"))
-# words of typical questions: a typed "how mnay windws" is read as "how many windows" (shown as "read as: ...")
-_VOCAB = set("""how many much what which where who is are the this that there on in of shown drawn plan floor
-drawing sheet page number total area height width length ceiling dimensions scale architect title date revision
-window windows door doors toilet toilets room rooms bedroom bedrooms bathroom bathrooms kitchen kitchens sauna saunas
-sink sinks shower showers bathtub bathtubs stair stairs staircase staircases storey storeys floors level levels
-balcony balconies wall walls column columns parking spaces space elevator lift corridor living dining garage
-closet closets office offices show shows does have has with and for from all each any can see find list name
-names labelled labeled marked count give tell please whats into than then them they their these those
-dorm dorms dormitory dormitories baseboard baseboards skirting slab slabs piping pipe pipes valve valves classroom
-classrooms hall library meters metres linear footage square feet wing wings circulation trench trenches""".split())
-
-
 def _fix_typos(question: str) -> str:
-    import difflib
+    """Misspelt English words corrected ("how mnay windws" -> "how many windows"); real words in any supported
+    language, numbers, tags and sheet ids are never changed (bp/typofix)."""
+    from bp.typofix import fix_typos
 
-    def fix(m):
-        w = m.group(0)
-        lw = w.lower()
-        if len(lw) < 3 or lw in _VOCAB or lw.rstrip("s") in _VOCAB or lw + "s" in _VOCAB or not lw.isalpha():
-            return w
-        c = difflib.get_close_matches(lw, _VOCAB, n=1, cutoff=0.75)
-        if not c or abs(len(c[0]) - len(lw)) > 1 or c[0][0] != lw[0]:
-            return w
-        return c[0].capitalize() if w[0].isupper() else c[0]
-
-    return re.sub(r"[A-Za-z]+", fix, question)
+    return fix_typos(question)
 
 
 def _upload_question(req: Ask) -> dict:
@@ -2095,7 +2075,7 @@ def ask(req: Ask, request: Request):
                               "nothing was guessed")
     _ask_charge(request, res)
     res["latency_s"] = round(time.time() - t0, 3)
-    res["type"] = q["type"]
+    res["type"] = res.pop("qtype", None) or q["type"]  # a translated / two-part question: its English intent's type
     res["source"] = q["source"]
     res["gold"] = known["answer"] if known else None
     res["baseline_cost_usd"] = BASELINE_COST.get(q["source"], BASELINE_COST.get("_all", 0.0))

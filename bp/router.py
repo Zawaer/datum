@@ -46,8 +46,17 @@ TYPE_PATTERNS = [
 ]
 
 
+# "how many square metres of ...": a measure asked with "how many", not a count
+_HOW_MANY_UNITS = [("area", r"how (?:many|much) (?:square (?:met(?:re|er)s?|f(?:ee|oo)t)|sq\.? ?(?:m|ft|feet)|m²|m2|sf)\b"),
+                   ("length", r"how (?:many|much) (?:linear |running )?(?:met(?:re|er)s|feet|lf|m)\b(?![²2])"),
+                   ("volume", r"how (?:many|much) (?:cubic (?:met(?:re|er)s?|yards?|feet)|m³|m3)")]
+
+
 def guess_type(question: str) -> str:
     ql = question.lower()
+    for t, pat in _HOW_MANY_UNITS:
+        if re.search(pat, ql):
+            return t
     for t, pat in TYPE_PATTERNS:
         if re.search(pat, ql):
             return t
@@ -177,9 +186,85 @@ class Router:
                                                                    "name": m["name"]}}
         return res, q
 
+    def _upload_intent(self, q):
+        """An upload question in its English intent (bp/intent.py): a Finnish / German / Swedish question is
+        translated before routing (the sheet specialists match English keywords), and two asks in one question
+        are answered one by one and shown together. Every numeric answer then passes the 1000x number guard."""
+        from bp import intent, numguard
+
+        tr = intent.to_english(q["question"])
+        en = tr.get("question")
+        qq = en or q["question"]
+        parts = intent.split_asks(qq)
+        if parts:
+            res = self._parts(q, parts)
+        else:
+            q2 = dict(q, question=qq, _intent=True)
+            if en:
+                q2["type"] = guess_type(en)
+            res = self(q2)
+            numguard.check(res)
+        if en:
+            res["cost_usd"] = (res.get("cost_usd") or 0.0) + tr.get("cost_usd", 0.0)
+            res["translated_question"] = en
+            if not res.get("normalized_question"):
+                res["normalized_question"] = en
+            if not str(res.get("explanation") or "").startswith("read as:"):
+                res["explanation"] = f"read as: {en} | " + (res.get("explanation") or "")
+            if not parts:
+                res["qtype"] = guess_type(en)
+        return res
+
+    def _parts(self, q, parts):
+        """Each ask of a two-part question through the normal router; one answer row (and evidence group) each."""
+        from bp import intent, numguard
+        from bp.score import to_number
+
+        subs = []
+        for sq in parts:
+            r = self(dict(q, question=sq, type=guess_type(sq), _intent=True))
+            numguard.check(r)
+            subs.append((sq, r))
+        rows, ev, confs = [], [], []
+        for k, (sq, r) in enumerate(subs):
+            label = intent.part_label(sq)
+            a, conf = r.get("answer"), r.get("confidence") or 0.0
+            sure = a is not None and conf >= 0.3
+            unit = r.get("unit") if isinstance(r.get("unit"), str) and r.get("unit") not in ("count", "None") else ""
+            if isinstance(a, (int, float)) and not isinstance(a, bool):
+                n = to_number(a)
+                shown = (f"{int(round(n)):,}" if abs(n - round(n)) < 1e-9 else f"{n:g}") + (f" {unit}" if unit else "")
+            else:
+                shown = str(a).strip() if a is not None else ""
+            if sure:
+                confs.append(conf)
+            rows.append({"question": sq, "label": label, "answer": a if sure else None, "shown": shown if sure else None,
+                         "tentative_answer": None if sure else a, "unit": unit or None, "confidence": conf,
+                         "method": r.get("method"), "sheet_type": r.get("sheet_type"),
+                         "explanation": r.get("explanation")})
+            for e in r.get("evidence") or []:
+                ev.append({**e, "part": k, "part_label": label})
+        if not confs:
+            answer = None
+        else:
+            answer = "; ".join(f"{x['label']}: {x['shown'] if x['answer'] is not None else 'not sure'}" for x in rows)
+        res = {"answer": answer, "confidence": min(confs) if confs else 0.0, "evidence": ev, "parts": rows,
+               "cost_usd": sum(float(r.get("cost_usd") or 0) for _, r in subs),
+               "method": "parts:" + "+".join(str(r.get("method")) for _, r in subs),
+               "route": "+".join(sorted({str(r.get("route")) for _, r in subs})), "qtype": "text",
+               "explanation": " || ".join(f"{sq} -> {r.get('explanation') or ''}" for sq, r in subs)}
+        if len(confs) < len(rows) and confs:
+            res["confidence"] = min(res["confidence"], 0.5)  # one part unanswered: never a confident whole
+        sts = {r.get("sheet_type") for _, r in subs if r.get("sheet_type")}
+        if len(sts) == 1:
+            res["sheet_type"] = sts.pop()
+        return res
+
     def __call__(self, q):
         q = dict(q)
         q.setdefault("type", guess_type(q["question"]))
+        if q["source"] == "upload" and self.normalize and not q.get("_intent"):
+            return self._upload_intent(q)
         name = self.route_for(q)
         if self.normalize and q["source"] != "ifc_bench" and q["source"] != "upload":
             # typed wordings no dataset question uses (bp/normalize.py): "how many doors and windows?" is asked

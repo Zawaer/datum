@@ -17,6 +17,10 @@ def to_number(x):
     t = re.search(r"-?\d{1,3}(?:,\d{3})+\.\d+", s)
     if t:
         return float(t.group(0).replace(",", ""))
+    # "4,470 SF": comma-grouped digits (groups of exactly three) are thousands, not a decimal comma (4.47)
+    t = re.search(r"(?<![\d.,])-?\d{1,3}(?:,\d{3})+(?![\d.,])", s)
+    if t:
+        return float(t.group(0).replace(",", ""))
     # digit groups may be split by a space, no-break space or narrow no-break space ("2 345,5")
     m = re.search(r"-?\d[\d \u00a0\u202f\u2009]*(?:[.,]\d+)?", s)
     if not m:
