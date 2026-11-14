@@ -43,7 +43,11 @@ STOP = {"what", "is", "the", "of", "a", "an", "on", "in", "this", "sheet", "plan
         "level", "space", "sq", "ft", "different", "do", "does", "which", "has", "have", "with", "zone", "zones",
         "colour", "color", "coded", "measured", "measure", "legend", "category", "categories", "type", "types"}
 WINGS = ("west", "east", "north", "south")
-ZONES_VERSION = 7  # bump when the measurement changes (invalidates the per-upload disk cache)
+CONTEXT = set(WINGS) | {"wing", "total", "module", "building", "unit", "whole", "entire", "overall", "first",
+                        "second", "third", "fourth", "ground", "upper", "lower", "combined", "together", "sum", "inside",
+                        "within", "gros", "net", "approximately", "roughly", "about", "what", "calculate", "find",
+                        "tell", "covered", "occupied", "used"}
+ZONES_VERSION = 9  # bump when the measurement changes (invalidates the per-upload disk cache)
 TOL_FRAC = 0.7  # colour tolerance as a fraction of the closest pair of legend / paper / ink colours
 CLOSE_FT = 6.0  # zone fills are closed over walls, furniture and fixtures up to this size
 CENTRE_BOX = 0.12  # |offset| / plan span under which a pixel is in the "centre" rather than a wing
@@ -139,8 +143,31 @@ def words(meta) -> list[dict]:
     if "words" not in st:
         # a PDF text layer (meta["words"], exact) when there is one, else tesseract
         sc = 2.0 if max(meta.get("w", 0), meta.get("h", 0)) < 3000 else 1.0
-        st["words"] = sheets.words(meta, scale=sc, min_conf=35) if meta.get("image") or meta.get("words") else []
+        ws = sheets.words(meta, scale=sc, min_conf=35) if meta.get("image") or meta.get("words") else []
+        st["words"] = ws if meta.get("words") else _dedupe_words(ws)
     return st["words"]
+
+
+def _dedupe_words(ws: list[dict]) -> list[dict]:
+    """OCR passes that overlap read some words twice ("SQUA" + "SQUARE", "WEST" + "WEST"): of two words whose
+    boxes mostly overlap and whose texts are equal or one a prefix of the other, keep the longer."""
+    out: list[dict] = []
+    for w in sorted(ws, key=lambda w: (-len(w["text"]), -w.get("conf", 0))):
+        b = w["bbox"]
+        dup = False
+        for k in out:
+            c = k["bbox"]
+            ix = min(b[2], c[2]) - max(b[0], c[0])
+            iy = min(b[3], c[3]) - max(b[1], c[1])
+            if ix <= 0 or iy <= 0:
+                continue
+            small = min((b[2] - b[0]) * (b[3] - b[1]), (c[2] - c[0]) * (c[3] - c[1]))
+            if ix * iy > 0.5 * small and k["text"].upper().startswith(w["text"].upper().rstrip(".,")):
+                dup = True
+                break
+        if not dup:
+            out.append(w)
+    return out
 
 
 # ------------------------------------------------------------------------------------------------ table rows
@@ -258,6 +285,13 @@ def parse_rows(ws: list[dict], aspect: float = 1.0) -> list[dict]:
                         first = False
                 edge = w["bbox"][0]
                 k -= 1
+            # OCR junk inside labels: lone letters / marks ("WEST V WING", "\\") and stutters ("FIRST FIRST")
+            lab = [w for w in lab if len(w["text"]) > 1 or w["text"].isdigit() or w["text"] in "&+"]
+            lab = [w for i_, w in enumerate(lab) if not (i_ + 1 < len(lab) and lab[i_ + 1]["text"].upper().startswith(
+                w["text"].upper()))]
+            if not lab:
+                i = j_unit + 1
+                continue
             label = re.sub(r"\s*[=:]\s*$", "", " ".join(w["text"] for w in lab)).strip(" =:-_|")
             label = re.sub(r"\s+=\s*", " ", label)
             if not re.search(r"[A-Za-z]{3,}", label):
@@ -316,15 +350,24 @@ def _tables(rows, ws):
         for g in groups:
             last = g[-1]
             hh = last["bbox"][3] - last["bbox"][1]
-            if abs(r["label_bbox"][0] - g[0]["label_bbox"][0]) < 0.01 and 0 <= r["bbox"][1] - last["bbox"][3] < 5 * hh \
-                    and r["kind"] == g[0]["kind"]:
+            aligned = abs(r["label_bbox"][0] - g[0]["label_bbox"][0]) < 0.01 or \
+                abs(r.get("num_x1", 0) - g[-1].get("num_x1", 1)) < 0.004
+            if aligned and -0.6 * hh <= r["bbox"][1] - last["bbox"][3] < 5 * hh and r["kind"] == g[0]["kind"]:
                 g.append(r)
                 break
         else:
             groups.append([r])
+    groups.sort(key=lambda g: g[0]["bbox"][1])
     for g in groups:
         top = g[0]
         hh = top["bbox"][3] - top["bbox"][1]
+        # a group that starts right under a row of the same kind continues that table (OCR shifted its labels)
+        above = [r for r in rows if r not in g and r.get("table") and r["kind"] == top["kind"]
+                 and -0.6 * hh <= top["bbox"][1] - r["bbox"][3] < 3 * hh and abs(r["label_bbox"][0] - top["label_bbox"][0]) < 0.03]
+        if above:
+            for r in g:
+                r["table"] = max(above, key=lambda r: r["bbox"][3])["table"]
+            continue
         cand = [ln for ln in lines if ln["bbox"][3] <= top["bbox"][1] + 0.2 * hh
                 and top["bbox"][1] - ln["bbox"][3] < 3.5 * hh and abs(ln["bbox"][0] - top["label_bbox"][0]) < 0.06
                 and top["label_bbox"][0] - 0.01 < ln["bbox"][0] and not re.search(r"\d", ln["text"])]
@@ -335,6 +378,7 @@ def _tables(rows, ws):
             lx = top["label_bbox"][0]
             same = [x for x in lines if abs(_cy(x["bbox"]) - _cy(ln["bbox"])) < 0.5 * (ln["bbox"][3] - ln["bbox"][1])
                     and lx - 0.01 < x["bbox"][0] < lx + 0.12]
+            same = [x for x in same if not re.search(r"\d", x["text"])] or [ln]
             title = " ".join(x["text"] for x in sorted(same, key=lambda x: x["bbox"][0]))
             title = re.sub(r"[^A-Za-z0-9 ()/&-]", "", title).strip()
         for r in g:
@@ -391,6 +435,44 @@ def _vision_rows(meta) -> tuple[list[dict], float]:
     return rows, cost
 
 
+def _reread_rows(meta, ws, rs, aspect):
+    """OCR misses a value now and then on scans ("EAST WING CIRCULATION = pended"): every text line that starts at
+    a table's label column inside the table's height but gave no row is read again on its own (2x, one line)."""
+    out = list(rs)
+    for kind in ("area", "count"):
+        tr = [r for r in rs if r["kind"] == kind]
+        if len(tr) < 3:
+            continue
+        lx = float(np.median([r["label_bbox"][0] for r in tr]))
+        rx = max(r["value_bbox"][2] for r in tr)
+        y0, y1 = min(r["bbox"][1] for r in tr), max(r["bbox"][3] for r in tr)
+        for line in _rows_of_words(ws, aspect):
+            lw = [w for w in line if lx - 0.006 <= w["bbox"][0] <= rx]
+            if not lw or not (y0 <= _cy(lw[0]["bbox"]) <= y1):
+                continue
+            if min(w["bbox"][0] for w in lw) > lx + 0.01 or not re.search(r"[A-Za-z]{3,}", " ".join(w["text"] for w in lw)):
+                continue
+            if any(abs(_cy(r["bbox"]) - _cy(lw[0]["bbox"])) < 0.5 * (r["bbox"][3] - r["bbox"][1]) for r in out):
+                continue
+            hh = max(w["bbox"][3] - w["bbox"][1] for w in lw)
+            reg = [max(0.0, lx - 0.004), max(0.0, min(w["bbox"][1] for w in lw) - 0.3 * hh), min(1.0, rx + 0.004),
+                   min(1.0, max(w["bbox"][3] for w in lw) + 0.3 * hh)]
+            try:
+                got = parse_rows(sheets.ocr_words(meta, region=reg, scale=2.0, psm=7, min_conf=0), aspect)
+            except Exception:  # noqa: BLE001
+                got = []
+            for g in got:
+                if g["kind"] == kind:
+                    g["reread"] = True
+                    out.append(g)
+    if len(out) > len(rs):
+        out.sort(key=lambda x: (x["bbox"][1], x["bbox"][0]))
+        _tables(out, ws)
+        for n, x in enumerate(out):
+            x["id"] = n
+    return out
+
+
 def rows(meta) -> list[dict]:
     st = _st(meta)
     if "rows" in st:
@@ -398,7 +480,10 @@ def rows(meta) -> list[dict]:
     rs = _disk_get(meta, f"rows_v{ZONES_VERSION}") if not meta.get("words") else None
     if rs is None:
         ws = words(meta)
-        rs = parse_rows(ws, aspect=(meta.get("w") or 1) / (meta.get("h") or 1)) if ws else []
+        aspect = (meta.get("w") or 1) / (meta.get("h") or 1)
+        rs = parse_rows(ws, aspect=aspect) if ws else []
+        if rs and not meta.get("words") and meta.get("image"):
+            rs = _reread_rows(meta, ws, rs, aspect)
         cost = 0.0
         if not ws and meta.get("image") and ((meta.get("classify") or {}).get("has_tables")):
             rs, cost = _vision_rows(meta)
@@ -941,7 +1026,14 @@ def _pct(m, s):
     return f"{100 * (m / s - 1):+.1f} %" if s else ""
 
 
+DIM_Q = re.compile(r"\b(overall|total|building|whole|entire|outside|gross|external)\b.*\b(length|width|depth|long|wide|"
+                   r"deep|dimension)|\b(length|width|depth|dimension)s? of the (building|plan|floor|whole)|how (long|wide|"
+                   r"deep) is the (building|plan)", re.I)
+
+
 def answer(path, question, meta):
+    if DIM_Q.search(question) and not re.search(r"\barea\b", question, re.I):
+        return _answer_dimension(meta, question)
     if not is_mine(question):
         return None
     rs = rows(meta)
@@ -969,6 +1061,69 @@ def answer(path, question, meta):
         if low:
             res["low_res"] = low
     return res
+
+
+def _fmt_ftin(ft: float) -> str:
+    f = int(ft)
+    i = int(round((ft - f) * 12))
+    if i == 12:
+        f, i = f + 1, 0
+    return f"{f}'-{i}\""
+
+
+def _answer_dimension(meta, question):
+    """Overall length / width of the building: the longest printed dimension string (horizontal for length,
+    the other direction for width / depth when it was read), kept as printed (323'-4"), its line measured as a check."""
+    ws = words(meta)
+    W, H = meta.get("w") or 1, meta.get("h") or 1
+    allw = ws if meta.get("words") or not meta.get("image") else sheets.ocr_words(meta, min_conf=0)
+    dims = []
+    for w in allw:
+        ft = _dim_ft(w["text"])
+        if ft is None or ft < 10:
+            continue
+        b = w["bbox"]
+        vert = (b[3] - b[1]) * H > (b[2] - b[0]) * W
+        dims.append((ft, vert, w))
+    if not dims:
+        return None
+    want_w = bool(re.search(r"\b(width|wide|depth|deep)\b", question, re.I))
+    hz = [d for d in dims if not d[1]]
+    vt = [d for d in dims if d[1]]
+    if want_w:
+        pool = vt if vt else []  # rasters: rotated text is rarely OCR'd, then we cannot tell width from length
+        if not pool:
+            return None
+    else:
+        pool = hz or dims
+    ft, vert, w = max(pool, key=lambda d: d[0])
+    # if both directions were read, "length" is the longer one
+    if not want_w and vt and max(d[0] for d in vt) > ft:
+        ft, vert, w = max(vt, key=lambda d: d[0])
+    text = _fmt_ftin(ft)
+    ev = [{"kind": "text", "page": 0, "bbox": _pad(w["bbox"]), "label": f"dimension {text}", "value": round(ft, 3)}]
+    conf, check = 0.75, ""
+    sc = scale(meta)
+    if sc and not vert and meta.get("image"):
+        try:
+            r = _dim_line_px(np.asarray(_image(meta, "L")), w["bbox"], W, H)
+        except Exception:  # noqa: BLE001
+            r = None
+        if r:
+            meas = r[0] / sc["px_per_ft"]
+            dev = meas / ft - 1
+            x0, x1, y = r[1]
+            ev.append({"kind": "polyline", "page": 0, "points": [[x0 / W, y / H], [x1 / W, y / H]], "closed": False,
+                       "label": f"dimension line, measured {meas:.1f} ft", "value": round(meas, 2), "unit": "ft"})
+            if "dimension" not in sc["how"] or abs(dev) > 1e-6:
+                check = f"; its line measures {meas:.1f} ft at the sheet's scale ({100 * dev:+.1f} %)"
+            conf = 0.9 if abs(dev) < 0.03 else 0.6
+    which = "width" if want_w else "length"
+    return {"answer": text, "display": text, "value_ft": round(ft, 4), "value_m": round(ft * FT, 3),
+            "confidence": conf, "method": "sheets-zones-dimension", "cost_usd": 0.0, "unit": "ft-in",
+            "explanation": f"Overall {which}: the longest {'vertical' if vert else 'horizontal'} dimension string on "
+                           f"the plan reads {text} ({ft:.2f} ft = {ft * FT:.2f} m){check}",
+            "evidence": ev, **({"low_res": _low_res(meta)} if _low_res(meta) else {})}
 
 
 def _low_res(meta):
@@ -1057,6 +1212,12 @@ def _answer_measured(meta, question, metric):
     qt = {_stem(t) for t in _toks(question)}
     wing = next((w_ for w_ in WINGS if re.search(rf"\b{w_}\b", ql)), None)
     hit = [c for c in z["categories"] if qt & {_stem(t) for t in _toks(c["name"])}]
+    # every content word of the question must be a legend word (or context): "total bedroom area in the
+    # dormitory module" names bedrooms, which the DORMITORY colour does not measure, so abstain
+    named = {_stem(t) for c in z["categories"] for t in _toks(c["name"])}
+    uncovered = qt - named - CONTEXT
+    if hit and uncovered and not re.search(r"colou?r|legend|zone", ql):
+        return None
     if not hit:
         if qt - set(WINGS) - {"wing", "total", "common"} and not re.search(r"colou?r|legend|zone|different|each|type", ql):
             return None  # asks about something the legend does not name

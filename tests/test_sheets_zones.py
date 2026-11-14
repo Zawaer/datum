@@ -158,3 +158,23 @@ def test_detect_and_abstain(meta):
 def test_low_res_flag():
     assert Z._low_res({"w": 2000, "h": 1294}) and not Z._low_res({"w": 10200, "h": 6600})
     assert Z._low_res({"w": 2000, "h": 1294, "words": [{"text": "x"}]}) is None
+
+
+def test_measured_abstains_on_rooms_the_legend_does_not_name(meta):
+    # "bedroom" is not a legend colour: the DORMITORY fill is not the bedrooms' area
+    assert Z._answer_measured(meta, "What is the total bedroom area in the dormitory module?", None) is None
+    assert Z._answer_measured(meta, "What is the dormitory area?", None)["answer"] > 0
+
+
+def test_overall_length_keeps_feet_and_inches(meta):
+    r = Z.answer(meta["image"], "What is the overall length of the building?", meta)
+    assert r["answer"] == "200'-0\"" and r["method"] == "sheets-zones-dimension"
+    assert r["value_ft"] == pytest.approx(200.0) and r["confidence"] >= 0.85
+    assert Z._fmt_ftin(323 + 4 / 12) == "323'-4\""
+
+
+def test_duplicate_ocr_words_are_merged():
+    a = {"text": "SQUA", "conf": 60, "bbox": [0.1, 0.1, 0.13, 0.11]}
+    b = {"text": "SQUARE", "conf": 90, "bbox": [0.1, 0.1, 0.15, 0.11]}
+    c = {"text": "FOOTAGE", "conf": 90, "bbox": [0.16, 0.1, 0.2, 0.11]}
+    assert [w["text"] for w in Z._dedupe_words([a, b, c])] == ["FOOTAGE", "SQUARE"]
