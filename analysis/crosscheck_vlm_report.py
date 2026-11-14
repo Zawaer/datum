@@ -1,6 +1,11 @@
 """CubiCasa cross-check with the fine-tuned VLM as the second opinion, measured on the full test split.
 
     .venv/bin/python analysis/crosscheck_vlm_report.py [runs/cubicasa_test_v4.jsonl] > runs/crosscheck_vlm_test.summary.md
+    .venv/bin/python analysis/crosscheck_vlm_report.py runs/router_full_test_v7.jsonl crosscheck_vlm_test_v7 \
+        "flip-TTA YOLO11m v4, the shipped detector" > runs/crosscheck_vlm_test_v7.summary.md
+
+The second argument names the log (runs/<name>.jsonl), the third describes the primary; only CubiCasa rows of the
+primary file are used (so a full router run works as input).
 
 Primary = the shipped detector's eval.py rows (YOLO11m v4); the second opinion comes from bp.crosscheck.crosscheck
 itself (precomputed VLM answers, runs/vlm_r3_cubicasa_test_full.jsonl), so this measures the code the demo runs.
@@ -41,12 +46,16 @@ def at_coverage(rows, score, cov):
 
 def main():
     src = sys.argv[1] if len(sys.argv) > 1 else "runs/cubicasa_test_v4.jsonl"
+    name = sys.argv[2] if len(sys.argv) > 2 else "crosscheck_vlm_test"
+    prim = sys.argv[3] if len(sys.argv) > 3 else "YOLO11m v4, the shipped detector"
     xc.cc_second_dets = _cached_dets
     # the full-test run only: the demo file (a separate, later run on 924 questions) differs on ~50 answers
     xc.VLM_FILES = [REPO / "runs/vlm_r3_cubicasa_test_full.jsonl"]
     rows = []
     for line in open(REPO / src):
         r = json.loads(line)
+        if r.get("source") != "cubicasa5k":
+            continue
         cc = xc.crosscheck(r, {"answer": r["pred"], "method": r.get("method", "cubicasa-yolo")})
         sec = cc.get("second") or {}
         r["crosscheck"] = {"status": cc["status"], "answer": sec.get("answer"), "method": sec.get("method"),
@@ -56,7 +65,7 @@ def main():
         r["vlm_ok"] = sec.get("answer") is not None and is_correct("count", sec.get("answer"), r["gold"])
         r.pop("evidence", None)
         rows.append(r)
-    out = REPO / "runs/crosscheck_vlm_test.jsonl"
+    out = REPO / f"runs/{name}.jsonl"
     with open(out, "w") as fo:
         for r in rows:
             fo.write(json.dumps(r, ensure_ascii=False) + "\n")
@@ -67,11 +76,10 @@ def main():
     ag = [r for r in rows if r["crosscheck"]["status"] == "agree"]
     cf = [r for r in rows if r["crosscheck"]["status"] == "conflict"]
     ok = lambda xs: sum(r["correct"] for r in xs)  # noqa: E731
-    print("# crosscheck_vlm_test: the fine-tuned VLM as the CubiCasa second opinion\n")
-    print(f"All {n:,} CubiCasa test questions (both languages). Primary: `{src}` (YOLO11m v4, the shipped "
-          "detector). Second opinion: `bp/crosscheck.py` with the precomputed answers of the fine-tuned "
+    print(f"# {name}: the fine-tuned VLM as the CubiCasa second opinion\n")
+    print(f"All {n:,} CubiCasa test questions (both languages). Primary: `{src}` ({prim}). Second opinion: `bp/crosscheck.py` with the precomputed answers of the fine-tuned "
           "Qwen3-VL-8B + LoRA (r3, checkpoint-2200; `runs/vlm_r3_cubicasa_test_full.jsonl`). Log "
-          "`runs/crosscheck_vlm_test.jsonl`; tables from `analysis/crosscheck_vlm_report.py`. Nothing tuned on "
+          f"`runs/{name}.jsonl`; tables from `analysis/crosscheck_vlm_report.py`. Nothing tuned on "
           "test: the router rule (confidence x 0.5 on conflict, abstain below 0.5) was chosen on dev with the "
           "detector pairing; no per-target rule (the VLM has no dev-val run, so none was chosen).\n")
     print("## Headline\n")

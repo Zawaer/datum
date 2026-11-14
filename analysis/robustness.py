@@ -31,7 +31,7 @@ sys.path.insert(0, os.environ.get("BP_CODE_ROOT") or str(ROOT))
 from bp.data import load_questions  # noqa: E402
 from bp.score import is_correct  # noqa: E402
 
-RUN = ROOT / os.environ.get("BP_TWINS_RUN", "runs/router_full_test_v6.jsonl")
+RUN = ROOT / os.environ.get("BP_TWINS_RUN", "runs/router_full_test_v7.jsonl")
 TWINS = ROOT / "runs/robustness_twins.jsonl"
 PARA = ROOT / "runs/robustness_paraphrases.jsonl"
 PARA_FRESH = ROOT / "runs/robustness_paraphrases_fresh.jsonl"
@@ -546,9 +546,10 @@ FINDINGS = """## Summary
   these questions (the ones no parser understands) and declines all of them (NONE), so it never turns a
   nonsense question into an answer.
 - **Dataset questions do not change.** All 127,043 dataset questions parse as before except 3 (quote fix,
-  below), none reaches the normaliser, and the full test run `runs/router_full_test_v6.summary.md` scores
-  **89.5 %** (v4: 88.2 %; the +1.3 points are the new CubiCasa detector, 82.2 % → 84.2 %; Swiss 100.0 %,
-  ifc_models 100.0 %, ifc_bench 38.2 %). Language twins: still 100 % agreement on 12,654 pairs.
+  below), none reaches the normaliser, and the full test run `runs/router_full_test_v7.summary.md` scores
+  **90.0 %** (v6: 89.5 %, v4: 88.2 %; since v4 the CubiCasa detector went 82.2 % → 84.2 % (new detector) →
+  85.1 % (flip test-time augmentation); Swiss 100.0 %, ifc_models 100.0 %, ifc_bench 38.2 %). Language twins:
+  still 100 % agreement on 12,654 pairs.
 - **Cost:** the normaliser runs only on questions no parser understands: one Haiku call (~$0.0003-0.003, cached
   per question and drawing). Dataset questions stay $0.
 """

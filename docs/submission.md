@@ -1,8 +1,8 @@
 # Submission texts (numbers from docs/RESULTS.md, docs/COSTS.md, runs/*.summary.md)
 
 Every number below comes from a run log (`runs/*.jsonl`, rebuilt into `docs/RESULTS.md` by
-`BP_OURS_RUN=router_full_test_v6 bash analysis/run_all.sh`), from `docs/COSTS.md`, or from the verification
-reports (`runs/crosscheck_test.summary.md`, `runs/crosscheck_vlm_test.summary.md`, `docs/EVIDENCE_QUALITY.md`, `docs/ROBUSTNESS.md`, `docs/PROVENANCE.md`).
+`BP_OURS_RUN=router_full_test_v7 bash analysis/run_all.sh`), from `docs/COSTS.md`, or from the verification
+reports (`runs/crosscheck_test.summary.md`, `runs/crosscheck_vlm_test_v7.summary.md`, `docs/EVIDENCE_QUALITY.md`, `docs/ROBUSTNESS.md`, `docs/PROVENANCE.md`).
 TODO markers remain only for the demo / video links.
 
 ## Project name (≤ 30 chars)
@@ -13,13 +13,13 @@ _(20 characters)_
 
 ## Punchline (≤ 200 chars)
 
-Ask a drawing or BIM model anything, in any language. 89.5 % right on 25k held-out questions vs 69.8 % for a frontier model given the same files, every answer shown on the drawing.
+Ask a drawing or BIM model anything, in any language. 90.0 % right on 25k held-out questions vs 69.8 % for a frontier model given the same files, every answer shown on the drawing.
 
 _(181 characters)_
 
 ## Short version (~600 chars, for quick paste)
 
-Blueprints That Talk answers questions about construction drawings and BIM models (tested in six languages) and draws the proof: counted doors numbered on the plan, rooms outlined with their m², walls lit up in 3D, adding up to the answer. A router picks the cheapest exact method: CAD geometry, IfcOpenShell, a small detector. On all 25,420 held-out test questions (every one, not a sample): 89.5 % at $0.013 per 1,000, vs 69.8 % for Claude Sonnet 5.5 given the same files at $25.76. Each answer carries a calibrated confidence; numeric ones an independent cross-check. The evaluation was cross-audited by a second AI agent (Codex): no leakage, recount reproduces.
+Blueprints That Talk answers questions about construction drawings and BIM models (tested in six languages) and draws the proof: counted doors numbered on the plan, rooms outlined with their m², walls lit up in 3D, adding up to the answer. A router picks the cheapest exact method: CAD geometry, IfcOpenShell, a small detector. On all 25,420 held-out test questions (every one, not a sample): 90.0 % at $0.013 per 1,000, vs 69.8 % for Claude Sonnet 5.5 given the same files at $25.76. Each answer carries a calibrated confidence; numeric ones an independent cross-check. The evaluation was cross-audited by a second AI agent (Codex): no leakage, recount reproduces.
 
 _(665 characters)_
 
@@ -37,14 +37,14 @@ Held-out test split, split by whole drawing (hash of the drawing id, 20 % test; 
 
 | | accuracy [95 % CI] | $ / 1,000 q |
 |---|---|---|
-| **Ours, all 25,420 questions** | **89.5 %** [89.1–89.8] | **$0.013** |
+| **Ours, all 25,420 questions** | **90.0 %** [89.7–90.4] | **$0.013** |
 | Claude Sonnet 5.5 + sibling CAD/IFC files* | 69.8 % [60.9–78.4] | $25.76 |
 | Gemini 3.1 Pro, drawing only* | 64.2 % | $52.47 |
 | Claude Sonnet 5.5, drawing only* | 63.2 % | $13.06 |
 | Claude Haiku 5.5, drawing only* | 60.6 % | $1.21 |
 | Nemotron 3.5 Super VL (open)* | 49.0 % | $2.59 |
 
-By source: Swiss plans 99.95 % (8,214), IFC numeric 100 % (600), Finnish raster plans 84.2 % (16,496), IFC free text 38.2 % (110, LLM judge; our weak spot).
+By source: Swiss plans 99.95 % (8,214), IFC numeric 100 % (600), Finnish raster plans 85.1 % (16,496), IFC free text 38.2 % (110, LLM judge; our weak spot).
 
 \* 400-question sample stratified by source × type (±~13 pp per cell), re-weighted to the test mix. The fair comparison gives Sonnet the same sibling files our solvers read.
 
@@ -54,8 +54,8 @@ By source: Swiss plans 99.95 % (8,214), IFC numeric 100 % (600), Finnish raster 
 
 The answer is counted out on the drawing: numbered boxes, rooms outlined with their m², IFC elements lit up in 3D by GlobalId. Four layers:
 
-- **Evidence that adds up.** Untick an item or click a missed one and the total updates. The boxes themselves are right: >90 % precision and recall against independent gold; only ~2.5 % of right counts are right by luck.
-- **Calibrated confidence**, measured on test: answering only at ≥ 0.5 keeps 87.5 % of questions at 95.4 % and turns 1,658 wrong answers into an honest "not sure" (Finnish plans: 92.8 % when answered, 19 % declined; Swiss and IFC numeric: 99.9–100 %, none declined).
+- **Evidence that adds up.** Untick an item or click a missed one and the total updates. The boxes themselves are right: >90 % precision and recall against independent gold; only ~2.3 % of right counts are right by luck.
+- **Calibrated confidence**, measured on test: answering only at ≥ 0.5 keeps 87.6 % of questions at 95.8 % and turns 1,594 wrong answers into an honest "not sure" (Finnish plans: 93.4 % when answered, 19 % declined; Swiss and IFC numeric: 99.9–100 %, none declined).
 - **Independent cross-check.** A second method re-derives 98 % of numeric answers (PDF re-read for CAD plans, the SVG sheet for IFC, a fine-tuned vision model for scans). Where they agree, Swiss and IFC answers were right 99.98 % of the time (all but 2 of 8,184); it caught a real error in our own CAD reading of an apartment area. On conflict, confidence is halved and both readings are shown.
 - **Provenance.** Every number in an LLM-written answer is traced to the facts it cites, or flagged.
 
@@ -68,12 +68,12 @@ Stoa asks for approaches next year's frontier models won't make obsolete: "hybri
 - **CAD plans:** the PDF's DXF twin gives doors, windows, rooms by layer; evidence is mapped back onto the PDF.
 - **BIM models:** IfcOpenShell counts, areas, lengths, volumes per storey.
 - **Raster scans:** a YOLO11m detector trained only on non-test drawings, confidence calibrated on dev.
-- **Small fine-tuned VLM:** a fine-tuned 8B vision model (Qwen3-VL-8B LoRA, 75 % alone) acts as an independent second opinion: when it agrees (74 % of raster questions), answers are 94.6 % right.
+- **Small fine-tuned VLM:** a fine-tuned 8B vision model (Qwen3-VL-8B LoRA, 75 % alone) acts as an independent second opinion: when it agrees (74 % of raster questions), answers are 94.9 % right.
 - **Claude Haiku 5.5, a small frontier LLM, only for free text** (the 110 free-text questions, 0.4 % of test): answers by citing fact ids, and a normaliser that maps free wording onto exact queries using only names in the drawing.
 
 ### 4. Low inference cost
 
-**$0.013 per 1,000 questions** in API fees on all 25,420 test questions: numeric answers make no paid calls. Local compute adds about $0.005 per 1,000. About 1/1,900 of the fair Sonnet baseline, at 0.04 s instead of ~16 s per answer.
+**$0.013 per 1,000 questions** in API fees on all 25,420 test questions: numeric answers make no paid calls. Local compute adds about $0.006 per 1,000. About 1/1,900 of the fair Sonnet baseline, at 0.04 s instead of ~16 s per answer.
 
 ### Why it lasts
 

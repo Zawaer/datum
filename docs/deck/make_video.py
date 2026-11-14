@@ -89,10 +89,10 @@ SCENES = [
          "Switch to 3D, and the same doors light up as I.F.C. elements."),
     ]},
     {"kind": "card", "ref": "results", "lines": [
-        ("Overall: 89.5 % correct on 25,420 held-out questions.",
-         "Overall: eighty-nine point five percent correct, on twenty-five thousand held-out questions."),
-        ("100 % on Swiss plans and BIM model quantities, 84 % on Finnish scans.",
-         "A hundred percent on Swiss plans and BIM model quantities. Eighty-four on Finnish scans."),
+        ("Overall: 90 % correct on 25,420 held-out questions.",
+         "Overall: ninety percent correct, on twenty-five thousand held-out questions."),
+        ("100 % on Swiss plans and BIM model quantities, 85 % on Finnish scans.",
+         "A hundred percent on Swiss plans and BIM model quantities. Eighty-five on Finnish scans."),
         "Independently audited for leakage.",
     ]},
     {"kind": "card", "ref": "cost", "lines": [
@@ -260,20 +260,20 @@ def cards_html():
 </section>
 <section class="card" id="results">
   <div class="kicker">Results · held-out test split</div>
-  <h2>89.5&nbsp;% correct on 25,420 held-out questions.</h2>
+  <h2>90.0&nbsp;% correct on 25,420 held-out questions.</h2>
   <div class="bars">
-    {bar("<b>Blueprints That Talk</b>", 89.5, True)}
+    {bar("<b>Blueprints That Talk</b>", 90.0, True)}
     {bar("Claude Sonnet 5.5 + CAD / IFC files", 69.8)}
     {bar("Claude Sonnet 5.5, drawing only", 63.2)}
   </div>
   <div class="tiles">
     <div class="tile"><div class="n">100&nbsp;%</div><div class="l">Swiss CAD plans<br>counts and room areas</div></div>
     <div class="tile"><div class="n">100&nbsp;%</div><div class="l">BIM / IFC models<br>counts, areas, lengths, volumes</div></div>
-    <div class="tile"><div class="n">84.2&nbsp;%</div><div class="l">Finnish raster plans<br>symbol counts</div></div>
+    <div class="tile"><div class="n">85.1&nbsp;%</div><div class="l">Finnish raster plans<br>symbol counts</div></div>
   </div>
   <div class="badge">✓ Evaluation independently audited for leakage (Codex): no drawing in both train and test</div>
-  <div class="foot">Ours: all 25,420 test questions, 95 % CI 89.1–89.8 % (Swiss 99.9–100 % rounded; IFC numeric questions; free-text IFC answers 38.2 %).
-  Sources: docs/STATUS.md, docs/RESULTS.md, runs/router_full_test_v6.</div>
+  <div class="foot">Ours: all 25,420 test questions, 95 % CI 89.7–90.4 % (Swiss 99.9–100 % rounded; IFC numeric questions; free-text IFC answers 38.2 %).
+  Sources: docs/STATUS.md, docs/RESULTS.md, runs/router_full_test_v7.</div>
 </section>
 <section class="card" id="cost">
   <div class="kicker">Cost per 1,000 questions</div>
@@ -283,7 +283,7 @@ def cards_html():
     <div class="box fr"><div class="n">$13–58</div><div class="l"><b>Frontier models</b><br>Claude Sonnet 5.5, drawing only or with its CAD / IFC files, at API list price</div></div>
   </div>
   <p style="font-size:40px; color:var(--ink2); margin-top:60px">About <b style="color:var(--ink)">1,000 to 4,000 times cheaper</b>, and about 40&nbsp;ms per answer instead of 13&nbsp;s.</p>
-  <div class="foot">API list prices, measured: ours on all 25,420 test questions, frontier on a 400-question sample. Local CPU/GPU compute adds ~$0.005 per 1,000.
+  <div class="foot">API list prices, measured: ours on all 25,420 test questions, frontier on a 400-question sample. Local CPU/GPU compute adds ~$0.006 per 1,000.
   Detector and model training ran on cloud GPUs (Verda). Source: docs/COSTS.md, docs/RESULTS.md.</div>
 </section>
 <section class="card dark end" id="end">

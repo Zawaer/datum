@@ -126,14 +126,14 @@
   <div class="sub" style="font-size:40px; max-width:1680px; margin-bottom:46px">Ask a construction drawing or a BIM model a question in English, Finnish, German, French, Italian or Dutch. Every answer comes with its proof, drawn on the drawing.</div>
   <div class="row" style="gap:60px; align-items:flex-start">
     <div class="vstats" style="flex:1">
-      <div class="vstat"><div class="n">89.5&nbsp;%</div><div class="l"><b style="color:#fff">right on all 25,420 questions</b> from drawings we never trained on<br><span style="color:#60a5fa">95.4&nbsp;% when it answers · says “not sure” on 12.5&nbsp;%</span></div></div>
+      <div class="vstat"><div class="n">90.0&nbsp;%</div><div class="l"><b style="color:#fff">right on all 25,420 questions</b> from drawings we never trained on<br><span style="color:#60a5fa">95.8&nbsp;% when it answers · says “not sure” on 12.4&nbsp;%</span></div></div>
       <div class="vstat"><div class="n" style="color:#fdba74">69.8&nbsp;%</div><div class="l">best frontier model<br>(Claude Sonnet 5.5) given the same files</div></div>
-      <div class="vstat"><div class="n">$0.013</div><div class="l">API per 1,000 questions, + ~$0.005 local<br>compute (Sonnet with the files: $25.76)</div></div>
+      <div class="vstat"><div class="n">$0.013</div><div class="l">API per 1,000 questions, + ~$0.006 local<br>compute (Sonnet with the files: $25.76)</div></div>
     </div>
     <div class="shot" style="flex:0 0 720px"><img src="img/deck-swiss-doors.jpg" alt="20 doors numbered on a Swiss plan" style="border-color:#334155">
       <div class="cap" style="color:#cbd5e1; font-size:22px; margin-top:12px">“How many doors?” 20, each numbered on the plan.</div></div>
   </div>
-  <div class="foot">Toivo and Rene · held-out test split of the Junction dataset (split by whole drawing), evaluation cross-audited by a second AI agent (Codex) · ours: <code>runs/router_full_test_v6</code>; Sonnet: 400-question sample re-weighted to the test mix, API list price · Drawing: Swiss Dwellings v3.0.0 (Archilyse AG), CC BY 4.0</div>
+  <div class="foot">Toivo and Rene · held-out test split of the Junction dataset (split by whole drawing), evaluation cross-audited by a second AI agent (Codex) · ours: <code>runs/router_full_test_v7</code>; Sonnet: 400-question sample re-weighted to the test mix, API list price · Drawing: Swiss Dwellings v3.0.0 (Archilyse AG), CC BY 4.0</div>
 </section>
 
 <!-- 2 · problem -->
@@ -158,7 +158,7 @@
       <div class="a"><span>Ours, from the IFC model</span><span class="good">353.715 m²</span></div>
     </div>
   </div>
-  <div class="foot">Question ids 122272 and 89286 in <code>runs/baseline_sonnet_full400.jsonl</code>, <code>runs/baseline_sonnetfair_full400.jsonl</code> and <code>runs/router_full_test_v6.jsonl</code>. Drawings: Swiss Dwellings v3.0.0 (Archilyse AG, CC BY 4.0); BIM-Speed Warmond demo site (Garcia &amp; Hartmann 2022, TU Berlin, doi:10.14279/depositonce-16441.2, CC BY 4.0).</div>
+  <div class="foot">Question ids 122272 and 89286 in <code>runs/baseline_sonnet_full400.jsonl</code>, <code>runs/baseline_sonnetfair_full400.jsonl</code> and <code>runs/router_full_test_v7.jsonl</code>. Drawings: Swiss Dwellings v3.0.0 (Archilyse AG, CC BY 4.0); BIM-Speed Warmond demo site (Garcia &amp; Hartmann 2022, TU Berlin, doi:10.14279/depositonce-16441.2, CC BY 4.0).</div>
 </section>
 
 <!-- 3 · frontier fails -->
@@ -224,7 +224,7 @@
   <h2 style="margin-bottom:34px">Scans get boxes. BIM models light up in 3D.</h2>
   <div class="shots">
     <div class="shot"><img src="img/deck-finnish-vlm.jpg" alt="Finnish plan with 13 detected doors boxed; the fine-tuned vision model also says 13">
-      <div class="cap"><b>Finnish plan, asked in Finnish:</b> the detector boxes each of the 13 doors; our fine-tuned vision model also says 13. When both agree: 94.6&nbsp;% right.
+      <div class="cap"><b>Finnish plan, asked in Finnish:</b> the detector boxes each of the 13 doors; our fine-tuned vision model also says 13. When both agree: 94.9&nbsp;% right.
         <small>CubiCasa5K, © 2019 CubiCasa; Kalervo, Ylioinas, Häikiö, Karhu, Kannala, SCIA 2019; CC BY-NC-SA 4.0</small></div></div>
     <div class="shot"><img src="img/deck-ifc-walls.jpg" alt="21 walls lit up in a 3D IFC model with the arithmetic summing to 185.13 m">
       <div class="cap"><b>BIM model, asked in Danish:</b> total wall length. The 21 walls light up in 3D and “Why this answer” shows the sum: 185.13&nbsp;m, exact.
@@ -237,23 +237,23 @@
   <div class="brand">Blueprints <span>That Talk</span></div><div class="pg">7</div>
   <div class="kicker">Results · drawings we never trained on · accuracy and cost</div>
   <h2 style="font-size:54px; max-width:none; margin-bottom:14px">+20 points over the best frontier model, at 1/1,900 of the cost.</h2>
-  <p style="font-size:25px; line-height:1.38; margin:0 0 16px; max-width:1680px">Where a CAD or IFC file exists, the exact answer is in it and we read it; a frontier model given the same files still misses about 1 in 5 on the Swiss plans and 2–9&nbsp;% on IFC. Scanned plans have no such file: there we score <b>84.2&nbsp;%</b> vs 63.6&nbsp;% (<b>92.8&nbsp;% when answered</b>). Whole drawings held out: no test drawing was used to build anything.</p>
+  <p style="font-size:25px; line-height:1.38; margin:0 0 16px; max-width:1680px">Where a CAD or IFC file exists, the exact answer is in it and we read it; a frontier model given the same files still misses about 1 in 5 on the Swiss plans and 2–9&nbsp;% on IFC. Scanned plans have no such file: there we score <b>85.1&nbsp;%</b> vs 63.6&nbsp;% (<b>93.4&nbsp;% when answered</b>). Whole drawings held out: no test drawing was used to build anything.</p>
   <table class="res res7" style="font-size:25px">
     <tr><th>source · type</th><th>n</th><th>ours</th><th>ours, when answered (≥&nbsp;0.5)</th><th>ours declines</th><th>Sonnet + files*</th><th>Sonnet*</th></tr>
     <tr><td>Swiss plans · counts</td><td>5,580</td><td class="o">99.96&nbsp;%</td><td>99.96&nbsp;%</td><td>0&nbsp;%</td><td>81.5&nbsp;%</td><td>79.6&nbsp;%</td></tr>
     <tr><td>Swiss plans · room areas</td><td>2,634</td><td class="o">99.92&nbsp;%</td><td>99.92&nbsp;%</td><td>0&nbsp;%</td><td>79.6&nbsp;%</td><td>38.9&nbsp;%</td></tr>
     <tr><td>IFC models · counts</td><td>136</td><td class="o">100.0&nbsp;%</td><td>100&nbsp;%</td><td>0&nbsp;%</td><td>96.3&nbsp;%</td><td>42.6&nbsp;%</td></tr>
     <tr><td>IFC · areas, volumes, lengths</td><td>464</td><td class="o">100.0&nbsp;%</td><td>100&nbsp;%</td><td>0&nbsp;%</td><td>91–98&nbsp;%</td><td>4–14&nbsp;%</td></tr>
-    <tr><td>Finnish scanned plans · counts</td><td>16,496</td><td class="o">84.2&nbsp;%</td><td>92.8&nbsp;%</td><td>19.1&nbsp;%</td><td>63.6&nbsp;%</td><td>63.6&nbsp;%</td></tr>
+    <tr><td>Finnish scanned plans · counts</td><td>16,496</td><td class="o">85.1&nbsp;%</td><td>93.4&nbsp;%</td><td>19.0&nbsp;%</td><td>63.6&nbsp;%</td><td>63.6&nbsp;%</td></tr>
     <tr><td>IFC-Bench · free text**</td><td>110</td><td class="o">38.2&nbsp;%</td><td>41.1&nbsp;%</td><td>13.6&nbsp;%</td><td>9.1&nbsp;%</td><td>9.1&nbsp;%</td></tr>
-    <tr class="tot"><td>All test questions</td><td>25,420</td><td class="o">89.5&nbsp;%</td><td>95.4&nbsp;%</td><td>12.5&nbsp;%</td><td>69.8&nbsp;%</td><td>63.2&nbsp;%</td></tr>
+    <tr class="tot"><td>All test questions</td><td>25,420</td><td class="o">90.0&nbsp;%</td><td>95.8&nbsp;%</td><td>12.4&nbsp;%</td><td>69.8&nbsp;%</td><td>63.2&nbsp;%</td></tr>
   </table>
   <div class="row" style="gap:28px; margin-top:18px">
-    <div class="tile ours" style="flex:1.3; padding:10px 24px"><div class="n" style="font-size:42px">$0.013 <span style="font-size:26px; font-weight:600">API + ~$0.005 local compute</span></div><div class="l">ours, per 1,000 questions · 0.04&nbsp;s each</div></div>
+    <div class="tile ours" style="flex:1.3; padding:10px 24px"><div class="n" style="font-size:42px">$0.013 <span style="font-size:26px; font-weight:600">API + ~$0.006 local compute</span></div><div class="l">ours, per 1,000 questions · 0.04&nbsp;s each</div></div>
     <div class="tile" style="flex:1; padding:10px 24px"><div class="n" style="font-size:42px; color:var(--frontier)">$25.76</div><div class="l">Sonnet 5.5 + files, per 1,000 · ~16&nbsp;s each</div></div>
     <div class="tile" style="flex:1; padding:10px 24px"><div class="n" style="font-size:42px; color:var(--ink2)">$13.06</div><div class="l">Sonnet 5.5, drawing only · Haiku 5.5: $1.21, 60.6&nbsp;%</div></div>
   </div>
-  <div class="foot" style="bottom:26px; font-size:17px">Ours: all 25,420 test questions, CI 89.1–89.8 (<code>runs/router_full_test_v6</code>); 20&nbsp;% of drawings held out by a hash of the drawing id; counts exact, measures within 2&nbsp;%, “not sure” = wrong.
+  <div class="foot" style="bottom:26px; font-size:17px">Ours: all 25,420 test questions, CI 89.7–90.4 (<code>runs/router_full_test_v7</code>); 20&nbsp;% of drawings held out by a hash of the drawing id; counts exact, measures within 2&nbsp;%, “not sure” = wrong.
     * 400-question sample re-weighted to the test mix (CI 60.9–78.4), API list price; Gemini 3.1 Pro 64.2&nbsp;% ($52.47), Nemotron 3.5 Super VL 49.0&nbsp;% ($2.59). ** LLM judge, same rubric for every system. <code>docs/RESULTS.md</code></div>
 </section>
 
@@ -265,8 +265,8 @@
   <div class="row" style="gap:40px">
     <div style="flex:0 0 640px">
       <ul class="points points-tight" style="--fs:24px">
-        <li><b>1 · Evidence adds up.</b> The numbered boxes, room outlines and BIM elements sum to the answer; untick one and it recomputes. The boxes match independent hand labels at &gt;&nbsp;90&nbsp;%; only ~2.5&nbsp;% of right counts are right by luck.</li>
-        <li><b>2 · Confidence you can take literally.</b> Scanned-plan answers marked ≥&nbsp;0.95 are right 98.3&nbsp;% of the time. Saying “not sure” below 0.5: answers 87.5&nbsp;% of questions, 95.4&nbsp;% of those right.</li>
+        <li><b>1 · Evidence adds up.</b> The numbered boxes, room outlines and BIM elements sum to the answer; untick one and it recomputes. The boxes match independent hand labels at &gt;&nbsp;90&nbsp;%; only ~2.3&nbsp;% of right counts are right by luck.</li>
+        <li><b>2 · Confidence you can take literally.</b> Scanned-plan answers marked ≥&nbsp;0.95 are right 98.7&nbsp;% of the time. Saying “not sure” below 0.5: answers 87.6&nbsp;% of questions, 95.8&nbsp;% of those right.</li>
         <li><b>3 · Second opinion.</b> A different method (re-reading the PDF, the IFC plan sheet, our fine-tuned vision model on scans) re-derives the answer. Both agree → right on 99.98&nbsp;% of Swiss and IFC questions; it caught a real Swiss area error. Disagree → confidence halved, both shown.</li>
         <li><b>4 · Every LLM number traced.</b> Each number in a free-text answer is matched to the model facts it cites, or flagged.</li>
       </ul>
@@ -275,7 +275,7 @@
       <img src="../img/fig-3-accuracy-vs-coverage.png" alt="accuracy vs coverage" style="width:100%; border-radius:14px; border:1px solid var(--line)">
     </div>
   </div>
-  <div class="foot">Sources: <code>docs/EVIDENCE_QUALITY.md</code>, <code>docs/RESULTS.md</code> §3, <code>runs/crosscheck_{,vlm_}test.summary.md</code>, <code>docs/PROVENANCE.md</code>. Confidence levels set on development drawings only. On scans the second opinion is weaker: the detector is right 94.6&nbsp;% when the vision model agrees vs 55.1&nbsp;% when it doesn’t.</div>
+  <div class="foot">Sources: <code>docs/EVIDENCE_QUALITY.md</code>, <code>docs/RESULTS.md</code> §3, <code>runs/crosscheck_test.summary.md</code>, <code>runs/crosscheck_vlm_test_v7.summary.md</code>, <code>docs/PROVENANCE.md</code>. Confidence levels set on development drawings only. On scans the second opinion is weaker: the detector is right 94.9&nbsp;% when the vision model agrees vs 57.3&nbsp;% when it doesn’t.</div>
 </section>
 
 <!-- 9 · not obsolete -->
@@ -311,7 +311,7 @@
     </div>
     <div class="col">
       <ul class="points">
-        <li><b>Unit economics:</b> $0.013 API + ~$0.005 local compute per 1,000 questions: no paid calls for numbers, our own small models on scans, Claude Haiku 5.5, a small frontier LLM, only for free text.</li>
+        <li><b>Unit economics:</b> $0.013 API + ~$0.006 local compute per 1,000 questions: no paid calls for numbers, our own small models on scans, Claude Haiku 5.5, a small frontier LLM, only for free text.</li>
         <li><b>Trust:</b> answers a human can verify in seconds, an honest “not sure” instead of a guess, and an evaluation cross-audited by a second AI agent (Codex): no leakage, the recount reproduces.</li>
         <li><b>Open code:</b> MIT-licensed and reproducible: dataset + one command, no API keys needed for numeric answers.</li>
       </ul>

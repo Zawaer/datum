@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 os.chdir(ROOT)
 now = dt.datetime.now(dt.timezone.utc)
-OURS = os.environ.get("BP_OURS_RUN", "router_full_test_v6")
+OURS = os.environ.get("BP_OURS_RUN", "router_full_test_v7")
 
 
 def run_cost(name):
@@ -56,7 +56,7 @@ lines += ["",
           "(docs/RESULTS.md, the figures the README quotes) they are much lower: e.g. $25.76 instead of $61.31 for "
           "Sonnet + sibling files. Our numeric answers make no paid calls; "
           "only the 110 free-text IFC questions call Claude Haiku. Local compute (CAD/IFC parsing on CPU, the YOLO "
-          "detector on one GPU, ~0.13 s per drawing) prices at roughly $0.005 per 1,000 questions at $0.50 per GPU-hour.",
+          "detector on one GPU, ~0.17 s per drawing with flip test-time augmentation) prices at roughly $0.006 per 1,000 questions at $0.50 per GPU-hour.",
           ""]
 
 # --- one-off spend
