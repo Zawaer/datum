@@ -344,8 +344,8 @@ body.vidhero #list, body.vidhero #side { display: none !important; }
 class Rec:
     """Grabs frames from one page (CDP screenshots) stamped with page time; camera moves for punch-ins."""
 
-    def __init__(self, pg, cdp, slow, name):
-        self.pg, self.cdp, self.slow, self.name = pg, cdp, slow, name
+    def __init__(self, pg, cdp, slow, name, view=VIEW):
+        self.pg, self.cdp, self.slow, self.name, self.view = pg, cdp, slow, name, view
         self.dir = WORK / f"shot-{name}"
         shutil.rmtree(self.dir, ignore_errors=True)
         self.dir.mkdir(parents=True)
@@ -363,7 +363,11 @@ class Rec:
         n = 0
         while self.on:
             t = self.now()
-            r = await self.cdp.send("Page.captureScreenshot", {"format": "jpeg", "quality": 92})
+            try:
+                r = await self.cdp.send("Page.captureScreenshot", {"format": "jpeg", "quality": 92})
+            except Exception:
+                await asyncio.sleep(0.05)
+                continue
             p = self.dir / f"{n:05d}.jpg"
             p.write_bytes(base64.b64decode(r["data"]))
             self.frames.append((t, p.name))
@@ -379,7 +383,7 @@ class Rec:
         self.on = False
         await self.task
         dur = self.now()
-        meta = {"frames": self.frames, "cams": self.cams, "dur": dur, "marks": self.marks, "slow": self.slow}
+        meta = {"frames": self.frames, "cams": self.cams, "dur": dur, "marks": self.marks, "slow": self.slow, "view": self.view}
         (self.dir / "meta.json").write_text(json.dumps(meta))
         fps = len(self.frames) / max(dur, 1e-6)
         print(f"  shot {self.name}: {dur:.1f} s page time, {len(self.frames)} frames ({fps:.0f} fps)"
@@ -394,10 +398,11 @@ class Rec:
         top edge with top=True, kept inside the viewport."""
         x, y, ew, eh = await self.pg.evaluate("""s => { const r = document.querySelector(s).getBoundingClientRect();
           return [r.left, r.top, r.width, r.height]; }""", sel)
-        w = min(VIEW[0], max(560.0, w or max(ew + 2 * pad, (eh + 2 * pad) * 16 / 9)))
+        V = self.view
+        w = min(V[0], max(560.0, w or max(ew + 2 * pad, (eh + 2 * pad) * 16 / 9)))
         h = w * 9 / 16
-        cx = min(max(0.0, x + ew / 2 - w / 2), VIEW[0] - w)
-        cy = min(max(0.0, (y - pad) if top else (y + eh / 2 - h / 2)), VIEW[1] - h)
+        cx = min(max(0.0, x + ew / 2 - w / 2), V[0] - w)
+        cy = min(max(0.0, (y - pad) if top else (y + eh / 2 - h / 2)), V[1] - h)
         self.cam((cx, cy, w), over)
 
     def mark(self, k):
@@ -410,17 +415,17 @@ class Rec:
                                [title, sub])
 
 
-async def new_page(browser, slow, dpr, url=None, extra_ctx=None):
-    ctx = await browser.new_context(viewport={"width": VIEW[0], "height": VIEW[1]}, device_scale_factor=dpr,
-                                    **(extra_ctx or {}))
+async def new_page(browser, slow, dpr, url=None, extra_ctx=None, view=VIEW, mobile=False):
+    ctx = await browser.new_context(viewport={"width": view[0], "height": view[1]}, device_scale_factor=dpr,
+                                    is_mobile=mobile, has_touch=mobile, **(extra_ctx or {}))
     await ctx.add_init_script(CLOCK_SHIM % {"slow": slow})
     await ctx.add_init_script("document.addEventListener('DOMContentLoaded', () => { const s = document.createElement('style');"
                               f" s.textContent = {json.dumps(OVERLAY_CSS)}; document.head.appendChild(s); }});")
     pg = await ctx.new_page()
     cdp = await ctx.new_cdp_session(pg)
     # Playwright's device_scale_factor does not reach CDP screenshots here (they came back 1x): set it on the target
-    await cdp.send("Emulation.setDeviceMetricsOverride", {"width": VIEW[0], "height": VIEW[1], "deviceScaleFactor": dpr,
-                                                          "mobile": False})
+    await cdp.send("Emulation.setDeviceMetricsOverride", {"width": view[0], "height": view[1], "deviceScaleFactor": dpr,
+                                                          "mobile": mobile})
     await cdp.send("Animation.enable")
     await cdp.send("Animation.setPlaybackRate", {"playbackRate": 1 / slow})
     if url:
@@ -545,14 +550,26 @@ async def shot_correct(rec, base):
 
 async def shot_heat(rec, base):
     pg = rec.pg
-    await wait_js(pg, "typeof cur !== 'undefined' && cur && document.querySelector('#heatbtn') && !document.querySelector('.ptools').hidden")
+    # the view menu's "Room heat-map" and "Takeoff sheet" items call these two app functions
+    await wait_js(pg, "typeof cur !== 'undefined' && cur && document.querySelector('#img').naturalWidth > 0")
     await rec.start()
     await rec.sleep(0.6)
-    await pg.click("#heatbtn")
-    await rec.sleep(3.2)
-    await pg.click("#sheetbtn")
-    await rec.sleep(3.2)
+    await pg.evaluate("setHeat(true)")
+    await rec.sleep(3.4)
+    await pg.evaluate("openSheet()")
+    await rec.sleep(3.4)
     await rec.stop()
+
+
+# the voice strip's states (Listening -> Transcribing -> Asking), then the question is asked as text
+STAGE_VOICE = """async q => {
+          const s = document.querySelector('#voice'), m = document.querySelector('#mic'), w = ms => new Promise(r => setTimeout(r, ms));
+          const st = (state, msg) => { s.hidden = false; s.dataset.state = state; m.classList.toggle('on', state === 'listening');
+            s.querySelector('.vstate').textContent = msg; s.querySelector('.vstop').hidden = state !== 'listening'; };
+          st('listening', 'Listening'); s.querySelector('.vfin').textContent = ''; s.querySelector('.vint').textContent = 'Listening… stops when you pause';
+          await w(1500); st('transcribing', 'Transcribing'); s.querySelector('.vint').textContent = 'Turning speech into text…';
+          await w(700); st('asking', 'Asking'); s.querySelector('.vfin').textContent = q; s.querySelector('.vint').textContent = '';
+          document.querySelector('#q').value = q; await w(500); s.hidden = true; m.classList.remove('on'); ask(); }"""
 
 
 async def shot_voice(rec, base, wav=None):
@@ -569,14 +586,7 @@ async def shot_voice(rec, base, wav=None):
         await pg.click("#mic")
         await wait_js(pg, "typeof res !== 'undefined' && res && !animating", 120)
     else:
-        await pg.evaluate("""async q => {
-          const s = document.querySelector('#voice'), m = document.querySelector('#mic'), w = ms => new Promise(r => setTimeout(r, ms));
-          const st = (state, msg) => { s.hidden = false; s.dataset.state = state; m.classList.toggle('on', state === 'listening');
-            s.querySelector('.vstate').textContent = msg; s.querySelector('.vstop').hidden = state !== 'listening'; };
-          st('listening', 'Listening'); s.querySelector('.vfin').textContent = ''; s.querySelector('.vint').textContent = 'Listening… stops when you pause';
-          await w(1500); st('transcribing', 'Transcribing'); s.querySelector('.vint').textContent = 'Turning speech into text…';
-          await w(700); st('asking', 'Asking'); s.querySelector('.vfin').textContent = q; s.querySelector('.vint').textContent = '';
-          document.querySelector('#q').value = q; await w(500); s.hidden = true; m.classList.remove('on'); ask(); }""", Q_DOORS_FI)
+        await pg.evaluate(STAGE_VOICE, Q_DOORS_FI)
         await wait_js(pg, f"{ANSWERED}({json.dumps(Q_DOORS_FI)})")
     await rec.sleep(0.5)
     await rec.cam_on("#viewer", 1000, 0.9)         # over to the boxed doors on the scan
@@ -592,11 +602,12 @@ async def shot_ifc(rec, base):
     await rec.start()
     await rec.sleep(0.4)
     await pg.evaluate("setMode('3d')")
-    await wait_js(pg, "document.querySelector('.v3bar') && !document.querySelector('.v3bar').hidden", 240)
+    await wait_js(pg, "document.querySelector('#three .v3bar button')", 240)
     await rec.sleep(2.0)
-    await pg.evaluate("document.querySelector('.v3bar button').click()")           # Explode storeys
+    btn = "(re => { const b = [...document.querySelectorAll('#three .v3bar button')].find(b => !b.hidden && re.test(b.textContent)); if (b) b.click(); return !!b; })"
+    await pg.evaluate(btn + "(/explode/i)")                                       # Explode storeys
     await rec.sleep(2.2)
-    await pg.evaluate("document.querySelectorAll('.v3bar button')[1].click()")     # X-ray
+    await pg.evaluate(btn + "(/x-ray/i)")                                         # X-ray
     await rec.sleep(1.2)
     # a slow orbit by dragging the canvas (OrbitControls), on the page clock
     vx = await pg.evaluate("(() => { const r = document.querySelector('#viewer').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()")
@@ -610,6 +621,36 @@ async def shot_ifc(rec, base):
     await rec.stop()
 
 
+PHONE_VIEW, PHONE_DPR = (390, 844), 3.0
+
+
+async def shot_phone(rec, base):
+    """Phone take (390x844 CSS at DPR 3), for an inset: a Finnish voice question on the Swiss door plan (staged
+    strip, as shot_voice), the answer as a bottom sheet, then the in-context card on pin #3."""
+    pg = rec.pg
+    await wait_ready(pg)
+    await wait_js(pg, "typeof cur !== 'undefined' && cur && document.querySelector('#img').naturalWidth > 0", 60)
+    await rec.start()
+    await rec.sleep(0.8)
+    has_mic = await pg.evaluate("!!document.querySelector('#mic')")
+    q = "Kuinka monta ovea tässä pohjapiirustuksessa on?"
+    if has_mic:
+        await pg.evaluate(STAGE_VOICE, q)
+    else:
+        await type_and_ask(rec, q, wait=False)
+    await wait_js(pg, f"{ANSWERED}({json.dumps(q)})")
+    await rec.sleep(1.6)
+    await pg.evaluate("sheetFull(true)")
+    await rec.sleep(2.2)
+    await pg.evaluate("sheetFull(false)")
+    await rec.sleep(1.0)
+    await pg.evaluate("selectPin(2)")
+    await rec.sleep(2.6)
+    await pg.evaluate("selectPin(9)")
+    await rec.sleep(2.4)
+    await rec.stop()
+
+
 SHOTS = {
     "hook": (shot_hook, lambda b: app_url(b, SWISS_DOORS, "swiss_dwellings", Q_DOORS)),
     "how": (shot_how, lambda b: f"{b}/how"),
@@ -619,6 +660,7 @@ SHOTS = {
     "heat": (shot_heat, lambda b: app_url(b, SWISS_AREA, "swiss_dwellings")),
     "voice": (shot_voice, lambda b: app_url(b, CUBI, "cubicasa5k")),
     "ifc": (shot_ifc, lambda b: app_url(b, IFC_PLAN, "ifc_models", Q_IFC_WALLS)),
+    "phone": (shot_phone, lambda b: app_url(b, SWISS_DOORS, "swiss_dwellings")),
 }
 
 
@@ -648,14 +690,20 @@ async def record(names, base, slow, dpr, gpu, voice_wav=None):
           const e = g && g.getExtension('WEBGL_debug_renderer_info'); return g ? (e ? g.getParameter(e.UNMASKED_RENDERER_WEBGL) : 'webgl') : 'none'; }""")
         print(f"WebGL renderer: {gl}")
         await probe.close()
+        await b.close()
         for name in names:
             if name in SHOTS:
                 fn, url = SHOTS[name]
                 url = url(base)
             else:
                 fn, url = card_shot, f"{cards}?card={name}"
-            ctx, pg, cdp = await new_page(b, slow, dpr, url, {"permissions": ["microphone"]} if voice_wav else None)
-            rec = Rec(pg, cdp, slow, name)
+            # a fresh browser per shot: after the heavy IFC scene SwiftShader's GPU process could refuse screenshots
+            b = await p.chromium.launch(args=args)
+            phone = name == "phone"
+            ctx, pg, cdp = await new_page(b, slow, PHONE_DPR if phone else dpr, url,
+                                          {"permissions": ["microphone"]} if voice_wav else None,
+                                          PHONE_VIEW if phone else VIEW, phone)
+            rec = Rec(pg, cdp, slow, name, PHONE_VIEW if phone else VIEW)
             t = time.time()
             try:
                 await (fn(rec, base, voice_wav) if name == "voice" else fn(rec, base))
@@ -663,9 +711,13 @@ async def record(names, base, slow, dpr, gpu, voice_wav=None):
                 print(f"  shot {name} failed: {e}")
                 if rec.task:
                     rec.on = False
-                    await rec.task
+                    try:
+                        await rec.task
+                    except Exception:
+                        pass
                     (rec.dir / "meta.json").write_text(json.dumps(
-                        {"frames": rec.frames, "cams": rec.cams, "dur": rec.now(), "marks": rec.marks, "slow": slow}))
+                        {"frames": rec.frames, "cams": rec.cams, "dur": rec.now(), "marks": rec.marks, "slow": slow,
+                         "view": rec.view}))
             print(f"  ({time.time() - t:.0f} s wall)")
             await ctx.close()
         await b.close()
@@ -677,7 +729,7 @@ def _ease(k):
     return k * k * (3 - 2 * k)
 
 
-def cam_at(cams, t, full):
+def cam_at(cams, t, full):  # punch-ins keep 16:9 (the desktop shots); the phone take never punches in
     """Crop rect (x, y, w, h) in CSS px at page time t; cams = [(t, rect | None, over)]."""
     cur = full
     for i, (t0, rect, over) in enumerate(cams):
@@ -689,7 +741,7 @@ def cam_at(cams, t, full):
     return cur
 
 
-def frames_clip(name, dur, out, dpr):
+def frames_clip(name, dur, out, dpr, size=(1920, 1080)):
     """Resample a shot's frames to FPS over exactly `dur` s: played at real speed if it fits, sped up (to at most
     1.6x) when the recording is longer, then trimmed; held on its last frame when it is shorter."""
     from PIL import Image
@@ -699,8 +751,9 @@ def frames_clip(name, dur, out, dpr):
     if not frames:
         raise SystemExit(f"shot {name}: no frames recorded")
     speed = min(1.6, have / dur) if have > dur else 1.0
-    full = (0.0, 0.0, float(VIEW[0]), float(VIEW[1]))
-    W, H = 1920, 1080
+    V = meta.get("view", VIEW)
+    full = (0.0, 0.0, float(V[0]), float(V[1]))
+    W, H = size
     p = subprocess.Popen(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
                           "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-", "-c:v", "libx264", "-preset", "medium",
                           "-crf", "16", "-pix_fmt", "yuv420p", str(out)], stdin=subprocess.PIPE)
@@ -714,7 +767,7 @@ def frames_clip(name, dur, out, dpr):
         if key != last:
             im = cache.get(frames[j][1]) or Image.open(d / frames[j][1]).convert("RGB")
             cache = {frames[j][1]: im}
-            s = im.width / VIEW[0]
+            s = im.width / V[0]
             buf = im.resize((W, H), Image.LANCZOS, box=(x * s, y * s, (x + w) * s, (y + h) * s)).tobytes()
             last = key
         p.stdin.write(buf)
@@ -860,11 +913,22 @@ def main():
     ap.add_argument("--dpr", type=float, default=2.5, help="device pixels per CSS px (2.5 = 3840x2160 captures)")
     ap.add_argument("--draft", action="store_true", help="--dpr 1.25 --slow 4: quick, no sharp punch-ins")
     ap.add_argument("--gpu", action="store_true", help="try Chromium's GPU path (needs NVIDIA graphics libs in the container)")
+    ap.add_argument("--phone", action="store_true",
+                    help="only record the phone take -> runs/video/phone-inset.mp4 (1080x2336, no voice), for an inset")
     ap.add_argument("--voice-wav", help="a recorded (Finnish) question: played into the real mic flow of the voice shot")
     a = ap.parse_args()
     if a.draft:
         a.dpr, a.slow = 1.25, 4.0
     os.chdir(ROOT)
+    if a.phone:
+        WORK.mkdir(parents=True, exist_ok=True)
+        if not a.reuse:
+            asyncio.run(record(["phone"], a.url.rstrip("/"), a.slow, a.dpr, a.gpu))
+        dur = json.loads((WORK / "shot-phone/meta.json").read_text())["dur"]
+        out = Path(a.out) if a.out else OUT / "phone-inset.mp4"
+        frames_clip("phone", round(dur, 2), out, PHONE_DPR, (1080, 2336))
+        print(f"{out}: {probe_dur(out):.2f} s")
+        return
 
     pick_engine(a.tts)
     scenes = scenes_of(a.cut)
