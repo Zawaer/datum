@@ -754,7 +754,9 @@ def report():
     L += [f"Paid usage (all runs of this analysis, from cache/llm_spend.jsonl): paraphrase generation "
           f"${spend['robustness-paraphrase'] + spend['robustness-paraphrase-fresh']:.3f}, normaliser "
           f"${spend['normalize']:.3f}.", ""]
-    DOC.write_text("\n".join(L))
+    # section 5 is written by hand from analysis/typed_eval.py runs; keep it when regenerating
+    mark, old = "<!-- section 5: analysis/typed_eval.py -->", DOC.read_text() if DOC.exists() else ""
+    DOC.write_text("\n".join(L) + ("\n" + old[old.index(mark):] if mark in old else ""))
     print(f"-> {DOC}")
 
 

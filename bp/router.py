@@ -108,6 +108,21 @@ class Router:
         res["route"] = name
         return res
 
+    def _multi(self, q, parts):
+        subs = [(noun, self(dict(q, question=sq, type="count"))) for noun, sq in parts]
+        got = [(n, r) for n, r in subs if r.get("answer") is not None]
+        res = {"answer": ", ".join(f"{r['answer']} {n}" if r.get("answer") is not None else f"{n}: not sure"
+                                   for n, r in subs) if got else None,
+               "confidence": min((r.get("confidence") or 0) for _, r in subs),
+               "evidence": [e for _, r in subs for e in (r.get("evidence") or [])],
+               "cost_usd": sum(float(r.get("cost_usd") or 0) for _, r in subs),
+               "method": "multi:" + "+".join(str(r.get("method")) for _, r in subs),
+               "route": subs[0][1].get("route"), "parts": [{"question": sq, **{k: r.get(k) for k in (
+                   "answer", "confidence", "method", "explanation")}} for (_, sq), (_, r) in zip(parts, subs)],
+               "explanation": " || ".join(f"{sq} -> {r.get('explanation') or ''}" for (_, sq), (_, r)
+                                          in zip(parts, subs))}
+        return res
+
     def _normalized(self, s, q, name, res):
         from bp.normalize import normalize, understood
 
@@ -133,10 +148,26 @@ class Router:
         q = dict(q)
         q.setdefault("type", guess_type(q["question"]))
         name = self.route_for(q)
+        if self.normalize and q["source"] != "ifc_bench" and q["source"] != "upload":
+            # typed wordings no dataset question uses (bp/normalize.py): "how many doors and windows?" is asked
+            # as two questions; "... in square feet" on a metric drawing is asked in m² and converted
+            from bp.normalize import METRIC_ROUTES, split_multi, to_feet, unit_request
+
+            if parts := split_multi(q["question"]):
+                return self._multi(q, parts)
+            if name in METRIC_ROUTES:
+                bare, feet = unit_request(q["question"])
+                if feet:
+                    r = self(dict(q, question=bare, type=guess_type(bare) if q["type"] == "text" else q["type"]))
+                    r["asked_unit"] = "ft"
+                    return to_feet(r, guess_type(bare) if q["type"] == "text" else q["type"])
         res = None
         if name and (s := self._get(name)):
             res = self._run(s, q, name)
-            if res.get("answer") is None and self.normalize:
+            if self.normalize and (res.get("answer") is None or (
+                    name == "ifc" and q["source"] != "ifc_bench" and res.get("method") == "ifc-text-na")):
+                # (an IFC-model question no numeric rule read falls to the text rules, which say "not
+                # available"; that is a parse failure, so the normaliser gets it; its NONE keeps the answer)
                 res, q = self._normalized(s, q, name, res)  # q: the rewrite, if one was used
             fb_name = UPLOAD_FALLBACK.get(name) if q["source"] == "upload" else None
             # an unsure specialist (an IFC rule that did not fit, the CubiCasa detector on a plan unlike its

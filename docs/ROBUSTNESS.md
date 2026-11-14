@@ -265,3 +265,65 @@ Paid calls: before $0.0119 (the Haiku normaliser, once per question, then cached
 | Wie viele Wände hat dieses Geschoss? | bsc-clinic_clinic-hvac.ifc | None (-) | None abstained (right) | None abstained (right) | 'this floor' needs a storey, and this file is the whole model: which storey? storeys are: 'TOF Footing', 'First Floor', 'Second Floor', 'Roof - Mech' |
 
 Paid usage (all runs of this analysis, from cache/llm_spend.jsonl): paraphrase generation $0.116, normaliser $0.053.
+
+<!-- section 5: analysis/typed_eval.py -->
+## 5. Free typing: 65 questions a judge might type
+
+Hand-written, not dataset templates: `analysis/typed_questions.jsonl`, run with `analysis/typed_eval.py` (router as
+the app calls it, type from `guess_type`, Haiku normaliser on). Nine TEST-split drawings: 4 Swiss PDFs, 3 CubiCasa
+PNGs, 2 IFC (FZK-Haus via its Erdgeschoss sheet, the DigitalHub .ifc). Categories: casual English ("how big is the
+kitchen?", "total floor area?"), typos ("how many bathroms", "numbr of colums"), units ("in square feet", "in m2
+pls"), Swedish/Spanish/Finnish/German/French, yes/no ("any bathtubs?"), comparatives ("which room is the
+largest?"), multi-part ("how many doors and windows?") and out-of-scope ("who is the architect?", "what's the
+price?"). Gold = the dataset's answer to the equivalent template question on the same drawing, else the plan's
+own DXF labels/areas or IFC quantities read independently with ifcopenshell (e.g. FZK 'Bad (3)' NetFloorArea
+12.13 m², 26 IfcWindow on DigitalHub 'E01_OKRD'). Each item says "answer X" or "decline"; 4 ambiguous ones accept
+an honest decline too (two kitchens on one plan, "ground floor" on a model with storeys B01/E00/E01, ...).
+
+| category | n | correct before → after | wrong answer before → after | honest decline (after) | bad decline before → after |
+|---|---|---|---|---|---|
+| casual | 22 | 19 → **21** | 0 → 0 | 1 | 2 → 0 |
+| language (sv/es/fi/de/fr) | 14 | 11 → **13** | 1 → 1 | 0 | 2 → 0 |
+| out-of-scope | 10 | - | 0 → 0 | **10** | - |
+| typo | 5 | 4 → **5** | 0 → 0 | 0 | 1 → 0 |
+| units (ft², ft, "m2") | 4 | 1 → **4** | 1 → 0 | 0 | 2 → 0 |
+| comparative | 4 | 1 → 1 | 0 → 0 | 2 | 1 → 1 |
+| yes/no | 3 | 3 → 3 | 0 → 0 | 0 | 0 → 0 |
+| multi-part | 3 | 0 → **2** | 3 → 1 | 0 | 0 → 0 |
+| **ALL** | 65 | 39 → **49** | 5 → 2 | 13 | 8 → 1 |
+
+By source after: Swiss 24 correct + 7 honest declines + 1 bad decline of 32; CubiCasa 11 + 4 + 2 wrong of 17;
+IFC 14 + 2 of 16. Both remaining wrong answers are CubiCasa detector counts (8 windows for 12, 9 doors for 8),
+the same numbers the router gives the dataset's own template questions on those plans, so they are detector
+errors, not misreadings. The remaining bad decline is "is apartment B bigger than apartment A?" (comparisons of
+two answers are not supported; it says so). "Which room is the largest?" is answered on IFC (from the model) and
+declined on Swiss plans. A second run with an empty normaliser cache gave 48/65: "numbr of colums" got NONE from
+Haiku on both calls (it does about one call in four), so it said "not available" instead of 62.
+Paid calls: $0.016 per uncached run of all 65 (Haiku, normaliser only).
+
+Before = `runs/typed_before.jsonl` (code at 462811b). Fixes (`bp/normalize.py`, hook in `bp/router.py`):
+
+1. **IFC-model text questions reach the normaliser.** "how big is the kitchen?", "numbr of colums" and
+   "¿Cuántas ventanas hay en E01_OKRD?" are typed as text, fell to the IFC text rules and came back "This
+   information is not available in the BIM model". That reply (method `ifc-text-na`, ifc_models only) now counts
+   as "not parsed": the normaliser rewrites it (→ 16.31 m², 62, 26), and if it says NONE the "not available"
+   reply stands ("who designed this building?", "energy rating").
+2. **Feet.** On Swiss and IFC drawings (metric; no dataset question there mentions feet) "in square feet / sq ft /
+   ft² / feet / cubic feet" is removed before parsing and the metric answer is converted (×10.7639, ×3.28084,
+   ×35.3147), shown as "1264.1 ft² (= 117.44 m² × 10.7639)". Before: "apartment IN not found", or 24.73 returned
+   for "room 2.16 area in sq ft".
+3. **Two-part counts.** "how many doors and windows?" is asked as two questions and answered "29 doors, 19 windows"
+   (before: 29, the doors only). Only for two plain plural nouns from a fixed list; "showers and bathtubs" and
+   "sinks and wash basins" (dataset templates that count both together) are excluded, so no dataset question splits.
+4. **Normaliser prompt:** any language and casual wording are allowed explicitly, with six worked examples
+   (sinks, a typo, a Spanish storey question, "the kitchen" on IFC, Swiss total floor area, NONE for out-of-scope); a rewrite the model
+   wrapped in quotes is unwrapped (before, "how many sinks?" → the right template, then rejected as a name not on
+   the drawing); a NONE or rejected rewrite gets one more call (`BP_NORMALIZE_TRIES`, default 2). Every rewrite
+   still has to name only things on the drawing. Cache key bumped (v4).
+
+Unchanged on dataset questions: `eval.py --solver router --split test --source swiss_dwellings`
+(`runs/swiss_typed_regress.summary.md`) 8,210/8,214, ifc_models 600/600 (`runs/ifc_typed_regress.summary.md`);
+no dataset question reached the normaliser, the feet rule or the split. Must-abstain re-run
+(`robustness.py abstain-run typedcheck`): 49/50; the one change is "How many elevators are drawn on this floor
+plan?" on a Swiss plan, now read as "How many rooms labelled 'Ascenseur' ..." → 2 (lift shafts; the plan has no
+elevator symbol, so that set counts it as an answer it should not give; it is shown with its "read as").

@@ -30,6 +30,7 @@ from pathlib import Path
 
 CACHE = Path(os.environ.get("BP_CACHE", "cache")) / "normalize.jsonl"
 _lock = threading.Lock()
+TRIES = int(os.environ.get("BP_NORMALIZE_TRIES", "2"))  # calls before a NONE is final
 _mem: dict | None = None
 
 # Supported templates per solver, copied from the English dev-split questions (names -> <PLACEHOLDERS>).
@@ -98,8 +99,22 @@ Rules:
   French or Italian, so "bathrooms" -> rooms labelled 'Bad', "kitchen" -> 'Küche'. Use the "Room words -> labels"
   list when it is given; map only to a label that is in it, and only when exactly one label fits (if a word maps
   to two labels on this drawing, reply NONE).
+- The question may be typed casually, with typos, or in any language (English, German, French, Italian,
+  Spanish, Swedish, Finnish, ...): read it for its meaning first. "sinks" alone, or "showers or bathtubs", map to
+  the combined template that counts exactly those objects.
 - Reply NONE if the question asks for something no template covers (another object type, prices, dates, ...),
-  or if it is ambiguous between templates. Do not answer the question."""
+  or if it is ambiguous between templates. Do not answer the question.
+Examples (template lists and names vary by drawing; these only show the style):
+- "how many sinks?" -> How many sinks and wash basins (kitchen and bathroom combined; a double-bowl sink counts as
+  one) are drawn on this floor plan?
+- "numbr of colums" (IFC) -> How many columns are there in the model?
+- "¿Cuántas ventanas hay en E01?" (storey 'E01' listed) -> How many windows are shown on the floor plan of 'E01'?
+- "how big is the kitchen?" (one room 'Küche (6)' on 'Erdgeschoss') -> What is the net floor area of the room
+  'Küche (6)' on 'Erdgeschoss', in m²?
+- "total floor area?" / "net area of the whole floor" (Swiss) -> What is the total net floor area in m² of all
+  numbered indoor rooms on this floor (excluding balconies, loggias, terraces and other outdoor spaces, shafts and
+  voids)?
+- "who is the architect?" / "what does it cost?" / "energy rating?" -> NONE"""
 
 
 def _key(question: str, path: str) -> str:
@@ -213,12 +228,19 @@ def _valid(route, rewrite, allowed) -> str | None:
     return None
 
 
+def _unwrap(line: str) -> str:
+    """Drop quotes the model put around the whole rewrite ('"How many sinks ...?"'), which read as a name slot."""
+    m = re.fullmatch(r"[\"'“”‘’«»„](.+)[\"'“”‘’«»]", line.strip())
+    return m.group(1).strip() if m and m.group(1).rstrip().endswith("?") else line
+
+
 def normalize(route: str, q: dict) -> dict:
     """-> {"question": rewrite or None, "cost_usd", "why"}. One Haiku call per (question, drawing), cached."""
     if route not in TEMPLATES:
         return {"question": None, "cost_usd": 0.0, "why": "no templates for this drawing type"}
-    # Swiss prompts carry the room-word map since v2: earlier cached NONEs for them are not reused
-    k = _key(q["question"] + ("\x00v2" if route == "swiss" else ""), q.get("path", ""))
+    # Swiss prompts carry the room-word map since v2; v4: any-language rule, examples, a second call on NONE.
+    # Earlier cached NONEs are not reused
+    k = _key(q["question"] + "\x00v4", q.get("path", ""))
     hit = _cache_get(k)
     if hit is not None:
         return {"question": hit["rewrite"], "cost_usd": 0.0, "why": hit.get("why", ""), "cached": True}
@@ -235,18 +257,86 @@ def normalize(route: str, q: dict) -> dict:
     prompt = (f"Drawing: {kind}\n\nSupported templates:\n{tpl}{extra}\n\nNames on this drawing:\n{names}\n\n"
               f"User question: {q['question']}\n\nRewritten question (or NONE):")
     from bp.ifctext.llm import ask
-    res = ask(prompt, SYSTEM, "haiku", tag="normalize", timeout=120, retries=1)
-    cost = float(res.get("cost_usd") or 0.0)
-    if res.get("error"):
-        return {"question": None, "cost_usd": cost, "why": f"normaliser call failed: {res['error'][:80]}"}
-    text = (res.get("text") or "").strip().strip("`").strip()
-    line = next((x.strip() for x in text.splitlines() if x.strip()), "")
-    line = re.sub(r"^(?:rewritten question|answer)\s*:\s*", "", line, flags=re.I).strip()
-    if not line or re.fullmatch(r"NONE\.?", line, re.I):
-        rewrite, why = None, "no supported question matches"
-    else:
-        bad = _valid(route, line, allowed)
-        rewrite, why = (None, f"rewrite rejected: {bad}") if bad else (line, "")
+    # Haiku through the CLI runs at a fixed temperature and declines a clear question now and then ("numbr of
+    # colums" gave NONE on one call in three): a NONE or rejected rewrite gets one more call. Every rewrite still
+    # has to pass _valid (names on this drawing only), so a second call cannot invent a room or storey.
+    cost, raws = 0.0, []
+    for _ in range(TRIES):
+        res = ask(prompt, SYSTEM, "haiku", tag="normalize", timeout=120, retries=1)
+        cost += float(res.get("cost_usd") or 0.0)
+        if res.get("error"):
+            return {"question": None, "cost_usd": cost, "why": f"normaliser call failed: {res['error'][:80]}"}
+        text = (res.get("text") or "").strip().strip("`").strip()
+        line = next((x.strip() for x in text.splitlines() if x.strip()), "")
+        line = re.sub(r"^(?:rewritten question|answer)\s*:\s*", "", line, flags=re.I).strip()
+        line = _unwrap(line)
+        raws.append(line)
+        if not line or re.fullmatch(r"NONE\.?", line, re.I):
+            rewrite, why = None, "no supported question matches"
+        else:
+            bad = _valid(route, line, allowed)
+            rewrite, why = (None, f"rewrite rejected: {bad}") if bad else (line, "")
+        if rewrite:
+            break
+    line = " || ".join(raws)
     _cache_put({"k": k, "question": q["question"], "path": q.get("path", ""), "route": route, "raw": line,
                 "rewrite": rewrite, "why": why, "cost_usd": cost})
     return {"question": rewrite, "cost_usd": cost, "why": why}
+
+
+# ------------------------------------------------------------------ typed units and two-part counts
+# Dataset questions on Swiss plans and IFC models are metric and never say feet (checked on all 127,043); a
+# typed "in square feet" is stripped before parsing and the metric answer is converted afterwards.
+_UNIT = re.compile(r"\s*,?\s*\b(?:(?:in|as|en|em|auf)\s+)?(?P<u>square\s+f(?:ee|oo)t|sq\.?\s*f(?:ee)?t|sqft|ft²|ft2"
+                   r"|cubic\s+f(?:ee|oo)t|cu\.?\s*ft|feet|foot|ft)(?![\w²])\.?", re.I)
+FT_FACTOR = {"area": (10.7639, "ft²"), "length": (3.28084, "ft"), "volume": (35.3147, "ft³")}
+METRIC_ROUTES = {"swiss", "ifc"}
+
+
+def unit_request(question: str) -> tuple[str, bool]:
+    """-> (question without the imperial unit phrase, True if feet were asked for)."""
+    m = _UNIT.search(question)
+    if not m:
+        return question, False
+    q = (question[:m.start()] + question[m.end():]).strip()
+    return (q if q.strip(" ?.,") else question), True
+
+
+def to_feet(res: dict, qtype: str) -> dict:
+    """Convert a metric numeric answer to the imperial unit of the same dimension (in place)."""
+    from bp.score import to_number
+    f = FT_FACTOR.get(qtype)
+    v = to_number(res.get("answer")) if f else None
+    if v is None:
+        if res.get("answer") is not None and not f:  # feet asked on a count / text question: answer unchanged
+            res["explanation"] = "(no unit conversion for this question) " + (res.get("explanation") or "")
+        return res
+    res["answer_metric"] = res["answer"]
+    res["answer"] = round(v * f[0], 1)
+    res["unit"] = f[1]
+    res["explanation"] = (f"{res['answer']} {f[1]} (= {v:g} {'m²' if qtype == 'area' else 'm³' if qtype == 'volume' else 'm'}"
+                          f" × {f[0]}) | " + (res.get("explanation") or ""))
+    return res
+
+
+# "how many doors and windows?" -> two questions. Only plain plural nouns of separately counted objects; the
+# dataset's combined counts ("sinks and wash basins", "showers and bathtubs") are not in the list, so no dataset
+# question splits (checked on all 127,043).
+COUNTABLE = {"doors", "windows", "walls", "columns", "beams", "stairs", "staircases", "rooms", "spaces", "slabs",
+             "toilets", "wcs", "bedrooms", "bathrooms", "kitchens", "balconies", "apartments", "flats", "saunas",
+             "railings", "washbasins", "bathtubs", "showers", "sinks", "floors", "storeys"}
+_COMBINED = {frozenset({"showers", "bathtubs"}), frozenset({"sinks", "washbasins"})}
+_MULTI = re.compile(r"^\s*(?P<lead>how many|number of|count(?: the)?)\s+(?P<a>[a-z]+)\s*(?:,|and|&|\+)\s*"
+                    r"(?:(?:how many|number of)\s+)?(?P<b>[a-z]+)\b(?P<rest>[^?]*)\??\s*$", re.I)
+
+
+def split_multi(question: str) -> list[tuple[str, str]] | None:
+    """-> [(noun, sub-question), (noun, sub-question)] for "how many X and Y ...", else None."""
+    m = _MULTI.match(question)
+    if not m:
+        return None
+    a, b = m.group("a").lower(), m.group("b").lower()
+    if a == b or a not in COUNTABLE or b not in COUNTABLE or frozenset({a, b}) in _COMBINED:
+        return None
+    rest = m.group("rest").rstrip()
+    return [(a, f"How many {a}{rest}?"), (b, f"How many {b}{rest}?")]
