@@ -89,7 +89,12 @@ def main():
     ap.add_argument("--name", help="run name (default: solver-split-timestamp)")
     ap.add_argument("--judge", action="store_true",
                     help="score text/other answers with the LLM judge (bp/judge.py) instead of the token-F1 proxy")
+    ap.add_argument("--crosscheck", action="store_true",
+                    help="run the second-method cross-check (bp/crosscheck.py) on every answer and log it")
     args = ap.parse_args()
+    import os
+
+    os.environ["BP_CROSSCHECK"] = "1" if args.crosscheck else "0"  # the router's hook follows this flag
 
     qs = load_questions()
     if args.split != "all":
@@ -120,6 +125,10 @@ def main():
         except Exception as e:  # noqa: BLE001  a crash counts as an abstain, and is logged
             res = {"answer": None, "confidence": 0, "evidence": [], "cost_usd": 0.0, "method": "error",
                    "error": repr(e)[:300]}
+        if args.crosscheck and "crosscheck" not in res:
+            from bp.crosscheck import crosscheck
+
+            res["crosscheck"] = crosscheck(q, res)
         dt = time.time() - t0
         row = {
             "id": q["id"], "path": q["path"], "source": q["source"], "type": q["type"], "ext": q["ext"],
@@ -129,6 +138,11 @@ def main():
             "latency_s": round(dt, 3), "method": res.get("method"),
             "evidence": res.get("evidence", []), **{k: res[k] for k in ("error", "raw", "turns") if k in res},
         }
+        if "crosscheck" in res:
+            xc = res["crosscheck"]
+            sec = xc.get("second") or {}
+            row["crosscheck"] = {"status": xc["status"], "answer": sec.get("answer"), "method": sec.get("method"),
+                                 "n_evidence": len(sec.get("evidence") or []), "note": xc.get("note")}
         if args.judge and q["type"] in ("text", "other") and row["pred"] is not None:
             from bp.judge import judge
             v = judge(q["question"], q["answer"], row["pred"])

@@ -5,6 +5,7 @@ to a frontier model (off by default: we'd rather say "not sure" than guess expen
 """
 from __future__ import annotations
 
+import os
 import re
 
 from bp.solvers import get_solver
@@ -43,9 +44,11 @@ def guess_type(question: str) -> str:
 
 
 class Router:
-    def __init__(self, variant=None, fallback: str | None = None, min_conf: float = 0.5):
+    def __init__(self, variant=None, fallback: str | None = None, min_conf: float = 0.5, crosscheck: bool | None = None):
         self.fallback_name = fallback or (variant if variant else None)
         self.min_conf = min_conf
+        # second-method check (bp/crosscheck.py): on unless BP_CROSSCHECK=0 (eval.py sets it from --crosscheck)
+        self.crosscheck = os.environ.get("BP_CROSSCHECK", "1") == "1" if crosscheck is None else crosscheck
         self._solvers = {}
 
     def _get(self, name):
@@ -87,4 +90,8 @@ class Router:
         if res is None:
             res = {"answer": None, "confidence": 0.0, "evidence": [], "cost_usd": 0.0, "method": "none",
                    "explanation": "no solver for this drawing type yet", "route": "-"}
+        if self.crosscheck:
+            from bp.crosscheck import crosscheck
+
+            res["crosscheck"] = crosscheck(q, res)
         return res
