@@ -29,6 +29,7 @@ log = logging.getLogger(__name__)
 METHOD = "sheets-slab"
 WALL_BAND = 0.009  # wall band (edge beam) width bound, share of the long image side
 _DEBUG: list = []
+_LAST: dict = {}
 _BAR = r"(?:[DTYHRN]\s?\d{1,2}|#\s?\d{1,2}|Ø\s?\d{1,2}|\d{1,2}\s?M)"
 _BAR_RE = re.compile(rf"(?<![\w#])({_BAR})\s*(?:@|AT|C/C|CC|c/c)\s*(\d{{1,4}}\s*(?:\"|IN\b)?(?:\s*O\.?\s?C\.?(?:\s?E\.?W\.?)?)?)",
                      re.I)
@@ -251,6 +252,50 @@ def _diag_strokes(dark, S):
     return cv2.morphologyEx(dark, cv2.MORPH_OPEN, k1) | cv2.morphologyEx(dark, cv2.MORPH_OPEN, np.fliplr(k1).copy())
 
 
+def _erase_pdf_shading(meta, g):
+    """Vector PDF: erase the grey hatch strokes (shaded bottom-reinforcement areas) before segmenting, so shaded
+    pads never split a slab zone. Only pixels no black stroke (wall, joint, outline) passes through are erased.
+    Rasters: unchanged."""
+    if not str(meta.get("path") or "").lower().endswith(".pdf"):
+        return g
+    try:
+        import cv2
+        import numpy as np
+
+        from bp.sheets import pdf_paths
+
+        H, W = g.shape
+        hatch = np.zeros((H, W), np.uint8)
+        black = np.zeros((H, W), np.uint8)
+
+        def draw(m, it, t):
+            if it[0] == "l":
+                (x0, y0), (x1, y1) = it[1], it[2]
+                cv2.line(m, (round(x0 * W), round(y0 * H)), (round(x1 * W), round(y1 * H)), 1, t)
+            elif it[0] == "re":
+                x0, y0, x1, y1 = it[1]
+                cv2.rectangle(m, (round(x0 * W), round(y0 * H)), (round(x1 * W), round(y1 * H)), 1, t)
+            elif it[0] in ("c", "qu"):
+                pts = np.array([(round(x * W), round(y * H)) for x, y in it[1:]], np.int32)
+                cv2.polylines(m, [pts], it[0] == "qu", 1, t)
+
+        for d in pdf_paths(meta):
+            c = d.get("stroke")
+            if not c:
+                continue
+            grey = 0.03 < max(c) < 0.7
+            for it in d["items"]:
+                draw(hatch if grey else black, it, 3 if grey else 2)
+        if not hatch.any():
+            return g
+        out = g.copy()
+        out[(hatch > 0) & (cv2.dilate(black, np.ones((3, 3), np.uint8)) == 0)] = 255
+        return out
+    except Exception as e:  # noqa: BLE001
+        log.warning("slab: could not erase PDF shading: %s", e)
+        return g
+
+
 def _bbox(m):
     import numpy as np
 
@@ -263,7 +308,7 @@ def _min_side(m):
     return min(x1 - x0, y1 - y0)
 
 
-def _zones(g, k=None):
+def _zones(g, k=None, joint_pts=None):
     """Slab zones: list of {"mask"}. Enclosed white areas (hatch strokes ignored); thin strips (wall bands between
     their outlines) dropped; areas separated only by a thin line (control joint, dimension line) merged."""
     import cv2
@@ -309,26 +354,45 @@ def _zones(g, k=None):
             a = parent[a]
         return a
 
+    # a bold joint line (2-3x a thin line) separates panels further apart; it is merged across only where a joint
+    # label ("CJ", "EJ", "CJ AND STEP") sits on it, so a wall band is never bridged by mistake
+    rb = max(r + 3, round(S * 0.0045))
+    labels = np.array(joint_pts or [], dtype=float).reshape(-1, 2)
     ker = cv2.getStructuringElement(cv2.MORPH_RECT, (2 * r + 1, 2 * r + 1))
+    kerb = cv2.getStructuringElement(cv2.MORPH_RECT, (2 * rb + 1, 2 * rb + 1))
     for i, (x, y, w, h, _a) in keep.items():
-        x0, y0, x1, y1 = max(0, x - r), max(0, y - r), min(W, x + w + r), min(H, y + h + r)
+        x0, y0, x1, y1 = max(0, x - rb), max(0, y - rb), min(W, x + w + rb), min(H, y + h + rb)
         sub = lab[y0:y1, x0:x1]
-        ring = cv2.dilate((sub == i).astype(np.uint8), ker) & (sub != i)
+        me = (sub == i).astype(np.uint8)
+        ring = cv2.dilate(me, ker) & (sub != i)
         js, cnt = np.unique(sub[ring > 0], return_counts=True)
         for j, c in zip(js, cnt):
             if j in keep and j != i and c >= min_touch:
                 parent[find(i)] = find(j)
                 if _DEBUG: _DEBUG.append((i, j, int(c), keep[i], keep[j]))
+        if len(labels):
+            ringb = cv2.dilate(me, kerb) & (sub != i)
+            for j in np.unique(sub[ringb > 0]):
+                if j not in keep or j == i or find(j) == find(i):
+                    continue
+                ys, xs = np.nonzero(ringb & (sub == j))
+                if len(xs) < min_touch:
+                    continue
+                gx, gy = xs + x0, ys + y0
+                bx0, bx1, by0, by1 = gx.min() - 2 * rb, gx.max() + 2 * rb, gy.min() - 2 * rb, gy.max() + 2 * rb
+                if ((labels[:, 0] > bx0) & (labels[:, 0] < bx1) & (labels[:, 1] > by0) & (labels[:, 1] < by1)).any():
+                    parent[find(i)] = find(j)
     groups: dict = {}
     for i in keep:
         groups.setdefault(find(i), []).append(i)
     kc = cv2.getStructuringElement(cv2.MORPH_RECT, (2 * r + 3, 2 * r + 3))
     cands = []
     for idx in groups.values():
-        if sum(keep[i][4] for i in idx) < 0.008 * W * H:
+        if sum(keep[i][4] for i in idx) < 0.004 * W * H:
             continue
         m = cv2.morphologyEx(np.isin(lab, idx).astype(np.uint8), cv2.MORPH_CLOSE, kc)
         cands.append((m, _ring_walled(g, m)))
+    _LAST["cands"] = cands
     zones = [m for m, wl in cands if wl >= 0.75 and _min_side(m) >= 0.05 * S]
     if zones:  # slab zones form one building: keep the cluster around the largest zone (drops title-block cells)
         boxes = [_bbox(m) for m in zones]
@@ -984,6 +1048,7 @@ def analyse(meta) -> dict:
     cost = 0.0
     hor, ver, src = _ocr(meta)
     g, f = _gray(meta)
+    g_seg = _erase_pdf_shading(meta, g)
     H, W = g.shape
     lines = ocr_lines(hor) if hor else []
     blocks = _blocks(lines)
@@ -1034,7 +1099,9 @@ def analyse(meta) -> dict:
     scale_src = f"{n_scale} dimension-string pairs" if k else None
 
     # zones
-    zones, _outside = _zones(g, k)
+    joint_pts = [((w["bbox"][0] + w["bbox"][2]) / 2 * W, (w["bbox"][1] + w["bbox"][3]) / 2 * H) for w in hor + ver
+                 if re.fullmatch(r"[CE]\.?J\.?", w["text"].upper())]
+    zones, _outside = _zones(g_seg, k, joint_pts)
     S = max(H, W)
     good = []
     for z in zones:
