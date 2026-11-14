@@ -113,7 +113,7 @@ function initGL() {
   cv.addEventListener('pointerup', e => {
     const d = down; down = null;
     if (!d || Math.hypot(e.clientX - d[0], e.clientY - d[1]) >= 4 || performance.now() - d[2] > 300) return;
-    select(pick(e));
+    select(pick(e), {x: e.clientX, y: e.clientY});
   });
 }
 
@@ -310,6 +310,7 @@ const grow = (ring, d) => { const [cx, cy] = centroid(ring); return ring.map(([x
 let br = null;  // the m² class breaks of the answer on show (null: a count)
 function applyEvidence(animate) {
   if (!data || !evGroup) return;
+  const keep = evSig.split('|')[0] === signature().split('|')[0] ? selI : null;  // same answer: the selection stays
   evSig = signature();
   clearEvidence();
   const r = app.res(), list = app.items(), type = r && r.type;
@@ -360,11 +361,12 @@ function applyEvidence(animate) {
     if (it.n != null) el.innerHTML = `<span class="p3n">${it.n}</span>`;
     else el.innerHTML = `<span class="p3a"><b>${e.value != null ? fmtA(e.value) + ' m²' : ''}</b>${it.name ? `<small>${esc(it.name)}</small>` : ''}</span>`;
     el.addEventListener('pointerenter', () => hover(i)); el.addEventListener('pointerleave', () => hover(null));
-    el.addEventListener('click', ev2 => { ev2.stopPropagation(); select(i, el); });
+    el.addEventListener('click', ev2 => { ev2.stopPropagation(); const r = el.getBoundingClientRect(); select(i, {x: r.left + r.width / 2, y: r.top}); });
     labs.appendChild(el); it.el = el;
     ev.push(it);
   });
   legend();
+  if (keep != null && ev.some(x => x.i === keep)) { selI = keep; setHot(keep); }
   // paint them one after the other (the 2D view counts them out the same way): each spreads up from the floor
   const step = Math.max(25, Math.min(90, 900 / Math.max(1, ev.length)));
   ev.forEach((it, j) => {
@@ -443,8 +445,11 @@ function hover(i) {
   setHot(i ?? selI);
   renderer.domElement.style.cursor = i != null ? 'pointer' : '';
 }
-function select(i) {
+// a click on an element or its pin selects it: its row flashes, and the app's card opens beside it (what it is, its
+// value, drop / put back). A click on nothing closes the card.
+function select(i, pt) {
   selI = i ?? null; setHot(selI);
+  try { if (typeof window.pinCardAt === 'function') window.pinCardAt(selI, pt); } catch (e) { /* app changed */ }
   if (selI == null) return;
   const w = $('#evwrap'); if (w && !w.open) w.open = true;
   try { if (typeof window.flashRow === 'function') window.flashRow(selI); else app.rowHot(selI, true); } catch (e) { /* app changed */ }
@@ -518,6 +523,7 @@ async function open() {
 function close() {
   if (!opened) return;
   opened = false; tweens.clear(); hover(null);
+  if (selI != null) select(null);
   box.classList.remove('on'); viewer.classList.remove('p3on');
   tog.querySelector('#p3plan').classList.add('on'); tog.querySelector('#p3go').classList.remove('on');
   tog.querySelector('#p3plan').setAttribute('aria-pressed', 'true'); tog.querySelector('#p3go').setAttribute('aria-pressed', 'false');
@@ -550,7 +556,12 @@ for (const [sel, opts] of [['#ev', {childList: true}], ['#evwrap', {attributes: 
 }
 // a tour step drives the 2D view (hovering numbered marks): leave 3D when it moves on
 const cap = $('#capstep'); if (cap) new MutationObserver(() => close()).observe(cap, {childList: true, characterData: true, subtree: true});
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && opened && !e.target.closest('input, textarea')) close(); });
+// Esc closes an open card first (the app does that), then the 3D view
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || !opened || e.defaultPrevented || e.target.closest('input, textarea')) return;
+  const card = document.querySelector('.tip3d'); if (card && !card.hidden) return;
+  close();
+});
 q();
 
 window.__p3 = {open, close, get opened() { return opened; }, get ready() { return opened && !!data && !tweens.size; }, get _three() { return {scene, renderer, camera, requestRender}; }};
