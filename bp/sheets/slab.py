@@ -80,21 +80,22 @@ def _ocr(meta) -> tuple[list[dict], list[dict], str]:
     if not hor:
         return [], [], "none"
     # rotated pass for vertical dimension strings (text reading bottom-to-top)
-    ver = []
-    try:
-        from PIL import Image
+    ver = meta.get("_slab_rot_ocr")
+    if ver is None:
+        ver = []
+        try:
+            from PIL import Image
 
-        Image.MAX_IMAGE_PIXELS = None
-        rp = Path(meta.get("_slab_cache_dir") or Path(meta["image"]).parent) / "slab_rot90.png"
-        if not rp.exists():
-            Image.open(meta["image"]).convert("L").rotate(-90, expand=True).save(rp)
-        rmeta = {"image": str(rp)}
-        for x in ocr_words(rmeta, scale=scale, psm=11):
-            a0, b0, a1, b1 = x["bbox"]  # in the rotated image (rotated clockwise): x' = 1 - y, y' = x
-            ver.append({"text": x["text"], "conf": x["conf"], "vertical": True,
-                        "bbox": [b0, 1 - a1, b1, 1 - a0]})
-    except Exception as e:  # noqa: BLE001
-        log.warning("slab: rotated OCR failed: %s", e)
+            Image.MAX_IMAGE_PIXELS = None
+            rp = Path(meta.get("_slab_cache_dir") or Path(meta["image"]).parent) / (Path(meta["image"]).stem + ".rot90.png")
+            if not rp.exists():
+                Image.open(meta["image"]).convert("L").rotate(-90, expand=True).save(rp)
+            for x in ocr_words({"image": str(rp)}, scale=scale, psm=11):
+                a0, b0, a1, b1 = x["bbox"]  # in the rotated image (rotated clockwise): x' = 1 - y, y' = x
+                ver.append({"text": x["text"], "conf": x["conf"], "vertical": True, "bbox": [b0, 1 - a1, b1, 1 - a0]})
+            meta["_slab_rot_ocr"] = ver
+        except Exception as e:  # noqa: BLE001
+            log.warning("slab: rotated OCR failed: %s", e)
     return hor, ver, "tesseract"
 
 
@@ -870,7 +871,17 @@ def analyse(meta) -> dict:
         ty = _parse_type(b["text"])
         if ty:
             ty.update({"text": b["text"], "bbox": b["bbox"]})
-            types.append(ty)
+            # the same note read twice (a crop cut it short): keep the fuller reading, at the tighter location
+            twin = next((t for t in types if t["thickness_mm"] == ty["thickness_mm"] and t["bars"] == ty["bars"]
+                         and (t["text"] in ty["text"] or ty["text"] in t["text"])), None)
+            if twin is None:
+                types.append(ty)
+            elif len(ty["text"]) > len(twin["text"]):
+                area = lambda bb: (bb[2] - bb[0]) * (bb[3] - bb[1])  # noqa: E731
+                bb = min(twin["bbox"], ty["bbox"], key=area)
+                twin.clear()
+                twin.update(ty)
+                twin["bbox"] = bb
 
     # scale
     k, dims, n_scale = _scale_from_dims(hor, ver, W, H, g)
@@ -895,7 +906,7 @@ def analyse(meta) -> dict:
             k = float(ow) / (xs.max() - xs.min() + 2 * 0.3 / 21 * 0)  # inner extent: rough
             scale_src = "overall dimension read by vision (rough)"
 
-    eps = max(2.0, S * 0.0015)
+    eps = max(3.0, S * 0.003)
     xt, yt = {}, {}
     for d in dims:
         if d.get("inlier"):
@@ -919,6 +930,7 @@ def analyse(meta) -> dict:
         if len(gross) < 4:
             continue
         n_pan, cuts = _cj_panels(g, z["mask"])
+        pts = _clean_poly(pts)
         out_zones.append({"inner": pts, "gross": gross, "inner_px": _poly_area(pts), "gross_px": _poly_area(gross),
                           "panels": n_pan, "cuts": cuts, "walled": round(z["walled"], 3),
                           "centroid": [float(np.mean([p[0] for p in pts])), float(np.mean([p[1] for p in pts]))]})
@@ -957,6 +969,12 @@ def analyse(meta) -> dict:
     tr_text = "\n".join(b["text"] for b in blocks if b.get("read")) or full_text
     for m in re.finditer(r"([A-Z][A-Z ]{2,40}?)\s+TRENCH\s+LENGTH\s*[-=:]?\s*(\d[\d,]*)", tr_text.upper()):
         trenches.append({"name": m.group(1).strip().title() + " trench", "length_mm": int(m.group(2).replace(",", ""))})
+    by_len: dict = {}
+    for t in trenches:  # the same note read twice (overlapping crops / OCR leftovers): keep the cleanest name
+        cur = by_len.get(t["length_mm"])
+        if cur is None or len(t["name"]) > len(cur["name"]):
+            by_len[t["length_mm"]] = t
+    trenches = [t for t in trenches if by_len.get(t["length_mm"]) is t]
     tl_blocks = [b for b in blocks if "TRENCH" in b["text"].upper()]
     sump_blocks = [b for b in blocks if re.search(r"\bSUMP\b", b["text"].upper())]
     sumps = []
@@ -966,14 +984,17 @@ def analyse(meta) -> dict:
     cj_words = [w for w in hor + ver if re.fullmatch(r"C\.?J\.?", w["text"].upper())]
     sc = re.search(r"SCALE\s*:?\s*1\s*:\s*(\d+)", full_text.upper())
     hatch_note = next((b for b in blocks if re.search(r"SHADED|HATCH", b["text"].upper())), None)
-    res = {"v": 1, "src": src, "W": W, "H": H, "f": f, "k": k, "scale_src": scale_src,
+    low = bool(meta.get("low_res")) if "low_res" in meta else (src != "pdf-text" and max(meta.get("w") or 0, meta.get("h") or 0) < 3000)
+    res = {"v": 1, "src": src, "low_res": low, "W": W, "H": H, "f": f, "k": k, "scale_src": scale_src,
            "scale_note": f"1:{sc.group(1)}" if sc else None, "types": types, "zones": out_zones,
            "pads": pads, "trenches": trenches, "trench_blocks": [b["bbox"] for b in tl_blocks],
            "trench_labels": [{"text": b["text"], "bbox": b["bbox"]} for b in tl_blocks],
            "sumps": sumps, "cj_words": [w["bbox"] for w in cj_words],
            "hatch_note": hatch_note["text"] if hatch_note else None,
+           "chains": _chains(dims),
            "dims": [{k2: d[k2] for k2 in ("v", "vertical", "bbox", "span", "k", "inlier") if k2 in d} for d in dims], "cost_usd": cost,
-           "text": full_text}
+           "text": full_text,
+           "stairs": [b["bbox"] for b in blocks if re.search(r"\bSTAIR", b["text"], re.I) and b["bbox"][2] > b["bbox"][0]]}
     meta["slab"] = res
     return res
 
@@ -987,35 +1008,77 @@ def _norm_pts(pts, W, H):
     return [[round(x / W, 5), round(y / H, 5)] for x, y in pts]
 
 
-def _zone_explain(z, a, k, dims):
+def _zone_explain(z, a, k, dims, key="gross", stairs=(), WH=(1, 1)):
     """Zone area as rectangles: '19,800 × 12,000 mm = 237.60 m²' (+ more rectangles for L-shapes). A side equal
     to a printed dimension (within 0.6 %) uses the printed value; others are measured (rounded to 10 mm)."""
     hd = [d for d in dims if not d["vertical"]]
     vd = [d for d in dims if d["vertical"]]
-    parts, total, printed = [], 0.0, 0
-    for x0, y0, x1, y1 in _rects(z["gross"]):
+    parts, total, printed, dropped = [], 0.0, 0, []
+    rects = _rects(z[key])
+    big = max(((r[2] - r[0]) * (r[3] - r[1]) for r in rects), default=0)
+    for x0, y0, x1, y1 in rects:
         w, h = (x1 - x0) * k, (y1 - y0) * k
+        # a small appendage labelled as a stair well is not slab (the stair pit of S-100F)
+        cx, cy = (x0 + x1) / 2 / WH[0], (y0 + y1) / 2 / WH[1]
+        if (x1 - x0) * (y1 - y0) < 0.04 * big and any(
+                b[0] - 0.06 < cx < b[2] + 0.06 and b[1] - 0.06 < cy < b[3] + 0.06 for b in stairs):
+            dropped.append(w * h / 1e6)
+            continue
         dw, dh = _snap(w, hd), _snap(h, vd)
         w2 = dw["v"] if dw else round(w, -1)
         h2 = dh["v"] if dh else round(h, -1)
         printed += bool(dw) + bool(dh)
         ar = w2 * h2 / 1e6
         total += ar
-        parts.append((w2, h2, ar, bool(dw), bool(dh)))
-    if not parts or abs(total - a) / max(a, 1e-9) > 0.03:
-        return a, f"measured {a:.2f} m²", []
-    txt = " + ".join(f"{w:,.0f}{'' if pw else '*'} × {h:,.0f}{'' if ph else '*'}" for w, h, _, pw, ph in parts)
+        parts.append((w2, h2, ar, dw, dh))
+    a_kept = a - sum(dropped)
+    if not parts or abs(total - a_kept) / max(a_kept, 1e-9) > 0.03:
+        return a_kept, f"measured {a_kept:.2f} m²" + (f" (stair well {sum(dropped):.1f} m² left out)" if dropped else ""), []
+    def lab(v, d):
+        return f"{v:,.0f}" + (f" ({d['how']})" if d and d.get("how") else "") if d else f"{v:,.0f}*"
+
+    txt = " + ".join(f"{lab(w, pw)} × {lab(h, ph)}" for w, h, _, pw, ph in parts)
     star = " (* measured; other sides are printed dimensions)" if printed < 2 * len(parts) else " (sides = printed dimensions)"
-    return total, f"{txt} mm = {total:.2f} m²" + (star if printed else " (sides measured)"), parts
+    tail = f"; stair well ({sum(dropped):.1f} m²) left out" if dropped else ""
+    return total, f"{txt} mm = {total:.2f} m²" + (star if printed else " (sides measured)") + tail, parts
 
 
 def _zone_area(z, A):
+    """Slab area = clear area inside the edge beams / walls (the stippled bands are walls, not slab). Returns
+    (net m², explanation incl. the gross outline for reference, parts)."""
     k = A["k"]
-    a_meas = _m2(z["gross_px"], k)
-    a, how, used = _zone_explain(z, a_meas, k, A["dims"])
-    if abs(a - a_meas) / max(a_meas, 1e-9) > 0.03:
-        a, how, used = a_meas, f"measured {a_meas:.2f} m²", []
-    return a, how, used
+    dims = A["dims"] + A.get("chains", [])
+    a_meas = _m2(z["inner_px"], k)
+    stairs = A.get("stairs", [])
+    a, how, used = _zone_explain(z, a_meas, k, dims, key="inner", stairs=stairs, WH=(A["W"], A["H"]))
+    g_meas = _m2(z["gross_px"], k)
+    ga, ghow, _ = _zone_explain(z, g_meas, k, A["dims"], key="gross", stairs=stairs, WH=(A["W"], A["H"]))
+    return a, f"clear area inside the walls: {how}; outer faces: {ghow}", used
+
+
+def _chains(dims):
+    """Sums of runs of adjacent dimensions on one dimension line ('5,800 + 7,400 + 6,300 = 19,500'): clear spans
+    between walls are often only printed as such a chain."""
+    out = []
+    for vertical in (False, True):
+        ds = [d for d in dims if d.get("span") and d.get("inlier") and d["vertical"] == vertical]
+        rows: dict = {}
+        for d in ds:
+            key = round((d["span"][0] if vertical else d["span"][1]) / 3)
+            rows.setdefault(key, []).append(d)
+        for row in rows.values():
+            a0 = 1 if vertical else 0
+            row.sort(key=lambda d: d["span"][a0])
+            for i in range(len(row)):
+                tot, parts = 0, []
+                for j in range(i, len(row)):
+                    if j > i and abs(row[j]["span"][a0] - row[j - 1]["span"][a0 + 2]) > 4:
+                        break
+                    tot += row[j]["v"]
+                    parts.append(row[j]["v"])
+                    if len(parts) > 1:
+                        out.append({"v": tot, "vertical": vertical, "how": " + ".join(f"{p:,}" for p in parts)})
+    return out
 
 
 def _type_of(z, A):
@@ -1045,9 +1108,18 @@ def _match_zones(q, A):
     return sel, desc
 
 
-def _res(answer, conf, expl, ev, A, path_suffix=""):
-    return {"answer": answer, "confidence": round(conf, 2), "explanation": expl, "evidence": ev,
-            "method": METHOD + (f"-{path_suffix}" if path_suffix else ""), "cost_usd": round(A.get("cost_usd", 0.0), 5)}
+def _res(answer, conf, expl, ev, A, path_suffix="", unit=None):
+    r = {"answer": answer, "confidence": round(conf, 2), "explanation": expl, "evidence": ev,
+         "method": METHOD + (f"-{path_suffix}" if path_suffix else ""), "cost_usd": round(A.get("cost_usd", 0.0), 5)}
+    if unit:
+        r["unit"] = unit
+    if A.get("low_res"):
+        r["low_res"] = "small raster: notes re-read by vision, sides measured at about 2 cm per pixel"
+    if A.get("scale_note"):
+        r["scale"] = A["scale_note"]
+    if path_suffix.startswith("area"):
+        r["sheet_how"] = "measured inside the walls, sides checked against the dimension strings"
+    return r
 
 
 def _text_ev(bbox, label):
@@ -1055,8 +1127,11 @@ def _text_ev(bbox, label):
 
 
 def _zone_ev(z, A, label, value):
-    return {"kind": "polygon", "page": 0, "points": _norm_pts(z["gross"], A["W"], A["H"]), "label": label,
-            "value": value}
+    """A slab zone (clear area inside its walls), coloured by slab type in the UI legend."""
+    t = _type_of(z, A)
+    return {"kind": "polygon", "page": 0, "points": _norm_pts(z["inner"], A["W"], A["H"]), "label": label,
+            "value": None if value is None else float(value), "unit": "m²",
+            "category": _type_name(t) if t else "untyped"}
 
 
 def _base_conf(A):
@@ -1082,14 +1157,15 @@ def answer(path, question, meta) -> dict | None:
             best = max(A["trenches"], key=lambda t: len(toks & set(t["name"].lower().split())))
             hits = len(toks & set(best["name"].lower().split()))
             ev = [_text_ev(b, "trench note") for b in A["trench_blocks"]]
+            div = 1 if re.search(r"\bin mm\b|millimet", ql) else 1000
             if hits and not re.search(r"\btotal|all|sum\b", ql):
-                return _res(best["length_mm"] / 1000, conf0 + 0.1,
+                return _res(best["length_mm"] / div, conf0 + 0.1,
                             f"{best['name']}: {best['length_mm']:,} mm per the general notes "
-                            f"(\"approximate trench lengths\")", ev, A, "trench")
+                            f"(\"approximate trench lengths\")", ev, A, "trench", "mm" if div == 1 else "m")
             tot = sum(t["length_mm"] for t in A["trenches"])
-            return _res(tot / 1000, conf0 + 0.05, " + ".join(f"{t['length_mm']:,}" for t in A["trenches"])
+            return _res(tot / div, conf0 + 0.05, " + ".join(f"{t['length_mm']:,}" for t in A["trenches"])
                         + f" mm = {tot:,} mm ({', '.join(t['name'] for t in A['trenches'])}; lengths from the notes)",
-                        ev, A, "trench")
+                        ev, A, "trench", "mm" if div == 1 else "m")
         if re.search(r"how many|number|count", ql):
             n = len(A["trenches"])
             labels = [t for t in A["trench_labels"] if not re.search(r"LENGTH", t["text"].upper())]
@@ -1159,10 +1235,12 @@ def answer(path, question, meta) -> dict | None:
         areas = [_m2(p["area_px"], k) for p in A["pads"]]
         tot = sum(areas)
         ev = [{"kind": "polygon", "page": 0, "points": _norm_pts(p["poly"], W, H), "label": f"pad {i + 1}",
-               "value": round(a, 2)} for i, (p, a) in enumerate(zip(A["pads"], areas))]
+               "value": round(a, 2), "unit": "m²", "category": "bottom reinforcement (shaded)"}
+              for i, (p, a) in enumerate(zip(A["pads"], areas))]
         return _res(round(tot, 1), conf0 * 0.55, f"{len(areas)} hatched areas measured at {k:.2f} mm/px: "
                     + " + ".join(f"{a:.1f}" for a in areas) + f" = {tot:.1f} m²"
-                    + (f" (legend: {A['hatch_note'][:80]})" if A.get("hatch_note") else ""), ev, A, "pads")
+                    + (f" (legend: {A['hatch_note'][:80]})" if A.get("hatch_note") else "")
+                    + "; shading detection is approximate", ev, A, "pads", "m²")
 
     # ---- reinforcement / thickness / elevation (text)
     if re.search(r"\bbars?\b|reinforc|rebar|mesh|thick|elevation|top of slab|\bt\.?o\.?s\b|\bel\b", ql) \
@@ -1234,7 +1312,7 @@ def answer(path, question, meta) -> dict | None:
             expl = " + ".join(f"[{_type_name(_type_of(z, A))}] {how}" for z, a, how, used in rs)
             if len(rs) > 1:
                 expl += f" → total {tot:.2f} m²"
-            return _res(round(tot, 2), conf, f"{desc} slab: {expl}", ev, A, "area")
+            return _res(round(tot, 2), conf, f"{desc} slab: {expl}", ev, A, "area", "m²")
         tot = sum(r[1] for r in rows)
         ev = []
         for z, a, how, used in rows:
@@ -1250,10 +1328,10 @@ def answer(path, question, meta) -> dict | None:
             ans = "; ".join(f"{n}: {sum(v):.1f} m²" for n, v in groups.items()) + f" (total {tot:.1f} m²)"
             expl = " | ".join(f"[{_type_name(_type_of(z, A)) if _type_of(z, A) else 'untyped'}] {how}"
                               for z, a, how, used in rows)
-            return _res(ans, conf, expl, ev, A, "area-by-type")
+            return _res(ans, conf, expl, ev, A, "area-by-type", "m²")
         expl = " + ".join(f"{a:.2f}" for _, a, _, _ in rows) + f" = {tot:.2f} m² (" + " | ".join(
             f"[{_type_name(_type_of(z, A)) if _type_of(z, A) else 'untyped'}] {how}" for z, a, how, used in rows) + ")"
-        return _res(round(tot, 2), conf, f"total slab area: {expl}", ev, A, "area")
+        return _res(round(tot, 2), conf, f"total slab area: {expl}", ev, A, "area", "m²")
 
     if re.search(r"how many .*(slab types|types of slab|slab zones)", ql):
         n = len({_type_name(t) for t in A["types"]})
