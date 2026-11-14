@@ -68,6 +68,16 @@ wall', 'room labelled MH (bedroom)'>", "label": "<one or two words>",
 "size": "small" if one instance is a small symbol or label on the sheet, "large" if it is a whole room, view,
 plan, storey or building}}"""
 
+RETRY_HINT = """
+
+Note: schedules, tables, legends and lists on this sheet are TEXT, not drawn symbols: counts and sums
+over schedule rows must be answered from the text above (mode "text"). Use mode "vision" only for things
+that are drawn and have no text row of their own."""
+
+TABLE_WORDS = re.compile(r"schedul|table|legend|list(ed)?\b|\bkey\b|taulukko|tabelle|tableau|luettelo", re.I)
+_STOP = {"the", "of", "on", "in", "is", "are", "how", "many", "what", "which", "this", "that", "drawings", "sheet",
+         "and", "for", "with", "does", "do", "an", "to", "by", "be", "there", "drawn", "shown", "total", "all"}
+
 CONF = {"high": 0.85, "medium": 0.6, "low": 0.3}
 
 
@@ -127,6 +137,22 @@ class GenericSolver:
         return d, cost, gs
 
     # -------------------------------------------------------------------------------- text path
+    @staticmethod
+    def _text_matches(question: str, segs) -> bool:
+        """Does the text layer look like it holds the answer? (backend-agnostic retry trigger)"""
+        body = " ".join(s.text for s in segs).lower()
+        if not body:
+            return False
+        m = TABLE_WORDS.search(question)
+        if m and (m.group(0).lower()[:6] in body or "count" in body or "mark" in body):
+            return True
+        ids = [t for t in re.findall(r"[a-z0-9][a-z0-9.\-/]*", question.lower()) if re.search(r"\d", t) and len(t) > 1]
+        ids = [t.strip(".") for t in ids]
+        hit_ids = sum(1 for t in ids if re.search(r"(?<![a-z0-9])" + re.escape(t) + r"(?![a-z0-9])", body))
+        words = [t for t in re.findall(r"[a-z]{3,}", question.lower()) if t not in _STOP]
+        hit_w = sum(1 for t in set(words) if t in body)
+        return hit_ids >= 2 or (hit_ids >= 1 and hit_w >= 2) or (words and hit_w / len(set(words)) >= 0.6)
+
     def _text(self, q, path):
         pages = T.pick_pages(path, q["question"])
         segs, nid = [], 0
@@ -144,6 +170,14 @@ class GenericSolver:
                                     src=f"{q['ext'].upper()}, {len(pages)} page(s) shown")
         txt, cost, gs = self._ask_text(prompt, "text")
         d = llm.parse_json(txt)
+        if (not isinstance(d, dict) or d.get("mode") != "text") and self._text_matches(q["question"], shown):
+            # the model declined the text layer although the sheet's text is about the question's subject
+            # (a schedule / table, ids from the question): one retry with an explicit hint
+            txt2, c2, g2 = self._ask_text(prompt + RETRY_HINT, "text-retry")
+            cost, gs = cost + c2, gs + g2
+            d2 = llm.parse_json(txt2)
+            if isinstance(d2, dict) and d2.get("mode") == "text" or not isinstance(d, dict):
+                d, txt = d2, txt2
         if not isinstance(d, dict):
             return {"mode": "error", "raw": txt[-500:]}, cost, gs
         d["_segs"] = {s.id: s for s in segs}
