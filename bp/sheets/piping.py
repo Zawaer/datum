@@ -1169,7 +1169,7 @@ def _tag_list(fam: str, nums: list[int]) -> str:
                      if "-" in r else f"{fam}-{r}" for r in _ranges(nums).split(", "))
 
 
-RECHECK_PROMPT = """This is a zoomed crop of a piping plan, {w}x{h} pixels. List every label of the form {fam}-<number>
+RECHECK_PROMPT = """This is a zoomed crop of a piping plan, {w}x{h} pixels. List every label of the form {fam}
 (e.g. {ex}) printed in it. One line per label: its box as four integer pixel coordinates in this image
 (left,top,right,bottom), a bar, then the label, e.g.
 212,40,268,58|{ex}
@@ -1188,7 +1188,7 @@ def _family_scan(sheet: dict, fams: list[str], cost: list, bare: bool = False,
     if not img:
         return []
     max_tiles = max_tiles or FAMSCAN_TILES
-    key = hashlib.sha1(f"{img}|{os.path.getsize(img)}|{','.join(sorted(fams))}|v2|{bare}|{max_tiles}"
+    key = hashlib.sha1(f"{img}|{os.path.getsize(img)}|{','.join(sorted(fams))}|v3|{bare}|{max_tiles}"
                        .encode()).hexdigest()[:16]
     cf = CACHE / "famscan" / f"{key}.json"
     Image.MAX_IMAGE_PIXELS = None
@@ -1265,14 +1265,14 @@ def _recheck(sheet: dict, fam: str, found: list[dict], cost: list, avoid: list[d
     pieces = [[r[0] + (r[2] - r[0]) * i / n - (0.01 if i else 0), r[1],
                r[0] + (r[2] - r[0]) * (i + 1) / n + (0.01 if i < n - 1 else 0), r[3]] for i in range(n)]
     def piece(pc):
-        key = hashlib.sha1(f"{sheet['image']}|{os.path.getsize(sheet['image'])}|{fam}|{[round(x, 4) for x in pc]}|v2"
+        key = hashlib.sha1(f"{sheet['image']}|{os.path.getsize(sheet['image'])}|{fam}|{[round(x, 4) for x in pc]}|v3"
                            .encode()).hexdigest()[:16]
         cf = CACHE / "recheck" / f"{key}.json"
         if cf.exists():
             return pc, json.loads(cf.read_text())["lines"], 0.0
         crop = im.crop((round(pc[0] * W), round(pc[1] * H), round(pc[2] * W), round(pc[3] * H)))
         crop = crop.resize((round(crop.width * f), round(crop.height * f)), Image.LANCZOS)
-        res = llm.ask(RECHECK_PROMPT.format(w=crop.width, h=crop.height, fam=fam, ex=found[0]["tag"]), [crop],
+        res = llm.ask(RECHECK_PROMPT.format(w=crop.width, h=crop.height, fam=f"{fam}-<number>", ex=found[0]["tag"]), [crop],
                       model="haiku", system="You read drawings exactly. Output only the requested lines.",
                       timeout=120, tag="sheets-piping-recheck")
         lines = (res.get("text") or "").splitlines()
@@ -1300,6 +1300,9 @@ def _recheck(sheet: dict, fam: str, found: list[dict], cost: list, avoid: list[d
                 continue
             if any(_near(bb, o["bbox"]) or _overlap(bb, o["bbox"]) > 0.2 for o in list(found) + list(avoid)):
                 continue  # read where a label of this family already is: a misreading of it (FSCV-6 as FSCV-8)
+            top = max((o["num"] for o in found if o.get("num") is not None), default=None)
+            if top is not None and t.get("num") is not None and t["num"] > 1.25 * top + 2:
+                continue  # far past the run read (FP-82 among FP-1..5): a misreading, as in tag_instances
             t.update(src="vision-recheck", seen_by=["vision-recheck"], conf=70.0)
             have.add(t["tag"])
             new.append(t)
@@ -1372,7 +1375,8 @@ def _count(q: str, sheet: dict, insts: list[dict], base: dict, cost: list) -> di
         extra = [t for t in _family_scan(sheet, bare, cost, bare=True, max_tiles=48) if t["num"] is None]
         add = []
         for t in extra:
-            if not any(o["family"] == t["family"] and _near(t["bbox"], o["bbox"]) for o in sel + add):
+            # a zoomed box lands a little off the first reading's: only well clear of every label read is it new
+            if not any(o["family"] == t["family"] and _near(t["bbox"], o["bbox"], 2.5) for o in sel + add):
                 t.update(seen_by=["vision-famscan"], conf=70.0)
                 add.append(t)
         bare_note = f"{len(add)} more {'/'.join(bare)} label(s) found by a zoomed look at the whole sheet" if add \
