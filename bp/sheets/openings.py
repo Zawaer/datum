@@ -1258,6 +1258,9 @@ def _side_panels(meta, windows) -> list[dict]:
     W, H = meta.get("w") or 0, meta.get("h") or 0
     if not (W and H):
         return []
+    ppm0 = (meta.get("openings") or {}).get("px_per_m")
+    if "_rooms_seg" not in meta and (not ppm0 or W * H * (rooms_mod.WORK_PPM / ppm0) ** 2 > 60e6):
+        return []  # the room segmentation would take too long here (a 10000 px sheet at 23 px/m: ~300 MP of work)
     try:
         seg = rooms_mod._cached(meta)
     except Exception as e:  # noqa: BLE001
