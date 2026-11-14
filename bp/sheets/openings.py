@@ -59,8 +59,10 @@ def _gray(image) -> np.ndarray:
         if a.ndim == 3:
             a = (a[..., :3].astype(np.float32) @ np.array([0.299, 0.587, 0.114], np.float32)).astype(np.uint8)
         return a
+    from bp.sheets.rooms import gray_unmarked
+
     im = image if hasattr(image, "convert") else Image.open(str(image))
-    return np.asarray(im.convert("L"))
+    return gray_unmarked(im)  # coloured pen markings on a scan are not walls or door leaves
 
 
 def _line_width(dark: np.ndarray) -> int:
@@ -468,7 +470,7 @@ def detect_openings(image, px_per_m=None) -> dict:
         im = Image.fromarray(_gray(image))
     else:
         im = image if hasattr(image, "convert") else Image.open(str(image))
-        im = im.convert("L")
+        im = Image.fromarray(_gray(im))
     W, H = im.size
     est = None
     if not px_per_m and max(W, H) >= 6000:
@@ -1040,8 +1042,14 @@ def yolo_openings(image, px_per_m=None) -> dict:
     from bp.cubicasa.infer import load, predict
 
     Image.MAX_IMAGE_PIXELS = None
+    from bp.sheets.rooms import unmark
+
     im = image if hasattr(image, "convert") else Image.open(str(image))
     im = im.convert("RGB")
+    rgb = np.asarray(im)
+    clean = unmark(rgb)  # pen markings on a scan: the detector boxed red / green ticks as doors
+    if clean is not rgb:
+        im = Image.fromarray(clean)
     W, H = im.size
     f = YOLO_PX_PER_M / px_per_m if px_per_m else 4800 / max(W, H)  # no scale: ~40 px/m on an A2/D sheet
     f = max(0.25, min(f, 10000 / max(W, H)))

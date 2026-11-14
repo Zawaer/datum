@@ -179,3 +179,18 @@ def test_identify_room_takes_only_confident_hall_pick(monkeypatch, tmp_path):
     assert R.identify_room(seg, str(p), "Multi-Purpose Hall")[0] is rooms[0]
     assert R.identify_room(seg, str(p), "Kitchen")[0] is None  # medium: not taken
     assert R.identify_room(seg, str(p), "Sports Hall")[0] is None  # room 4 is not the largest compact room
+
+
+def test_pen_marks_removed_walls_kept():
+    """A red / green pen stroke across a wall is removed; the wall under it stays dark; a pink zone fill stays."""
+    rgb = np.full((300, 400, 3), 225, np.uint8)
+    rgb[100:115, :] = 20  # a wall
+    rgb[268:296, 200:395] = (235, 175, 170)  # a pink zone fill (not a pen)
+    cv2.line(rgb, (50, 20), (350, 250), (205, 40, 40), 2)  # red pen
+    cv2.line(rgb, (50, 250), (350, 30), (60, 140, 70), 2)  # green pen
+    m = R.mark_mask(rgb)
+    assert m is not None and m[20:30, 50:65].any()
+    assert not m[275:290, 210:380].any()  # the fill is untouched
+    g = R.gray_unmarked(__import__("PIL.Image", fromlist=["Image"]).fromarray(rgb))
+    assert g[103:111].max() < 110  # the wall under the strokes is still ink (its core: the rims blur)
+    assert g[150:190, 150:250].min() > 150  # no stroke left between the wall and the fill

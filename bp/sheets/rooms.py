@@ -51,7 +51,93 @@ def _gray(image) -> np.ndarray:
     from PIL import Image
 
     Image.MAX_IMAGE_PIXELS = None
-    return np.asarray(Image.open(image).convert("L"))
+    return gray_unmarked(Image.open(image))
+
+
+MARK_SAT = 85  # max - min of R, G, B above which a red pixel is pen ink, not black / grey linework or a pink fill
+MARK_SAT_COOL = 50  # the same for green / blue pens (a blurred green pen on grey paper is ~(60, 130, 70))
+
+
+def mark_mask(rgb: np.ndarray) -> np.ndarray | None:
+    """Thin strokes of saturated colour (hand markings in red / green pen on a scan: ticks, circles, underlines, numbers)
+    as a bool mask, or None when there are none. Colour fills (zone shading) are wide, not thin, and are kept."""
+    import cv2
+
+    H, W = rgb.shape[:2]
+
+    def pen(b):  # pen colours only: red, green, blue (drawn orange / brown furniture or a pink zone is not a pen)
+        b = np.ascontiguousarray(b[..., :3])
+        hue = cv2.cvtColor(b, cv2.COLOR_RGB2HSV)[..., 0]  # 0..180
+        sat = b.max(axis=2).astype(np.int16) - b.min(axis=2)
+        red = ((hue <= 10) | (hue >= 168)) & (sat > MARK_SAT)  # pink zone fills reach ~60
+        cool = (((hue >= 42) & (hue <= 85)) | ((hue >= 100) & (hue <= 128))) & (sat > MARK_SAT_COOL)
+        return red | cool
+    if float(pen(rgb[::4, ::4]).mean()) < 2e-4:
+        return None
+    m = np.zeros((H, W), np.uint8)
+    for y in range(0, H, 1024):  # in bands: an int16 copy of a 10000 px sheet would be ~400 MB
+        m[y:y + 1024] = pen(rgb[y:y + 1024])
+    k = max(5, round(max(H, W) / 2500 * 6)) | 1  # wider than a pen stroke (~3 px at 2500 px)
+    wide = cv2.morphologyEx(m, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    wide = cv2.dilate(wide, np.ones((3, 3), np.uint8))
+    thin = (m > 0) & (wide == 0)
+    if not thin.any():
+        return None
+    return cv2.dilate(thin.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0  # and their anti-aliased rims
+
+
+def unmark(rgb: np.ndarray) -> np.ndarray:
+    """rgb with pen markings painted over in the paper's colour (see mark_mask); the input when there are none."""
+    mm = mark_mask(rgb)
+    if mm is None:
+        return rgb
+    return _inpaint(np.ascontiguousarray(rgb[..., :3]), mm)
+
+
+def _inpaint(a, mm):
+    """Fill the masked pixels from their surroundings: a pen stroke over paper becomes paper, over a wall the wall's
+    ink continues (blanking it would open a gap that lets a room leak). Only the masked boxes are processed."""
+    import cv2
+
+    out = a.copy()
+    n, lab, st, _ = cv2.connectedComponentsWithStats(mm.astype(np.uint8), 8)
+    H, W = mm.shape
+    for i in range(1, n):
+        x, y, w, h = st[i, :4]
+        x0, y0, x1, y1 = max(0, x - 6), max(0, y - 6), min(W, x + w + 6), min(H, y + h + 6)
+        sub = (lab[y0:y1, x0:x1] == i).astype(np.uint8)
+        out[y0:y1, x0:x1] = cv2.inpaint(np.ascontiguousarray(out[y0:y1, x0:x1]), sub, 3, cv2.INPAINT_TELEA)
+    return out
+
+
+_GRAY_CACHE: dict = {}  # (file, mtime, size) -> grey array, the last two colour sheets (each module loads them often)
+
+
+def gray_unmarked(im) -> np.ndarray:
+    """Grey array of a PIL image with coloured pen markings removed (grey / bilevel images are converted as they are)."""
+    import os
+
+    if im.mode in ("1", "L", "LA", "I", "I;16", "F"):
+        return np.asarray(im.convert("L"))
+    fn = getattr(im, "filename", "") or ""
+    key = None
+    if fn and os.path.exists(fn):
+        key = (fn, os.path.getmtime(fn), im.size)
+        with _lock:
+            if key in _GRAY_CACHE:
+                return _GRAY_CACHE[key]
+    rgb = np.asarray(im.convert("RGB"))
+    mm = mark_mask(rgb)
+    g = np.asarray(im.convert("L"))
+    if mm is not None:
+        g = _inpaint(g, mm)
+    g.setflags(write=False)
+    if key:
+        with _lock:
+            _GRAY_CACHE[key] = g
+            while len(_GRAY_CACHE) > 2:
+                _GRAY_CACHE.pop(next(iter(_GRAY_CACHE)))
+    return g
 
 
 def _words(image, words=None, meta=None):
