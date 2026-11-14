@@ -69,7 +69,7 @@ function b64(s, Type) {
 }
 
 // ------------------------------------------------------------ in-viewer controls and storey labels (DOM owned here)
-let ctlEl = null, needle = null, lastAz = null;
+let ctlEl = null, flrEl = null, needle = null, lastAz = null, quiet = false;
 let bar, btnExplode, btnXray, labLayer, labels = [], floorEl = null, pinLayer = null, legEl = null;
 let focusSi = null, homeSi = null;  // the storey on show (null = whole building), and the one the evidence is on
 const CSS = `
@@ -114,11 +114,18 @@ const CSS = `
 .v3pin.off span { background: #fff; color: #6b7584; border-color: #9aa2ad; text-decoration: line-through; box-shadow: 0 1px 2px rgba(22,25,29,.15); }
 .v3ctl { position: absolute; right: 12px; top: 64px; z-index: 5; display: flex; flex-direction: column; gap: 8px; align-items: center; }
 .v3ctl[hidden] { display: none; }
-.v3ctl > * { background: var(--panel, #fff); border: 1px solid var(--line2, #c9ced5); border-radius: 8px; box-shadow: 0 1px 3px rgba(22,25,29,.12); }
+.v3ctl .flr, .v3ctl .cmp, .v3ctl .zm { background: var(--panel, #fff); border: 1px solid var(--line2, #c9ced5); border-radius: 8px; box-shadow: 0 1px 3px rgba(22,25,29,.12); }
 .v3ctl button { display: grid; place-items: center; width: 34px; height: 34px; border: 0; background: transparent; color: var(--text, #16191d);
   cursor: pointer; padding: 0; font: 500 18px/1 var(--font, system-ui); }
 .v3ctl button:hover { color: var(--ev-ink, #005f94); background: var(--panel2, #f6f7f9); }
 .v3ctl .zm { display: flex; flex-direction: column; overflow: hidden; } .v3ctl .zm button + button { border-top: 1px solid var(--line, #e4e7eb); }
+.v3ctl .row { display: flex; gap: 8px; align-items: center; background: none; border: 0; box-shadow: none; }
+.v3ctl .flr { display: flex; align-items: center; height: 38px; overflow: hidden; }
+.v3ctl .flr[hidden] { display: none; }
+.v3ctl .flr button { width: 30px; height: 36px; font-size: 11px; } .v3ctl .flr button:disabled { color: var(--faint, #8a929d); cursor: default; background: transparent; }
+.v3ctl .flr span { font: 600 12px/1 var(--font, system-ui); color: var(--text, #16191d); padding: 0 4px; min-width: 64px; max-width: 150px; text-align: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cutname { font: 500 11px var(--font, system-ui); color: var(--mut, #5b6470); margin-left: 6px; white-space: nowrap; }
 .v3ctl .cmp { border-radius: 50%; overflow: hidden; } .v3ctl .cmp button { width: 38px; height: 38px; } .v3ctl .cmp svg { width: 26px; height: 26px; }
 .v3pin.hot span { background: var(--hl, #f0e442); color: var(--ink, #16191d); border-color: var(--ink, #16191d); } .v3pin.hot { z-index: 2; }
 .v3leg { position: absolute; left: 12px; bottom: 30px; z-index: 4; background: var(--panel, #fff); border: 1px solid var(--line2, #c3c8cf);
@@ -173,14 +180,21 @@ function buildUI() {
   // which part of the building is on show: the storey the question is about, or the whole building (a deliberate step)
   // compass (north up on a click) and zoom, top right under the Plan | 3D toggle
   ctlEl = document.createElement('div'); ctlEl.className = 'v3ctl'; ctlEl.hidden = true;
-  ctlEl.innerHTML = '<div class="cmp"><button type="button" class="north" title="North up" aria-label="Turn the view north up">' +
-    '<svg viewBox="0 0 26 26" aria-hidden="true"><g class="ndl"><path d="M13 3.5 16 13h-6z" fill="#0072b2"/><path d="M13 22.5 10 13h6z" fill="#c9ced5"/></g></svg></button></div>' +
+  ctlEl.innerHTML = '<div class="row"><div class="flr" hidden role="group" aria-label="Storey"><button type="button" class="fdn" title="Storey below" aria-label="Storey below">▼</button>' +
+    '<span></span><button type="button" class="fup" title="Storey above" aria-label="Storey above">▲</button></div>' +
+    '<div class="cmp"><button type="button" class="north" title="North up" aria-label="Turn the view north up">' +
+    '<svg viewBox="0 0 26 26" aria-hidden="true"><g class="ndl"><path d="M13 3.5 16 13h-6z" fill="#0072b2"/><path d="M13 22.5 10 13h6z" fill="#c9ced5"/></g></svg></button></div></div>' +
     '<div class="zm"><button type="button" class="zin" title="Zoom in" aria-label="Zoom in">+</button><button type="button" class="zout" title="Zoom out" aria-label="Zoom out">−</button></div>';
   host.appendChild(ctlEl); needle = ctlEl.querySelector('.ndl');
   for (const ev of ['pointerdown', 'pointerup', 'wheel']) ctlEl.addEventListener(ev, e => e.stopPropagation());
   ctlEl.querySelector('.north').onclick = () => orbitTo(o => { let a = -Math.atan2(o.x, o.z); while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return [1, a]; });
   ctlEl.querySelector('.zin').onclick = () => orbitTo(() => [0.72, 0]);
   ctlEl.querySelector('.zout').onclick = () => orbitTo(() => [1 / 0.72, 0]);
+  flrEl = ctlEl.querySelector('.flr');
+  // the floor stepper: ▼ / ▲ through the storeys bottom-up, "All storeys" above the top one; the floors below the one
+  // on show stay whole, the ones above are hidden
+  ctlEl.querySelector('.fup').onclick = () => { if (focusSi != null) stepTo(focusSi + 1 >= storeys.length ? 'all' : focusSi + 1); };
+  ctlEl.querySelector('.fdn').onclick = () => stepTo(focusSi == null ? storeys.length - 1 : Math.max(0, focusSi - 1));
   floorEl = document.createElement('div'); floorEl.className = 'v3floor'; floorEl.hidden = true;
   floorEl.innerHTML = '<span></span><button type="button"></button>';
   host.appendChild(floorEl);
@@ -195,13 +209,26 @@ function buildUI() {
 function syncUI() {
   if (!bar) return;
   bar.hidden = !model; if (ctlEl) ctlEl.hidden = !model;
+  if (flrEl) {
+    flrEl.hidden = !model || storeys.length < 2 || explodeTo > 0;
+    const nm = focusSi != null ? (storeys[focusSi] && storeys[focusSi].name) || `Storey ${focusSi + 1}` : 'All storeys';
+    const sp = flrEl.querySelector('span'); sp.textContent = nm; sp.title = nm;
+    flrEl.querySelector('.fup').disabled = focusSi == null; flrEl.querySelector('.fdn').disabled = focusSi === 0;
+  }
+  const cut = document.getElementById('cut');
+  if (cut && model && storeys.length > 1) {  // the menu's Section slider: one stop per storey, its name beside it
+    let nmEl = cut.parentElement.querySelector('.cutname');
+    if (!nmEl) { nmEl = document.createElement('span'); nmEl.className = 'cutname'; cut.after(nmEl); }
+    nmEl.textContent = clipWanted >= 1e8 ? 'All' : focusSi != null && Math.abs(clipWanted - stopCut(focusSi)) < 1e-6 ? (storeys[focusSi].name || '') : `${(clipWanted - (storeys[0].z || 0)).toFixed(1)} m`;
+  }
   // one floor on show: explode and x-ray belong to the whole building, offered once it is on show
   const floor = focusSi != null && !(explodeTo > 0);
   btnExplode.hidden = storeys.length < 2 || floor;
   btnXray.hidden = floor;
   if (floorEl) {
     const nm = i => (storeys[i] && storeys[i].name) || `Storey ${i + 1}`;
-    const show = !!model && storeys.length > 1 && (focusSi != null || homeSi != null) && !(explodeTo > 0);
+    // the floor stepper (top right) shows the storey and steps through them; this panel stays for models it can't serve
+    const show = !!model && storeys.length > 1 && (focusSi != null || homeSi != null) && !(explodeTo > 0) && !flrEl;
     floorEl.hidden = !show;
     if (show) {
       const sp = floorEl.querySelector('span'), b = floorEl.querySelector('button');
@@ -535,11 +562,39 @@ export function clear() {
 // storey index -> clip just under the next storey's floor; null = no clipping. While exploded nothing is clipped:
 // every floor is on show, lifted clear of the one under it.
 const CUT_H = 1.6;
+const stopCut = si => Math.min(si < storeys.length - 1 ? storeys[si + 1].z - 0.25 : 1e9, storeys[si].z + CUT_H);
+// step to a storey (or 'all') through the app's storey menu when there is one, so it keeps its own state in step
+function stepTo(to) {
+  const sel = document.getElementById('storey');
+  quiet = true;
+  try {
+    if (sel && [...sel.options].some(o => o.value === String(to))) { sel.value = String(to); sel.dispatchEvent(new Event('change')); }
+    else focusStorey(to === 'all' ? null : to, false);
+  } finally { quiet = false; }
+}
+// the Section slider (0..1000): a stop per storey, bottom-up, evenly spaced, and 'All' at the right end. Near a stop
+// (within a fifth of the spacing) it snaps to that storey; between two stops the cut slides continuously from one
+// storey's cut height to the next. Returns {stop: storey index or null for all} when it snapped, else {}.
+export function stopValue(si) { const n = storeys.length; return si == null || !n ? 1000 : Math.round(si * 1000 / n); }
+export function section(v, el) {
+  const n = storeys.length; if (!n || !model) return {};
+  const step = 1000 / n, k = Math.round(v / step);
+  if (Math.abs(v - k * step) <= step * 0.2) {
+    const si = k >= n ? null : k;
+    if (el) el.value = stopValue(si);
+    focusStorey(si, false);
+    return { stop: si };
+  }
+  const k0 = Math.floor(v / step), t = v / step - k0, top = drawnBox(model, true).max.y + 0.5;
+  const a = stopCut(k0), b = k0 + 1 >= n ? top : stopCut(k0 + 1);
+  focusSi = k0; clipWanted = a + (b - a) * t; applyClip(); applyLook(); requestRender();
+  return {};
+}
 function setClip(si) {
   // one storey: cut a dollhouse 1.6 m above its floor (under the next floor's slab, whichever is lower), so the rooms
   // are open from above as on the 2D plan
   if (si == null || si < 0 || si >= storeys.length) clipWanted = 1e9;
-  else clipWanted = Math.min(si < storeys.length - 1 ? storeys[si + 1].z - 0.25 : 1e9, storeys[si].z + CUT_H);
+  else clipWanted = stopCut(si);
   applyClip();
 }
 function applyClip() { clip.constant = explodeTo > 0 || explodeT > 0 ? 1e9 : clipWanted; }
@@ -548,6 +603,7 @@ export function getStoreys() { return storeys; }
 // the evidence is on (offered as "Only <storey>" while the whole building is on show). Going from one storey to the
 // whole building, the cut rises through the building while the camera pulls back.
 export function focusStorey(si, reframe = true, home) {
+  if (quiet) reframe = false;  // stepped on the canvas: the camera stays where it is
   if (home !== undefined) homeSi = home;
   const valid = si != null && si >= 0 && si < storeys.length;
   const was = clipWanted;
@@ -915,7 +971,9 @@ function placePins() {
     for (const e of p.list) for (let t = e.start, end = e.start + e.count; t < end; t += 3) { const k = allIdx[t] * 3; _pb.expandByPoint(_pv.set(pa[k], pa[k + 1], pa[k + 2])); }
     const top = Math.min(p.space ? _pb.min.y + 0.1 : _pb.max.y, clip.constant);
     _pv.set((_pb.min.x + _pb.max.x) / 2, top, (_pb.min.z + _pb.max.z) / 2).project(camera);
-    const vis = p.shown && _pb.min.y < clip.constant && _pv.z < 1 && Math.abs(_pv.x) < 1.1 && Math.abs(_pv.y) < 1.1;
+    // a storey stepped above the evidence covers it with its floor: its pins go (the lit elements stay, under the slab)
+    const under = focusSi != null && p.list.every(e => e.storey >= 0 && e.storey < focusSi);
+    const vis = p.shown && !under && _pb.min.y < clip.constant && _pv.z < 1 && Math.abs(_pv.x) < 1.1 && Math.abs(_pv.y) < 1.1;
     p.el.style.display = vis ? '' : 'none';
     if (!vis) continue;
     if (!p.w) { p.w = p.el.offsetWidth; p.h = p.el.offsetHeight; }

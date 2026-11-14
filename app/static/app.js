@@ -212,10 +212,9 @@ async function ensure3d() {
 }
 $('#m2d').onclick = () => setMode('2d'); $('#m3d').onclick = () => setMode('3d');
 $('#storey').onchange = e => { storeyFocus = e.target.value; applyStorey(true); };
-$('#cut').oninput = e => {
-  const st = V3.getStoreys(); if (!st.length) return;
-  const lo = st[0].z, hi = st[st.length - 1].z + 4, y = lo + (hi - lo) * e.target.value / 1000;
-  V3.setCut(e.target.value >= 1000 ? 1e9 : y);
+$('#cut').oninput = e => {  // a stop per storey (view3d.js snaps to it), a continuous cut between stops
+  const r = V3.section(+e.target.value, e.target);
+  if (r.stop !== undefined) { storeyFocus = r.stop == null ? 'all' : String(r.stop); $('#storey').value = storeyFocus; }
 };
 function ifcItems() { return items.filter(e => e.guids && e.guids.length); }
 // the storey the evidence is on (all of it, ticked or not: dropping every item must not jump to the closed building).
@@ -226,7 +225,7 @@ function applyStorey(reframe) {
   if (storeyFocus === 'auto') si = home;
   else if (storeyFocus !== 'all') si = +storeyFocus;
   V3.focusStorey(si, reframe, home);
-  $('#cut').value = 1000;
+  $('#cut').value = V3.stopValue(si);
   return si;
 }
 // the in-viewer "Show whole building" / "Only <storey>" control
