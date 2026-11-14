@@ -22,8 +22,12 @@ parse is unlikely to repeat in the other:
   tuned on dev (train/crosscheck_tune_cc.py). Independence: low (same public training annotations). If that
   model is ever folded into the primary's ensemble, this check stops being independent: pick another one.
   A quick Tesseract try on the room labels (mh, kt, wc) at native resolution read none of them (not pursued).
+  Preferred over it when available: the fine-tuned VLM (Qwen3-VL-8B + LoRA r3), a different model family, from
+  precomputed answers (see vlm_answer below); it then decides agree / conflict and the detector is attached
+  under "others". Independence: medium.
 
-Measured on test: runs/crosscheck_test.summary.md (analysis/crosscheck_report.py).
+Measured on test: runs/crosscheck_test.summary.md (analysis/crosscheck_report.py); with the VLM as the
+CubiCasa second opinion: runs/crosscheck_vlm_test.summary.md (analysis/crosscheck_vlm_report.py).
 
 Never raises: any failure is "single". Results are cached per drawing.
 """
@@ -648,6 +652,88 @@ def cubicasa_second(q):
             "evidence": ev}
 
 
+# --------------------------------------------------------------------------------------------------
+# cubicasa5k: the fine-tuned VLM (Qwen3-VL-8B + LoRA r3) as the stronger, more independent second opinion
+
+# A different model family (a vision-language model reading the whole image, one box per counted item) from the
+# YOLO primary, so its mistakes correlate less than a second detector's. The GPUs are gone, so it works from
+# precomputed answers: the public demo's questions (cache/vlm/demo_secondopinion.jsonl) and every CubiCasa
+# test question (runs/vlm_r3_cubicasa_test_full.jsonl, eval.py rows). $BP_XCHECK_VLM overrides the list
+# (os.pathsep-separated). With $BP_VLM_URL set (a vLLM server, bp/solvers/vlm.py) uncached questions are asked
+# live; unset by default. No answer -> the v3 detector above stays the second opinion.
+VLM_METHOD = "fine-tuned VLM (Qwen3-VL-8B LoRA)"
+_REPO = Path(__file__).resolve().parents[1]
+VLM_FILES = [Path(p) for p in os.environ.get("BP_XCHECK_VLM", "").split(os.pathsep) if p] or [
+    _REPO / "cache/vlm/demo_secondopinion.jsonl", _REPO / "runs/vlm_r3_cubicasa_test_full.jsonl"]
+_vlm_index, _vlm_lock, _vlm_live = None, threading.Lock(), None
+
+
+def _vlm_load():
+    """{(path, question): rec, (path, id): rec}; rec = {"answer", "confidence", "evidence"}. Built once."""
+    import json
+
+    global _vlm_index
+    with _vlm_lock:
+        if _vlm_index is not None:
+            return _vlm_index
+        idx = {}
+        for f in VLM_FILES:
+            try:
+                fh = open(f, encoding="utf-8")
+            except OSError:
+                continue
+            with fh:
+                for line in fh:
+                    try:
+                        r = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(r.get("vlm"), dict):  # demo file: {"vlm": {...}, "yolo_v4": ..., "agree": ...}
+                        v = r["vlm"]
+                        rec = {"answer": v.get("answer"), "confidence": v.get("confidence"),
+                               "evidence": v.get("evidence") or []}
+                    elif "pred" in r:  # eval.py row
+                        rec = {"answer": r.get("pred"), "confidence": r.get("confidence"),
+                               "evidence": r.get("evidence") or []}
+                    else:
+                        continue
+                    if rec["answer"] is None or not r.get("path"):
+                        continue
+                    idx.setdefault((r["path"], r.get("question")), rec)
+                    if r.get("id") is not None:
+                        idx.setdefault((r["path"], r["id"]), rec)
+        _vlm_index = idx
+        return idx
+
+
+def vlm_answer(q):
+    """Precomputed (or, with $BP_VLM_URL, live) VLM answer for a CubiCasa question, else None."""
+    global _vlm_live
+    idx = _vlm_load()
+    rec = idx.get((q.get("path"), q.get("question")))
+    if rec is None and q.get("id") is not None:
+        rec = idx.get((q.get("path"), q["id"]))
+    if rec is None and os.environ.get("BP_VLM_URL"):
+        if _vlm_live is None:
+            from bp.solvers.vlm import VlmSolver
+
+            _vlm_live = VlmSolver()
+        r = _vlm_live(q)
+        if r.get("answer") is not None:
+            rec = {"answer": r["answer"], "confidence": r.get("confidence"), "evidence": r.get("evidence") or []}
+    if rec is None:
+        return None
+    from bp.cubicasa.questions import LABEL, target
+
+    t = target(q.get("question") or "")
+    what = LABEL.get(t, "item") if t else "item"
+    n = rec["answer"]
+    ev = [{**e, "label": f"{e.get('label') or what} (VLM)"} for e in rec["evidence"]]
+    return {"answer": n, "method": VLM_METHOD, "confidence": rec.get("confidence"), "evidence": ev,
+            "explanation": f"{n} {what}{'' if n == 1 else 's'} boxed by a fine-tuned vision-language model "
+                           f"(Qwen3-VL-8B + LoRA, a different model family from the detector)"}
+
+
 def _precompute_cc(paths):
     for i, p in enumerate(paths):
         cc_second_dets(p)
@@ -664,9 +750,11 @@ INDEPENDENCE = {
                        "both are renderings of the same dataset geometry",
     "ifc_models": "medium: the SVG twin of the plan sheet (elements by GUID, footprints); rendered from the "
                   "same IFC, so it catches query / storey / filter mistakes, not modelling errors",
-    "cubicasa5k": "low: a separately trained detector (YOLO11m vs the primary's YOLO11s) on the same public "
-                  "annotations; errors can be correlated",
+    "cubicasa5k": "low: a separately trained detector (YOLO11s v3 vs the primary's YOLO11m v4) on the same "
+                  "public annotations; errors can be correlated",
 }
+INDEPENDENCE_VLM = ("medium: a different model family (a fine-tuned vision-language model reading the whole image) "
+                    "from the YOLO primary; trained on the same dev drawings, so some errors still correlate")
 _cache: dict = {}
 _cache_lock = threading.Lock()
 
@@ -675,36 +763,56 @@ def _single(note, second=None):
     return {"status": "single", "second": second, "note": note}
 
 
+def _second(fn, q):
+    key = (fn.__name__, q.get("path"), q.get("question"))
+    with _cache_lock:
+        sec = _cache.get(key, ...)
+    if sec is ...:
+        sec = fn(q)
+        with _cache_lock:
+            if len(_cache) > 20000:
+                _cache.clear()
+            _cache[key] = sec
+    return sec
+
+
 def crosscheck(q, primary) -> dict:
-    """Second-method check of a primary result. Never raises."""
+    """Second-method check of a primary result. Never raises.
+
+    CubiCasa: if the fine-tuned VLM has an answer it decides the status (agree / conflict) and is "second";
+    the v3 detector's reading, when available, is attached under "others" (shown, not voted)."""
     try:
         src = q.get("source")
         fn = SECOND.get(src)
         if fn is None or q.get("type") not in ("count", "area"):
             return _single("no second method for this kind of question")
-        key = (q.get("path"), q.get("question"))
-        with _cache_lock:
-            sec = _cache.get(key, ...)
-        if sec is ...:
-            sec = fn(q)
-            with _cache_lock:
-                if len(_cache) > 20000:
-                    _cache.clear()
-                _cache[key] = sec
+        pa = (primary or {}).get("answer")
+        others = []
+        sec = _second(fn, q)
+        indep = INDEPENDENCE[src]
+        if src == "cubicasa5k" and q.get("type") == "count":
+            vlm = _second(vlm_answer, q)
+            if vlm is not None and vlm.get("answer") is not None:
+                if sec is not None and sec.get("answer") is not None:
+                    others = [{**sec, "independence": indep, "agree": agrees("count", pa, sec["answer"])}]
+                sec, indep = vlm, INDEPENDENCE_VLM
         if sec is None or sec.get("answer") is None:
             return _single("no independent second reading available for this question")
-        sec = {**sec, "independence": INDEPENDENCE[src]}
-        pa = (primary or {}).get("answer")
+        sec = {**sec, "independence": indep}
         if pa is None:
             return _single(f"primary abstained; {sec['method']} reads {sec['answer']}", sec)
         ok = agrees(q["type"], pa, sec["answer"])
         if ok is None:
             return _single("answers not comparable", sec)
+        sec["agree"] = ok
+        out = {"second": sec}
+        if others:
+            out["others"] = others
         if ok:
-            return {"status": "agree", "second": sec,
+            return {"status": "agree", **out,
                     "note": f"2 methods agree: {(primary or {}).get('method', 'primary')} = {pa}, "
                             f"{sec['method']} = {sec['answer']}"}
-        return {"status": "conflict", "second": sec,
+        return {"status": "conflict", **out,
                 "note": f"conflict: {(primary or {}).get('method', 'primary')} says {pa}, {sec['method']} says "
                         f"{sec['answer']}; see the marks of both"}
     except Exception as e:  # noqa: BLE001  a cross-check must never take an answer down

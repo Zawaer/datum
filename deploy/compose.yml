@@ -10,6 +10,8 @@ services:
       # cross-check second detector (bp/crosscheck.py); its thresholds are copied into cache/crosscheck at start
       BP_XCHECK_CC_WEIGHTS: /srv/bundle/xcheck/best.pt
       BP_XCHECK_CC_TAG: v3s
+      # fine-tuned VLM second opinion: precomputed answers for the bundle's CubiCasa questions (no GPU here)
+      BP_XCHECK_VLM: /srv/bundle/xcheck/demo_secondopinion.jsonl
     volumes:
       - /opt/bp/bundle/dataset:/srv/bundle/dataset:ro
       - /opt/bp/bundle/runs:/app/runs:ro

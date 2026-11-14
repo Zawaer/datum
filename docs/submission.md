@@ -2,8 +2,8 @@
 
 Every number below comes from a run log (`runs/*.jsonl`, rebuilt into `docs/RESULTS.md` by
 `BP_OURS_RUN=router_full_test_v5 bash analysis/run_all.sh`), from `docs/COSTS.md`, or from the verification
-reports (`runs/crosscheck_test.summary.md`, `docs/EVIDENCE_QUALITY.md`, `docs/ROBUSTNESS.md`, `docs/PROVENANCE.md`).
-TODO markers remain only for the demo / video links and the full-test VLM agreement figure.
+reports (`runs/crosscheck_test.summary.md`, `runs/crosscheck_vlm_test.summary.md`, `docs/EVIDENCE_QUALITY.md`, `docs/ROBUSTNESS.md`, `docs/PROVENANCE.md`).
+TODO markers remain only for the demo / video links.
 
 ## Project name (≤ 30 chars)
 
@@ -25,7 +25,7 @@ _(586 characters)_
 
 ## Description (≤ 5000 chars, markdown)
 
-_Character count of the block between the rules below: 4,254 (limit 5,000)._
+_Character count of the block between the rules below: 4,315 (limit 5,000)._
 
 ---
 
@@ -56,7 +56,7 @@ The answer is counted out on the drawing: numbered boxes, rooms outlined with th
 
 - **Evidence that adds up.** Untick an item or click a missed one and the total updates. The boxes themselves are right: >90 % precision and recall against independent gold; only ~2.5 % of right counts are right by luck.
 - **Calibrated confidence**, measured on test: answering only at ≥ 0.5 keeps 87.5 % of questions at 95.4 % and turns 1,664 wrong answers into an honest "not sure".
-- **Independent cross-check.** A second method re-derives each answer (PDF re-read for CAD plans, the SVG sheet for IFC, a second detector for scans). Where they agree, Swiss and IFC answers were right 100 % of the time; it caught a real error in our own CAD reading of an apartment area. On conflict, confidence is halved and both readings are shown.
+- **Independent cross-check.** A second method re-derives each answer (PDF re-read for CAD plans, the SVG sheet for IFC, a fine-tuned vision model for scans). Where they agree, Swiss and IFC answers were right 100 % of the time; it caught a real error in our own CAD reading of an apartment area. On conflict, confidence is halved and both readings are shown.
 - **Provenance.** Every number in an LLM-written answer is traced to the facts it cites, or flagged.
 
 Robustness: 12,654 language-twin pairs agree 100 %; typed paraphrases 86 %, same as the original wording (58 % before our normaliser); 50/50 must-abstain questions abstain.
@@ -68,7 +68,7 @@ Stoa asks for approaches next year's frontier models won't make obsolete: "hybri
 - **CAD plans:** the PDF's DXF twin gives doors, windows, rooms by layer; evidence is mapped back onto the PDF.
 - **BIM models:** IfcOpenShell counts, areas, lengths, volumes per storey.
 - **Raster scans:** a YOLO11m detector trained only on non-test drawings, confidence calibrated on dev.
-- **Small fine-tuned VLM:** Qwen3-VL-8B LoRA (73 % alone) as a second opinion; where it agrees with the detector, the detector is right ~96.6 %.
+- **Small fine-tuned VLM:** a fine-tuned 8B vision model (Qwen3-VL-8B LoRA, 75 % alone) acts as an independent second opinion: when it agrees (74 % of raster questions), answers are 94.6 % right.
 - **Frontier LLM only where needed:** free text answered by citing fact ids, and a normaliser that maps free wording onto exact queries using only names in the drawing.
 
 ### 4. Low inference cost

@@ -28,6 +28,8 @@ never committed, posted or written into docs.
   IFC) cost $0 and keep answering.
 - `BP_DATA`: the bundle's dataset folder. `BP_VLM_URL` (optional): the fine-tuned VLM server; without it, that
   path abstains.
+- `BP_XCHECK_VLM` (set in compose.yml): the fine-tuned VLM's precomputed answers for the bundle's CubiCasa
+  questions (`xcheck/demo_secondopinion.jsonl`), used by the cross-check as the second opinion; no GPU needed.
 
 ## Steps
 

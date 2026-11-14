@@ -11,6 +11,8 @@ deploy/bundle/  (gitignored; never commit or redistribute it: the dataset is non
   weights/best.pt, thresholds.json, calib.json   CubiCasa YOLO detector (primary, YOLO11m v4)
   xcheck/best.pt, cc_second_thresholds_v3s.json   cross-check second detector (YOLO11s v3) + its dev-tuned
                                                   count thresholds (container env BP_XCHECK_CC_WEIGHTS / _TAG)
+  xcheck/demo_secondopinion.jsonl    precomputed fine-tuned VLM answers (+ boxes) for the bundle's CubiCasa
+                                     questions: the VLM second opinion (container env BP_XCHECK_VLM)
 """
 from __future__ import annotations
 
@@ -40,6 +42,7 @@ N_RESBIM = 6
 XCHECK_TAG = "v3s"
 XCHECK_WEIGHTS = Path("cache/cubicasa/weights_v3/best.pt")
 XCHECK_THRESH = Path(f"cache/crosscheck/cc_second_thresholds_{XCHECK_TAG}.json")
+XCHECK_VLM = Path("cache/vlm/demo_secondopinion.jsonl")  # Qwen3-VL-8B LoRA r3 answers, precomputed on GPU
 
 
 def main(out: Path):
@@ -124,7 +127,8 @@ def main(out: Path):
     # cross-check: the second, separately trained detector and its own count thresholds (bp/crosscheck.py)
     x = out / "xcheck"
     x.mkdir(parents=True, exist_ok=True)
-    for src_, name in ((REPO / XCHECK_WEIGHTS, "best.pt"), (REPO / XCHECK_THRESH, XCHECK_THRESH.name)):
+    for src_, name in ((REPO / XCHECK_WEIGHTS, "best.pt"), (REPO / XCHECK_THRESH, XCHECK_THRESH.name),
+                       (REPO / XCHECK_VLM, XCHECK_VLM.name)):
         if not src_.exists():
             sys.exit(f"missing {src_} (cross-check second detector)")
         shutil.copy2(src_, x / name)

@@ -87,10 +87,13 @@ plus an audit of the whole evaluation and a robustness suite:
    right on 100 % of Swiss and IFC test questions**; the check caught a real Swiss error (an apartment area
    read as 86.72 m² from the DXF, 95.38 m² from the PDF, gold 95.36). On a conflict the answer is kept but its
    confidence is halved and both sets of marks are shown, never silently swapped. On CubiCasa the two detectors
-   share training data, so the check is weaker (90.7 % right on agree vs 47.8 % on conflict, measured with the
-   previous primary detector). The fine-tuned Qwen3-VL-8B is a further second opinion on raster plans: where
-   it agrees with the detector, the detector is right ~96.6 % of the time (500-question test sample).
-   <!-- TODO: replace with the full-test figure once runs/vlm_r3_cubicasa_test_full.summary.md lands -->
+   share training data, so that check is weaker (90.7 % right on agree vs 47.8 % on conflict, measured with the
+   previous primary detector). So on raster plans the second opinion is now the fine-tuned Qwen3-VL-8B, a
+   different model family: on all 16,496 CubiCasa test questions it agrees with the detector on 73.7 %, and
+   there the detector is right **94.6 %** (55.1 % on conflict, where the VLM itself is right only 19.9 %, so it
+   never overrides); with the confidence halved on conflict, the router answers 68.5 % of raster questions at
+   96.5 % ([`runs/crosscheck_vlm_test.summary.md`](runs/crosscheck_vlm_test.summary.md)). The demo serves its
+   precomputed answers and boxes.
 4. **Provenance of LLM-written numbers.** Free-text answers are the least verifiable part, so
    `bp/provenance.py` traces every number and quoted name in an LLM answer to the fact lines it cited (sums,
    counts and group totals of cited lines included) and flags the answer when they don't match
@@ -162,10 +165,12 @@ answer + confidence + evidence + cross-check ──► web app: numbered boxes /
   Qwen3-VL-8B + LoRA, trained on cloud H100s (Verda) on dev-split drawings only, answers with one box per
   counted item, so the count always equals the boxes. Round 3 scores 73.0 % on a 1,000-question test sample
   (round 2: 64.4 %; [`runs/vlm_q3vl8b_r3c2200_test1000.summary.md`](runs/vlm_q3vl8b_r3c2200_test1000.summary.md)),
-  below the detector and the CAD path, so it does not answer on its own: it is a second opinion. Where it
-  agrees with the detector, the detector is right ~96.6 % of the time (500-question CubiCasa test sample;
-  TODO: full-test figure from `runs/vlm_r3_cubicasa_test_full`). A PaliGemma 2 fine-tune was weaker (52 % on
-  dev) and is not shipped.
+  below the detector and the CAD path, so it does not answer on its own: it is the cross-check's second
+  opinion on raster plans. On all 16,496 CubiCasa test questions it scores 74.9 % alone (detector 84.2 %), agrees
+  with the detector on 73.7 %, and where it agrees the detector is right 94.6 %
+  ([`runs/vlm_r3_cubicasa_test_full.summary.md`](runs/vlm_r3_cubicasa_test_full.summary.md),
+  [`runs/crosscheck_vlm_test.summary.md`](runs/crosscheck_vlm_test.summary.md)); $0.16 per 1,000 questions on
+  one H100. A PaliGemma 2 fine-tune was weaker (52 % on dev) and is not shipped.
 - **Generic grounded fallback** ([`bp/solvers/generic.py`](bp/solvers/generic.py)). For uploads and other
   sources: the text layer of vector PDFs / DXF is split into segments with ids and an LLM must answer *by
   citing ids*, so sums are recomputed from what it cited; without a text layer, a vision model boxes every
