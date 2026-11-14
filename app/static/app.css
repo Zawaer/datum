@@ -565,3 +565,7 @@ svg .ping.model { stroke: var(--chk); }
 @media (max-width: 860px) { .voice { margin-top: 0; } .ask .mic { width: 40px; height: 40px; } }
 
 .voice .vnote { font-size: 11px; color: var(--mut); margin-top: 4px; }
+
+/* inside the folded "Frontier models" section the summary already names it: keep only the dataset-answer key */
+.sec .ghostcmp .gh { justify-content: flex-end; }
+.sec .ghostcmp .gh > span:first-child { display: none; }

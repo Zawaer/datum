@@ -200,6 +200,10 @@ async function loadList(append = false) {
     box.innerHTML = ''; $('#more').hidden = true;
     for (const d of uploads) box.appendChild(itemEl(d, `${String(d.kind || d.ext || '').toUpperCase()} · uploaded`));
     if (!uploads.length) box.innerHTML = '<div class="item empty-note"><small>Nothing uploaded yet.</small></div>';
+    if (!cur) {  // a link to the uploads of a visitor who has none: still show a drawing to ask about
+      const f = await (await fetch('/api/drawings?source=swiss_dwellings&limit=1')).json();
+      if (f.items && f.items[0]) select(f.items[0], 'replace');
+    }
     return;
   }
   const r = await (await fetch(`/api/drawings?source=${tab}&q=${encodeURIComponent(listQuery)}&offset=${listOffset}&limit=80`)).json();
