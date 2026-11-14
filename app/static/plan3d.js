@@ -10,12 +10,12 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-const WALL_H = 1.2, SILL = 0.75, PIN_H = 1.9;  // cut-away heights (the DXF is 2D): said so in the legend
+const WALL_H = 1.2, SILL = 0.85, PIN_H = 1.9, PANE = 0.03;  // cut-away heights (the DXF is 2D): said so in the legend
 const RISE_MS = 1100;
 const HEAT = ['#e3eef7', '#bcd7ec', '#8bbadc', '#4f95c6', '#1a6fa6'];  // the 2D heat-map's sequential blue, light = small
 const COL = {
   paper: 0xe3e6ea, wall: 0xffffff, cap: 0xd5d9de, cut: 0x2b3036, edge: 0x2f3640,
-  glass: 0x9fd0ee, frame: 0xf4f5f6, door: 0xe3cfae, fixture: 0xffffff, ev: 0x0072b2, off: 0x9aa2ad, offTint: 0xe9ebee,
+  glass: 0xa9d6f2, frame: 0xf4f5f6, door: 0xe3cfae, fixture: 0xffffff, ev: 0x0072b2, off: 0x9aa2ad, offTint: 0xe9ebee,
 };
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = s => document.querySelector(s);
@@ -64,6 +64,9 @@ css.textContent = `
 .p3l.off .p3a { border-color: var(--faint); } .p3l.off .p3a b { color: var(--faint); text-decoration: line-through; }
 .p3l.hot .p3n, .p3l.hot .p3a { background: var(--hl); color: var(--ink); border-color: var(--ink); }
 .p3l.hot .p3a b { color: var(--ink); } .p3l.hot { z-index: 2; }
+.p3l.cand .p3n { background: #7a8594; }
+.p3l.dot .p3n { min-width: 0; width: 12px; height: 12px; padding: 0; margin: 0; border-width: 2px; font-size: 0; box-shadow: 0 0 0 1px rgba(22,25,29,.25); }
+.p3l.dot .p3n::after { display: none; } .p3l.dot { z-index: 0; } .p3l:not(.dot) { z-index: 1; } .p3l.hot.hot { z-index: 3; }
 #viewer.p3on #p3modes { box-shadow: 0 1px 3px rgba(22,25,29,.12); }
 .p3ctl { position: absolute; right: 12px; top: 64px; z-index: 5; display: flex; flex-direction: column; gap: 8px; align-items: center; }
 .p3ctl > * { background: var(--panel); border: 1px solid var(--line2); border-radius: 8px; box-shadow: 0 1px 3px rgba(22,25,29,.12); }
@@ -335,7 +338,8 @@ function build(d) {
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(d.wallEdges(center, WALL_H), 3));
     rise.add(new THREE.LineSegments(g, edgeMat(0.55)));
   } else rise.add(edges(wg, 0.55));
-  const glassMat = new THREE.MeshLambertMaterial({color: COL.glass, transparent: true, opacity: 0.8, flatShading: true});
+  // glass: one thin pane (3 cm) in the middle of the wall above a white sill, see-through, its frame a darker outline
+  const glassMat = new THREE.MeshLambertMaterial({color: COL.glass, transparent: true, opacity: 0.32, depthWrite: false, side: THREE.DoubleSide});
   const doorMat = new THREE.MeshLambertMaterial({color: COL.door, flatShading: true});
   const doorFloor = new THREE.MeshBasicMaterial({color: COL.door, transparent: true, opacity: 0.45, depthWrite: false,
     polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4});
@@ -345,10 +349,10 @@ function build(d) {
     const sh = [shape(s.pts)];
     s.c = centroid(s.pts); s.k = k;
     if (s.kind === 'window') {
-      if (!s.pane) s.pane = paneOf(s.pts, 0.34);
+      if (!s.pane) s.pane = paneOf(s.pts, PANE);
       const g = prism(sh, 0, SILL); rise.add(mesh(g, wallMat)); rise.add(edges(g, 0.45));
       const gg = prism([shape(s.pane || s.pts)], SILL, WALL_H - 0.02);
-      const gl = mesh(gg, glassMat, false, false); gl.userData.sym = k; gl.renderOrder = 2; rise.add(gl); rise.add(edges(gg, 0.35)); s.glass = gl;
+      const gl = mesh(gg, glassMat, false, false); gl.userData.sym = k; gl.renderOrder = 2; rise.add(gl); rise.add(edges(gg, 0.7)); s.glass = gl;
     } else if (s.kind === 'door' && s.leaf) {  // a raster's door: a beige leaf standing in the opening
       const g = prism([shape(s.leaf)], 0, WALL_H * 0.86); rise.add(mesh(g, doorMat)); rise.add(edges(g, 0.4));
     } else if (s.kind === 'door') {  // a CAD door: its swing painted beige on the floor, the opening left open
@@ -364,11 +368,12 @@ function build(d) {
   sun.position.set(-radius * 0.9, radius * 1.4, radius * 0.6); sun.target.position.set(0, 0, 0);
   controls.minDistance = 2; controls.maxDistance = radius * 6;
 }
-// a window's glass: its footprint narrowed across the wall to a thin pane in the middle (the pts are a rectangle)
-function paneOf(pts, f) {
+// a window's glass: its footprint narrowed across the wall to a pane `t` m thick in the middle (pts: a rectangle)
+function paneOf(pts, t) {
   if (pts.length !== 4) return pts;
   const [a, b, c] = pts, l1 = Math.hypot(b[0] - a[0], b[1] - a[1]), l2 = Math.hypot(c[0] - b[0], c[1] - b[1]);
-  const mid = (p, q, t) => [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t], t0 = (1 - f) / 2, t1 = 1 - t0;
+  const f = Math.min(1, t / Math.max(1e-3, Math.min(l1, l2)));
+  const mid = (p, q, u) => [p[0] + (q[0] - p[0]) * u, p[1] + (q[1] - p[1]) * u], t0 = (1 - f) / 2, t1 = 1 - t0;
   const [p0, p1, p2, p3] = pts;
   return l1 < l2 ? [mid(p0, p1, t0), mid(p0, p1, t1), mid(p3, p2, t1), mid(p3, p2, t0)]
     : [mid(p0, p3, t0), mid(p1, p2, t0), mid(p1, p2, t1), mid(p0, p3, t1)];
@@ -389,7 +394,7 @@ function uploadOpenings(o, H, wallMat, glassMat, doorMat) {
   };
   add(o.windows.map(w => rect(w.r)), 0, UP_SILL, wallMat, 0.45);
   add([...o.windows, ...o.doors].map(w => rect(w.r)), UP_HEAD, H, wallMat, 0.45);
-  add(o.windows.map(w => band(w, 0.05)), UP_SILL, UP_HEAD, glassMat, 0.3);
+  add(o.windows.map(w => band(w, PANE)), UP_SILL, UP_HEAD, glassMat, 0.7);
   add(o.doors.map(w => band(w, 0.06)), 0, UP_LEAF, doorMat, 0.35);
 }
 const toPlanD = (d, u, v) => { const [ax, bx, ay, by] = d.to_page; return [(u - bx) / ax, (v - by) / ay]; };
@@ -497,6 +502,7 @@ function flat(ring, h, holes = []) {
 }
 const grow = (ring, d) => { const [cx, cy] = centroid(ring); return ring.map(([x, y]) => { const l = Math.hypot(x - cx, y - cy) || 1; return [x + (x - cx) / l * d, y + (y - cy) / l * d]; }); };
 
+let cand = false;  // the answer abstained: its items are candidates, not counted
 let br = null;  // the m² class breaks of the answer on show (null: a count)
 function applyEvidence(animate, at) {  // at(i): when item i is painted, in ms (the 2D replay's timeline, app.js rpRun)
   if (!data || !evGroup) return;
@@ -504,6 +510,8 @@ function applyEvidence(animate, at) {  // at(i): when item i is painted, in ms (
   evSig = signature();
   clearEvidence();
   const r = app.res(), list = app.items(), type = r && r.type;
+  // an abstained answer ("not sure, so no guess"): its items are candidates, painted grey, never "counted"
+  cand = !!r && r.answer == null && !r.not_found;
   const vals = list.filter(e => e.kind === 'polygon' && e.value != null && type !== 'count').map(e => +e.value);
   br = vals.length ? breaks(vals) : null;
   let k = 0;
@@ -511,14 +519,15 @@ function applyEvidence(animate, at) {  // at(i): when item i is painted, in ms (
     const numbered = e.kind === 'box' || (e.kind === 'polygon' && type === 'count');
     if (numbered) k++;
     if (e.kind !== 'box' && e.kind !== 'polygon' && e.kind !== 'polyline') return;
-    const it = {i, e, on: !!e.on, meshes: [], paint: [], anchor: null, el: null, n: numbered ? k : null, shown: false};
+    const acc = !!e.on && !cand;
+    const it = {i, e, on: !!e.on, cand, meshes: [], paint: [], anchor: null, el: null, n: numbered ? k : null, shown: false};
     const add = m => { m.userData.i = i; evGroup.add(m); it.meshes.push(m); };
     let foot = 0.03, px, py;
     if (e.kind === 'polyline') {
       // a run: a dashed line on the floor, no pin
       const pts = (e.points || []).map(([u, v]) => toPlan(u, v));
       if (pts.length < 2) return;
-      it.paint.push({line: true, rings: [pts], color: it.on ? hex(COL.ev) : hex(COL.off), alpha: 0.8});
+      it.paint.push({line: true, rings: [pts], color: acc ? hex(COL.ev) : hex(COL.off), alpha: 0.8});
       ev.push(it); return;
     }
     if (e.kind === 'box') {
@@ -531,12 +540,12 @@ function applyEvidence(animate, at) {  // at(i): when item i is painted, in ms (
       if (best && data.raster && best.kind === 'door') best = null;  // a raster's detected door box is the evidence itself
       const ring = best ? grow(best.pts, 0.08) : [[rx0, ry0], [rx1, ry0], [rx1, ry1], [rx0, ry1]];
       add(flat(ring, 0.02));
-      it.paint.push({rings: [ring], color: it.on ? hex(COL.ev) : hex(COL.off), alpha: it.on ? 0.72 : 0.4, feather: 0.07});
+      it.paint.push({rings: [ring], color: acc ? hex(COL.ev) : hex(COL.off), alpha: acc ? 0.72 : 0.45, feather: 0.07});
       if (best && best.kind === 'window') {
-        const g = prism([shape(best.pane || best.pts)], SILL, WALL_H + 0.01), m = mesh(g, it.on ? mats.solid : mats.solidOff, false, false);
+        const g = prism([shape(paneOf(best.pts, 0.08))], SILL, WALL_H + 0.01), m = mesh(g, acc ? mats.solid : mats.solidOff, false, false);
         m.userData.mat = m.material; m.renderOrder = 2; add(m); best.glass.visible = false; foot = WALL_H;
       } else if (best && best.h && best.kind !== 'door') {
-        const g = prism([shape(best.pts)], 0, best.h + 0.02), m = mesh(g, it.on ? mats.solid : mats.solidOff, false, false);
+        const g = prism([shape(best.pts)], 0, best.h + 0.02), m = mesh(g, acc ? mats.solid : mats.solidOff, false, false);
         m.userData.mat = m.material; m.renderOrder = 2; add(m); foot = best.h;
         if (best.mesh) best.mesh.visible = false;  // same footprint as the highlight: hide it, or the two faces flicker
       }
@@ -550,14 +559,14 @@ function applyEvidence(animate, at) {  // at(i): when item i is painted, in ms (
       const ring = room ? room.pts : pts;
       // a room wrapped around others (a corridor) carries them as holes: they stay unpainted, and pickable on their own
       const holes = (e.holes || []).filter(r => r && r.length > 2).map(r => r.map(([u, v]) => toPlan(u, v)));
-      const color = !it.on ? hex(COL.offTint) : br && e.value != null ? HEAT[heatClass(+e.value, br)] : hex(COL.ev);
+      const color = !it.on ? hex(COL.offTint) : cand ? hex(COL.off) : br && e.value != null ? HEAT[heatClass(+e.value, br)] : hex(COL.ev);
       add(flat(ring, 0.03, holes));
       it.paint.push({rings: [ring, ...holes], color, alpha: !it.on ? 0.8 : br && e.value != null ? 0.82 : 0.55});
       [px, py] = room && room.label ? room.label : centroid(ring);
       it.anchor = W3(px, py, 0.05);
       it.name = room ? room.name : (e.label || '');
     }
-    const el = document.createElement('div'); el.className = 'p3l' + (it.on ? '' : ' off'); el.dataset.i = i;
+    const el = document.createElement('div'); el.className = 'p3l' + (it.on ? '' : ' off') + (cand && it.on ? ' cand' : ''); el.dataset.i = i;
     if (it.n != null) el.innerHTML = `<span class="p3n">${it.n}</span>`;
     else el.innerHTML = `<span class="p3a"><b>${e.value != null ? fmtA(e.value) + ' m²' : ''}</b>${it.name ? `<small>${esc(it.name)}</small>` : ''}</span>`;
     el.addEventListener('pointerenter', () => hover(i)); el.addEventListener('pointerleave', () => hover(null));
@@ -565,6 +574,7 @@ function applyEvidence(animate, at) {  // at(i): when item i is painted, in ms (
     labs.appendChild(el); it.el = el;
     ev.push(it);
   });
+  dense = ev.filter(x => x.n != null).length > DENSE;
   legend();
   if (keep != null && ev.some(x => x.i === keep)) { selI = keep; setHot(keep); }
   // paint them one after the other (the 2D view counts them out the same way): each spreads up from the floor
@@ -596,7 +606,8 @@ function legend() {
   else if (br) {
     what = `<span class="sc"><span>${HEAT.map(c => `<i style="background:${c}"></i>`).join('')}</span>` +
       `<em><b>0</b>${br.map(b => `<b>${b}</b>`).join('')}</em></span><span>m² per room · ${n} measured</span>`;
-  } else what = `<span><i class="pin"></i>${n} counted</span>`;
+  } else if (cand) what = `<span><i style="background:#9aa2ad;border-radius:50%"></i>${n} candidates, not counted</span>`;
+  else what = `<span><i class="pin"></i>${n} counted${dense ? ' · numbers on hover or when zoomed in' : ''}</span>`;
   if (ev.length && off) what += `<span><i style="background:#e9ebee;border:1px solid #9aa2ad"></i>${off} dropped</span>`;
   const src = data && data.upload ? `walls read from the drawing, ${data.wallH} m high` + (data.scale ? ` · scale ${data.scale.estimated ? 'estimated from wall thickness' : 'from the sheet'}` : '')
     : data && data.raster ? 'walls read from the drawing\'s thick lines, cut away' : `walls from the CAD layers, cut at ${WALL_H} m`;
@@ -605,11 +616,29 @@ function legend() {
 
 // numbers and m² labels follow their anchors on every rendered frame; a label that would sit on an earlier one
 // is nudged up so the numbers stay readable
-const _v = new THREE.Vector3();
+const _v = new THREE.Vector3(), DENSE = 40;
+let dense = false;
 function placeLabels() {
   if (!ev.length) return;
   const w = box.clientWidth, h = box.clientHeight, placed = [];
   const order = ev.filter(x => x.el).sort((a, b) => (b === hot) - (a === hot) || (b.on - a.on) || a.i - b.i);
+  // a big count (more than DENSE numbered items): every item is a small dot on the floor, and a numbered pin only
+  // where it has room (the hovered / selected one first), so zooming in brings the numbers back one by one
+  if (dense) {
+    for (const it of order) {
+      _v.copy(it.anchor).project(camera);
+      if (_v.z > 1 || _v.x < -1.2 || _v.x > 1.2 || _v.y < -1.2 || _v.y > 1.2) { it.el.style.visibility = 'hidden'; continue; }
+      it.el.style.visibility = '';
+      const sx = (_v.x + 1) / 2 * w, sy = (1 - _v.y) / 2 * h, pw = 30, ph = 35;
+      const r0 = [sx - pw / 2, sy - ph, pw, ph];
+      const free = it.n != null && !placed.some(p => r0[0] < p[0] + p[2] + 8 && r0[0] + pw + 8 > p[0] && r0[1] < p[1] + p[3] + 8 && r0[1] + ph + 8 > p[1]);
+      const pin = it === hot || free;
+      if (it.el.classList.contains('dot') === pin) it.el.classList.toggle('dot', !pin);
+      if (pin) placed.push(r0);
+      it.el.style.transform = pin ? `translate(${Math.round(r0[0])}px,${Math.round(r0[1])}px)` : `translate(${Math.round(sx - 6)}px,${Math.round(sy - 6)}px)`;
+    }
+    return;
+  }
   for (const it of order) {
     _v.copy(it.anchor).project(camera);
     if (_v.z > 1 || _v.x < -1.2 || _v.x > 1.2 || _v.y < -1.2 || _v.y > 1.2) { it.el.style.visibility = 'hidden'; continue; }
@@ -835,7 +864,7 @@ function rasterPlan(im) {
       const dk = darkIn(x0, y0, x1, y1), pts = rr(x0, y0, x1, y1);
       const m = horiz ? (y0 + y1) / 2 : (x0 + x1) / 2;
       const band = t => horiz ? rr(x0, m - t, x1, m + t) : rr(m - t, y0, m + t, y1);
-      if (dk > 0.14) symbols.push({kind: 'window', pts, pane: band(Math.max(1, T * 0.16))});  // glazing lines inside: a window
+      if (dk > 0.14) symbols.push({kind: 'window', pts, pane: band(Math.max(0.5, T * PANE / 0.4))});  // glazing lines inside: a window
       else if (len <= 1.3 * ppm) symbols.push({kind: 'door', pts, leaf: band(Math.max(1, T * 0.18))});
     }
   }
@@ -951,4 +980,5 @@ q();
 
 // the 2D replay paints the floor on its own timeline (null: everything at once, a skipped replay)
 function replay(at) { if (!opened || !data || !evGroup) return false; applyEvidence(!!at, at); return true; }
-window.__p3 = {open, close, replay, get opened() { return opened; }, get ready() { return opened && !!data && !tweens.size; }, get _three() { return {scene, renderer, camera, requestRender}; }, get data() { return data; }};
+window.__p3 = {open, close, replay, get opened() { return opened; }, get ready() { return opened && !!data && !tweens.size; }, get _three() { return {scene, renderer, camera, requestRender}; }, get data() { return data; },
+  view(x, z, d, p, a) { place(new THREE.Vector3(x, 0, z), d, p, a); requestRender(); }};  // tests: put the camera somewhere

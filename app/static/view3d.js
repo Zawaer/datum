@@ -30,7 +30,7 @@ const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;  //
 const ctxMat = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, flatShading: true, side: THREE.DoubleSide,
   polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
 const ctxLine = new THREE.LineBasicMaterial({ color: 0x2f3640, transparent: true, opacity: 0.42, depthWrite: false });
-const TYPE_TINT = [[/^IfcWindow/, 0x9fd0ee], [/^IfcDoor/, 0xe3cfae], [/^Ifc(Slab|Covering)/, 0xe9ecef], [/^IfcRoof/, 0xdfe3e8],
+const TYPE_TINT = [[/^IfcWindow/, 0xc4e2f5], [/^IfcDoor/, 0xe3cfae], [/^Ifc(Slab|Covering)/, 0xe9ecef], [/^IfcRoof/, 0xdfe3e8],
   [/^Ifc(Wall|Column|Beam|CurtainWall|Railing)/, 0xffffff], [/^Ifc(Stair|Ramp)/, 0xf1f2f4], [/./, 0xf4f5f7]];
 const hlLine = new THREE.LineBasicMaterial({ color: 0x003a5c, transparent: true, opacity: 0.85 });
 const pulseMat = new THREE.MeshBasicMaterial({ color: 0x56b4e9, transparent: true, opacity: 0, side: THREE.DoubleSide,
