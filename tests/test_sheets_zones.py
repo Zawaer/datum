@@ -280,7 +280,11 @@ def test_ocr_split_words_joined():
     assert Z._join_split_words("SUBTOT UBTOTAL") == "SUBTOTAL"
     assert Z._join_split_words("SUBTOTAL SUBTOTAL") == "SUBTOTAL"
     assert Z._join_split_words("EXTERIC XTERIOR STAIR (1/2 SF)") == "EXTERIOR STAIR (1/2 SF)"
-    for keep in ("WEST WING DORMITORY", "COMMON SPACE CIRCULATION", "TOTAL EAST WING", "THIRD FLOOR"):
+    assert Z._join_split_words("WEST [WEST WING D¢ DORMITORY") == "WEST WING DORMITORY"
+    assert Z._join_split_words("TOTAL COMMON COMM( SPACE") == "TOTAL COMMON SPACE"
+    assert Z._join_split_words("EAST WING Cll CIRCULATION") == "EAST WING CIRCULATION"
+    for keep in ("WEST WING DORMITORY", "COMMON SPACE CIRCULATION", "TOTAL EAST WING", "THIRD FLOOR",
+                 "EXTERIOR STAIR (1/2 SF)"):
         assert Z._join_split_words(keep) == keep
 
 

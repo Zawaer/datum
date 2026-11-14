@@ -592,7 +592,23 @@ def _lev(a: str, b: str) -> int:
 def _join_split_words(label: str) -> str:
     """'TOTAL COMMO OMMON SPACE' -> 'TOTAL COMMON SPACE': one word read as two overlapping pieces (the second
     starting with the first's tail, allowing its last letter misread), or the same word twice."""
-    ws = label.split()
+    ws = [w.strip("[]{}|¢©®") for w in label.split()]
+    ws = [w for w in ws if w]
+    alpha = [re.sub(r"[^A-Za-z]", "", w).upper() for w in ws]
+    keep = []
+    for i, (w, a) in enumerate(zip(ws, alpha)):
+        nxt = alpha[i + 1] if i + 1 < len(alpha) else ""
+        prv = alpha[i - 1] if i else ""
+        # a short piece of the next / previous word read on its own by an overlapping pass ("D¢ DORMITORY",
+        # "COMMON COMM( SPACE", "ST/ STAIR")
+        a2 = a.replace("L", "I") if a.islower() or re.search(r"[a-z]", w) else a  # "Cll" for "CII..."
+        stems = {a[:max(1, len(a) - 1)], a2[:max(1, len(a2) - 1)]}
+        if a and len(a) <= 5 and not re.search(r"\d", w) and (
+                (len(nxt) > len(a) and any(nxt.startswith(x) for x in stems))
+                or (len(prv) > len(a) and (prv.startswith(a) or (len(a) >= 4 and prv.startswith(a[:-1]))))):
+            continue
+        keep.append(w)
+    ws = keep
     out: list[str] = []
     for w in ws:
         if out:
@@ -1469,6 +1485,15 @@ def answer(path, question, meta):
         return res
     # no table answers it: measure the colour zones
     res = _answer_measured(meta, question, metric)
+    if res is not None and rs and isinstance(res.get("answer"), (int, float)):
+        # a measured area larger than the whole floor the schedule prints is a misread scale or legend: no answer
+        tot_sf = max((r["value"] for r in rs if r["kind"] == "area" and r["unit"] == "SF"), default=None)
+        v_sf = res["answer"] / SF_TO_M2 if metric else res["answer"]
+        if tot_sf and v_sf > 1.1 * tot_sf:
+            return {"answer": None, "confidence": 0.0, "evidence": [], "cost_usd": round(cost, 5),
+                    "method": "sheets-zones-measured-implausible",
+                    "explanation": f"the colour measurement ({_fmt(v_sf)} SF) exceeds the whole floor in the sheet's "
+                                   f"table ({_fmt(tot_sf)} SF), so it is not given"}
     if res is not None:
         res["cost_usd"] = round(cost, 5)
         if low:
