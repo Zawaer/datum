@@ -371,9 +371,23 @@ class SwissSolver:
                                            + ", ".join(sorted(fl.units))}
         pool = [r for r in rooms_num if letter is None or r.unit == letter]
         where = f" in apartment {letter}" if letter else ""
-        hits = sorted((r for r in pool if r.name and RK.matches(kind, r.name)),
-                      key=lambda r: [int(x) if x.isdigit() else x for x in re.split(r"(\d+)", r.number)])
-        labels = sorted({r.name for r in hits})
+        hits = [r for r in pool if r.name and RK.matches(kind, r.name)]
+        # Many plans print bathrooms / WCs with a room number but no name; their fixtures say what they are:
+        # a bath or shower inside the outline = bathroom, a toilet without one = separate toilet room.
+        unnamed = []
+        if kind in ("bathroom", "toilet_room"):
+            def holds(r, kinds):
+                return any(s.kind in kinds and r.poly.intersects(s.geom.centroid) for s in fl.symbols)
+            for r in pool:
+                if r.name:
+                    continue
+                wet = holds(r, ("bathtub", "shower"))
+                if (kind == "bathroom" and wet) or (kind == "toilet_room" and not wet and holds(r, ("toilet",))):
+                    unnamed.append(r)
+            hits += unnamed
+        hits = sorted(hits, key=lambda r: [int(x) if x.isdigit() else x for x in re.split(r"(\d+)", r.number)])
+        labels = sorted({r.name for r in hits if r.name})
+        fx = "a bath or shower" if kind == "bathroom" else "a toilet"
         all_labels = sorted({r.name for r in rooms_num if r.name})
         word_labels = ", ".join(f"'{RK.display(x)}'" for x in RK.labels_for(kind)[:6])
         listing = "labels on this plan: " + ", ".join(f"'{x}'" for x in all_labels)
@@ -388,16 +402,21 @@ class SwissSolver:
                         "read_as": f"How many rooms labelled as a {name} ({word_labels}) are there on this floor?"}
             for i, r in enumerate(hits, 1):
                 poly(r, 1, f"{name} {i}: {r.number} {r.name}")
-            per = ", ".join(f"{r.number} '{r.name}'" for r in hits)
+            per = ", ".join(f"{r.number} '{r.name}'" if r.name else f"{r.number} (unnamed, holds {fx})" for r in hits)
             what = "the plan's label for a bedroom or other room" if kind == "room" else f"the plan's word for {name}"
-            expl = f"{len(hits)} room{'s' if len(hits) != 1 else ''}{where} labelled {lab_q} ({what}): {per}"
+            n_lab = len(hits) - len(unnamed)
+            parts = ([f"{n_lab} labelled {lab_q} ({what})"] if n_lab else []) + \
+                    ([f"{len(unnamed)} numbered but unnamed, identified by {fx} drawn inside"] if unnamed else [])
+            expl = f"{len(hits)} {name}{'s' if len(hits) != 1 else ''}{where}: " + "; ".join(parts) + f": {per}"
             c = 0.97
             if kind == "room":
                 # "rooms" is the plan's 'Zimmer'/'Pièce'/'Stanza' label; say how many spaces there are in all
                 c = 0.8
                 expl += f"; all numbered spaces{where} (kitchens, baths, corridors ... included): {len(pool)}"
-            rq = f"How many rooms labelled {lab_q} are there on this floor?" if not letter else \
-                f"How many rooms labelled {lab_q} are there in apartment {letter}?"
+            what_q = f"rooms labelled {lab_q}" if not unnamed else (f"{name}s (rooms labelled {lab_q} or holding {fx})"
+                                                                    if lab_q else f"{name}s (rooms holding {fx})")
+            rq = f"How many {what_q} are there on this floor?" if not letter else \
+                f"How many {what_q} are there in apartment {letter}?"
             return {**done(len(hits), c, expl), "read_as": rq}
         # area
         if not hits:
