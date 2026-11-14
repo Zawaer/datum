@@ -579,6 +579,7 @@ function setupEvidence() {
     items = (two.length ? plan2d : three).map(e => ({...e, on: true}));
     marks = txt.filter(onShown).map(e => ({...e, mark: true}));
   }
+  deriveCats();
 }
 
 function zoomToEvidence(only, maxK = 3, instant = false) {  // cap: keep enough of the plan around one or two small items for context
@@ -1318,6 +1319,21 @@ function itemVal(e) {  // an item's contribution as shown beside it ('' for a co
 const CAT_HUES = ['#0072b2', '#56b4e9', '#009e73', '#cc79a7', '#003a5c', '#8a929d'];
 const catOf = e => e.kind === 'polygon' ? (e.category || e.group || null) : null;
 const UNTYPED = /untyped|unread|unknown|other|unlabel/i;
+// a region answer by type / colour zone whose polygons carry no category: group them by the label's base name
+// ("DORMITORY (west): measured 2,862 SF" -> Dormitory), and take the area from the label when the value is empty
+function deriveCats() {
+  const pg = items.filter(e => e.kind === 'polygon');
+  if (pg.length < 2 || pg.some(e => e.category || e.group) || !/by-type|zone|colou?r|schedule/i.test(String(res.method || ''))) return;
+  const base = l => {
+    const b = String(l || '').split(':')[0].replace(/\s*\((?:west|east|north|south|[a-z]+ wing|part \d+)\)\s*$/i, '').trim();
+    return b === b.toUpperCase() ? cap1(b.toLowerCase()).replace(/\(([a-z]{2,4})\)/g, (m, a) => `(${a.toUpperCase()})`) : b;
+  };
+  for (const e of pg) {
+    e.category = base(e.label);
+    const m = e.value == null && String(e.label || '').match(/([\d,]+(?:\.\d+)?)\s*(SF|sq ?ft|m²|m2)\b/i);
+    if (m) { e.areaFromLabel = +m[1].replace(/,/g, ''); e.areaUnit = m[2]; }
+  }
+}
 function catList() {
   const c = []; for (const e of items) { const k = catOf(e); if (k && !c.includes(k)) c.push(k); }
   return [...c.filter(k => !UNTYPED.test(k)), ...c.filter(k => UNTYPED.test(k))];
@@ -1350,7 +1366,7 @@ function sheetHow(r) {
   const m = String(r.method || ''), ev = r.evidence || [];
   const sc = String(r.scale || (cur && cur.sheet_scale) || '').match(/1\s*:\s*\d+/);
   const has = k => ev.some(e => e.kind === k);
-  if (has('cell')) return 'read from the sheet\'s table';
+  if (has('cell') || /schedule|table/.test(m)) return 'read from the sheet\'s table';
   if (r.sheet_type === 'piping') return items.some(tagOf) ? 'read from tags' : 'read from the sheet text';
   if (/text|textqa|-qa\b|-note|-read\b/.test(m) || (ev.length && ev.every(e => e.kind === 'text'))) return 'read from the printed text';
   if (/detector/.test(m)) return 'symbols detected';
@@ -1382,11 +1398,13 @@ const sheetev = document.createElement('div'); sheetev.id = 'sheetev'; $('#ahead
 const catleg = document.createElement('div'); catleg.className = 'catleg ondraw'; catleg.hidden = true; viewer.appendChild(catleg);
 function legendHTML() {
   const cats = catList(); if (!cats.length) return '';
-  const sumOf = k => items.filter(e => e.on && catOf(e) === k).reduce((s, e) => s + (typeof e.value === 'number' ? e.value : 0), 0);
-  const u = res.type === 'area' ? uOf() : 'm²';
-  const rows = cats.map(k => `<button type="button" class="cl" data-cat="${esc(k)}"><i style="background:${catColour(k)}"></i><span class="cn">${esc(k)}</span><b>${round2(sumOf(k))} ${esc(u)}</b></button>`);
-  const tot = cats.length > 1 ? `<div class="cl ctot"><i></i><span class="cn">Total</span><b>${round2(cats.reduce((s, k) => s + sumOf(k), 0))} ${esc(u)}</b></div>` : '';
-  return rows.join('') + tot;
+  const sumOf = k => items.filter(e => e.on && catOf(e) === k).reduce((s, e) => s + (typeof e.value === 'number' ? e.value : e.areaFromLabel || 0), 0);
+  const lu = items.find(e => e.areaUnit), u = lu ? lu.areaUnit : res.type === 'area' ? uOf() : 'm²';
+  const big = cats.some(k => sumOf(k) >= 1000), num = v => big ? Math.round(v).toLocaleString('en-US') : round2(v);
+  const rows = cats.map(k => `<button type="button" class="cl" data-cat="${esc(k)}"><i style="background:${catColour(k)}"></i><span class="cn">${esc(k)}</span><b>${num(sumOf(k))} ${esc(u)}</b></button>`);
+  const tot = cats.length > 1 ? `<div class="cl ctot"><i></i><span class="cn">Total</span><b>${num(cats.reduce((s, k) => s + sumOf(k), 0))} ${esc(u)}</b></div>` : '';
+  const cap = items.some(e => e.areaFromLabel != null) ? '<div class="lt">Measured on the drawing</div>' : '';  // beside a table read: say which is which
+  return cap + rows.join('') + tot;
 }
 function zoomTo(is) {
   if (!is.length) return;

@@ -771,3 +771,4 @@ svg .ping.model { stroke: var(--chk); }
   .sheetchip { margin-top: 4px; }
 }
 .ev .tabn { display: block; font-size: 12px; color: var(--mut); font-weight: 400; }
+.catleg .lt { color: var(--mut); padding-bottom: 4px; }

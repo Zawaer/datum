@@ -553,14 +553,14 @@ def _upload_suggestions(kind: str | None, not_drawing=None, sheet_kind: str | No
                 "What is the total floor area of all spaces, in m²?"]
     # a recognised sheet type (bp/sheets): the first three are what its specialist answers best
     if sheet_kind == "piping":
-        return ["How many fuel pumps?", "What size is the suction header?", "How many control valves?",
+        return ["How many fuel pumps?", "What size is the suction header?", "How many check valves?",
                 "Which sheets are referenced?"]
     if sheet_kind == "slab":
         return ["Slab area by type?", "How many pad footings?", "What is the slab thickness?"]
     if sheet_kind == "arch" and re.search(r"dormitor", hint, re.I):
         return ["Total dormitory area?", "Area of each colour zone?", "How many rooms?", "How many doors?"]
     if sheet_kind == "arch" and re.search(r"school|classroom|level[ _-]?0", hint, re.I):
-        return ["How many doors?", "Baseboard length in the Hall?", "How many rooms?", "What is the total floor area?"]
+        return ["How many doors?", "Baseboard length in the Library?", "How many rooms?", "What is the total floor area?"]
     if sheet_kind == "arch":
         return ["How many doors?", "What is the total floor area?", "How many rooms?", "How many windows?"]
     return ["How many doors are shown on this floor plan?", "How many windows are shown on this floor plan?",

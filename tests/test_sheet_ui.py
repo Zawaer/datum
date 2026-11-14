@@ -75,9 +75,9 @@ def browser():
 def open_fixture(browser, url, name, viewport):
     fx = json.loads((FIX / f"{name}.json").read_text())
     path = f"uploads/fixture{name[:4]}/{fx['image']}"
-    sug = {"piping": ["How many fuel pumps?", "What size is the suction header?", "How many control valves?"],
+    sug = {"piping": ["How many fuel pumps?", "What size is the suction header?", "How many check valves?"],
            "slab": ["Slab area by type?", "How many pad footings?", "What is the slab thickness?"]}.get(
-        fx["sheet_kind"], ["How many doors?", "Baseboard length in the Hall?", "How many rooms?"])
+        fx["sheet_kind"], ["How many doors?", "Baseboard length in the Library?", "How many rooms?"])
     info = {"path": path, "view": path, "credit": "Stoa example sheet", "has3d": False, "kind": "raster",
             "questions": [{"question": q, "type": None, "answer": None} for q in sug + ["What is the total floor area?"]],
             "notes": [], "pages": 1, "page_titles": {}, "drawing_pages": [0], "not_drawing": None, "original": None,
