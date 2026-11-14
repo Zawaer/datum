@@ -348,6 +348,26 @@ def build_meta(path: str, page: int = 0, cache_dir: str | Path | None = None, do
         if key in _meta_mem:
             _meta_mem[key] = _meta_mem.pop(key)  # most recently used last (_trim_meta_mem drops from the front)
             return _meta_mem[key]
+        lock = _build_locks.setdefault(key, threading.Lock())
+    # one build per sheet page: questions asked at once on a sheet not in memory yet (a restarted server) used to get
+    # a meta dict each, so what a module cached on one (the slab analysis, the warm-up's reading) was computed again
+    # on the others, in parallel (3 questions on a scanned slab PDF: two ran past their timeout)
+    with lock:
+        with _meta_lock:
+            if key in _meta_mem:
+                _meta_mem[key] = _meta_mem.pop(key)
+                return _meta_mem[key]
+        try:
+            return _build_meta(path, page, cache_dir, do_classify, key)
+        finally:
+            with _meta_lock:
+                _build_locks.pop(key, None)
+
+
+_build_locks: dict = {}
+
+
+def _build_meta(path, page, cache_dir, do_classify, key) -> dict:
     f = cache_dir / f"sheet_meta_p{page}.json"
     meta = None
     if f.exists():
