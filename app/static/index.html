@@ -20,75 +20,86 @@
 <header>
   <h1 class="sr-only">Blueprints that talk: ask a construction drawing, see the evidence</h1>
   <div class="sr-only" role="status" id="sr-status"></div>
-  <button class="iconbtn only-phone" id="drawerbtn" aria-label="Drawings">☰</button>
-  <a class="brand" href="/"><span class="logo">▦</span> Blueprints <em>that talk</em></a>
-  <nav class="links">
-    <button class="linkbtn" id="tourbtn" title="A guided 7-step tour, about a minute (Esc to leave, ← → to step)"><span class="only-desk">Demo </span>tour</button>
-    <a class="linkbtn" href="/results">Score<span class="only-desk">board</span></a>
+  <a class="brand" href="/"><span class="logo" aria-hidden="true"><svg viewBox="0 0 32 32" width="24" height="24"><rect width="32" height="32" rx="7" fill="currentColor"/><path d="M8 8h16v16H8z M8 15h8 M16 8v16" fill="none" stroke="#fff" stroke-width="2.2"/><circle cx="20.5" cy="19.5" r="3" fill="#0072b2" stroke="#fff" stroke-width="1.2"/></svg></span>Blueprints <em>that talk</em></a>
+  <a class="claim" id="headline" href="/results" title="Right on 90.0 % of all 25,420 held-out test questions (Claude Sonnet given the same files: 69.8 %), at $0.013 vs $25.76 per 1,000 questions. Click for the scoreboard."><b>90 % right</b><span class="dot" aria-hidden="true">·</span>1,900× cheaper than a frontier model</a>
+  <nav class="links" aria-label="Pages">
+    <button class="linkbtn" id="tourbtn" title="A guided 7-step tour, about a minute">Tour</button>
     <a class="linkbtn" href="/how">How<span class="only-desk"> it works</span></a>
+    <a class="linkbtn" href="/results">Score<span class="only-desk">board</span></a>
+    <button class="linkbtn keysbtn only-desk" id="keysbtn" aria-label="Keyboard shortcuts" aria-expanded="false" aria-controls="keys">?</button>
   </nav>
-  <div class="meter" id="meter" data-n="0" data-short="this session: ours $0 vs frontier $0" title="What your questions in this session cost us, vs what a frontier vision model (Claude Sonnet) charged for the same kind of question in our baseline run">
-    <div class="mrow"><span class="mlab">ours</span><span class="mbar"><i id="bar-ours"></i></span><b id="m-ours">$0</b></div>
-    <div class="mrow"><span class="mlab">frontier</span><span class="mbar"><i id="bar-base" class="base"></i></span><b id="m-base">$0</b></div>
-    <div class="msum" id="m-sum">cost of this session's questions</div>
+  <div class="pop keys" id="keys" hidden role="dialog" aria-label="Keyboard shortcuts">
+    <div><kbd>Enter</kbd> ask</div><div><kbd>/</kbd> type a question</div><div><kbd>Esc</kbd> close · cancel</div>
+    <div><kbd>f</kbd> fit drawing</div><div><kbd>+</kbd> <kbd>−</kbd> zoom</div><div><kbd>←</kbd> <kbd>→</kbd> tour steps</div>
   </div>
 </header>
-<a class="headline" id="headline" href="/results" title="Per source, on every held-out test question: Finnish raster plans 85.1 % (16,496 questions) · Swiss CAD plans 100.0 % (8,214) · IFC / BIM models 100 % (600) · IFC free-text questions 38.2 % (110). Click for the full scoreboard.">
-  <span class="hl-main"><b>90.0 % right</b> on all 25,420 held-out test questions<span class="only-desk">: every question in every language, not a sample (95 % CI 89.7–90.4)</span></span>
-  <span class="hl-sep only-desk">·</span>
-  <span class="hl-vs">Claude Sonnet <span class="only-desk">given the same files:</span><span class="only-phone">+ same files</span> 69.8 %</span>
-  <span class="hl-sep">·</span>
-  <span class="hl-cost"><b>$0.013</b> vs $25.76 per 1,000<span class="only-desk"> questions</span></span>
-  <span class="hl-go">Scoreboard ›</span>
-</a>
 <div class="scrim" id="scrim"></div>
 <main>
-  <nav id="list">
-    <label class="upload" id="uploadbox">
-      <input type="file" id="file" accept=".pdf,.png,.jpg,.jpeg,.dxf,.ifc" hidden>
-      <b>Upload a drawing</b><small>PDF · PNG · JPG · DXF · IFC, or drop it anywhere</small>
-    </label>
-    <div class="tabs" id="tabs"></div>
-    <input class="search" id="search" placeholder="filter by file name…" aria-label="Filter drawings by file name">
-    <div id="items"></div>
-    <button class="more" id="more" hidden>show more</button>
-  </nav>
-  <section id="viewer">
+  <section id="viewer" aria-label="Drawing">
     <div id="stage"><img id="img" alt=""><svg id="ov" viewBox="0 0 1 1"></svg></div>
     <div id="three"></div>
-    <div class="modes" id="modes"><button id="m2d" class="on" aria-pressed="true">Plan</button><button id="m3d" aria-pressed="false">3D model</button></div>
-    <div class="tools3d" id="tools3d">
-      <label>Storey <select id="storey"></select></label>
-      <label class="cut">Section <input type="range" id="cut" min="0" max="1000" value="1000"></label>
+    <button class="picker" id="drawerbtn" aria-haspopup="dialog" aria-expanded="false" aria-controls="list" title="Pick another drawing, or upload your own">
+      <span class="pk-name" id="pkname">Drawings</span><svg class="chev" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </button>
+    <div class="vtools" id="vtools">
+      <div class="modes" id="modes"><button id="m2d" class="on" aria-pressed="true">Plan</button><button id="m3d" aria-pressed="false">3D</button></div>
+      <button class="vmbtn" id="vmbtn" aria-haspopup="true" aria-expanded="false" aria-controls="vmenu" aria-label="View options" title="View options" hidden>
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="3.5" cy="8" r="1.4" fill="currentColor"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/><circle cx="12.5" cy="8" r="1.4" fill="currentColor"/></svg>
+      </button>
+      <div class="pop vmenu" id="vmenu" hidden role="group" aria-label="View options">
+        <div class="vmitems" id="vmitems"></div>
+        <div class="tools3d" id="tools3d">
+          <label>Storey <select id="storey"></select></label>
+          <label class="cut">Section <input type="range" id="cut" min="0" max="1000" value="1000"></label>
+        </div>
+      </div>
     </div>
     <div class="zoom"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button><button id="zfit" aria-label="Fit drawing" title="Fit drawing (f)">⤢</button></div>
     <div class="hint" id="hint" hidden></div>
     <div class="loading" id="loading" hidden><span class="spin big"></span><div id="loadmsg">Loading…</div></div>
     <div class="empty" id="empty" hidden></div>
-    <div class="caption" id="caption" hidden>
+    <div class="caption" id="caption" hidden role="region" aria-label="Demo tour">
       <div class="capstep" id="capstep"></div><div class="captitle" id="captitle"></div><div class="captext" id="captext"></div>
-      <div class="capnav"><button id="tprev">‹ back</button><button id="tnext" class="primary">next ›</button><button id="texit">exit tour</button></div>
+      <div class="capnav"><button id="tprev">Back</button><button id="tnext" class="primary">Next</button><button id="texit" aria-label="Exit tour" title="Exit tour (Esc)">✕</button></div>
     </div>
     <div class="credit" id="credit" title="Dataset credit (click to show it in full)"></div>
     <div class="dropzone" id="dropzone" hidden>Drop the drawing to upload it</div>
   </section>
-  <aside id="side">
-    <div class="ask"><input id="q" placeholder="Ask in any language, e.g. How many windows?" autocomplete="off" enterkeyhint="send" aria-label="Your question"><button id="go">Ask</button></div>
-    <div class="intro" id="intro">
-      <b class="vp">Ask a construction drawing or BIM model a question. The answer is counted out on the drawing, so you can check it in seconds.</b>
-      <button class="btn cta" id="ctatour">▶ Start the 60-second tour</button>
-      <span>Or pick a question below, or type your own in any language. Every answer shows its evidence on the plan, says in words how far to trust it, and you can correct it with a click.</span>
-      <span class="keys"><kbd>Enter</kbd> ask · <kbd>/</kbd> focus · <kbd>Esc</kbd> cancel · <kbd>f</kbd> fit drawing</span>
+  <div class="pop picker-pop" id="list" role="dialog" aria-label="Pick a drawing" hidden>
+    <div class="pk-head">
+      <label class="upload" id="uploadbox" tabindex="0">
+        <input type="file" id="file" accept=".pdf,.png,.jpg,.jpeg,.dxf,.ifc" hidden>
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 11V3M4.5 6.5 8 3l3.5 3.5M3 13h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <b>Upload your own</b><small>PDF, image, DXF or IFC</small>
+      </label>
+      <div class="tabs" id="tabs" role="group" aria-label="Collection"></div>
+      <input class="search" id="search" type="search" placeholder="Search" aria-label="Search drawings">
     </div>
-    <div class="card" id="answer" hidden></div>
-    <div id="evwrap" hidden>
-      <div class="evhead"><h3 id="evtitle">Evidence</h3>
-        <button class="btn ghost" id="addbtn" title="Click the drawing to add an item the solver missed">+ add missed item</button></div>
-      <div class="evhelp" id="evhelp"></div>
-      <div class="ev" id="ev"></div>
+    <div id="items"></div>
+    <button class="more" id="more" hidden>show more</button>
+  </div>
+  <aside id="side" aria-label="Ask and answer">
+    <div class="hero" id="intro">
+      <h2>Ask a floor plan a question.</h2>
+      <p>The answer is counted out on the drawing, so you can check it.</p>
     </div>
-    <!-- after the answer and its evidence in tab order (Ask, answer, evidence, correction); CSS order: places it on screen -->
-    <div class="qs"><h3 id="qstitle">Questions for this drawing</h3><div class="chips" id="chips"></div></div>
+    <button class="btn cta" id="ctatour"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M5 3.5v9l7-4.5z" fill="currentColor"/></svg>Take the 60-second tour</button>
+    <div class="or" id="or" aria-hidden="true"><span>or ask about this drawing</span></div>
+    <div class="ask"><input id="q" placeholder="Ask anything, in any language" autocomplete="off" enterkeyhint="send" aria-label="Your question"><button id="go" aria-label="Ask"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+    <section class="card" id="answer" hidden aria-label="Answer">
+      <div id="ahead"></div>
+      <details class="sec" id="evwrap" hidden>
+        <summary><span>Evidence</span><span class="sv" id="evtitle"></span></summary>
+        <div class="evbar"><span class="evhelp" id="evhelp"></span>
+          <button class="btn ghost sm" id="addbtn" title="Click the drawing to add an item the solver missed">+ Add missed</button></div>
+        <div class="ev" id="ev"></div>
+      </details>
+      <div id="atail"></div>
+    </section>
+    <div class="qs" id="qs">
+      <div class="chips" id="chips3"></div>
+      <details class="moreqs" id="moreqs"><summary id="qstitle">More questions</summary><div class="chips" id="chips"></div></details>
+    </div>
   </aside>
 </main>
 <script type="importmap">{"imports": {"three": "https://unpkg.com/three@0.170.0/build/three.module.js",

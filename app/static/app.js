@@ -2,13 +2,32 @@
 'use strict';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
-const SRC = {swiss_dwellings: 'Swiss apartments', cubicasa5k: 'Finnish plans', ifc_models: 'IFC / BIM models', ifc_bench: 'IFC text Q&A',
+const SRC = {swiss_dwellings: 'Swiss apartments', cubicasa5k: 'Finnish plans', ifc_models: 'BIM models', ifc_bench: 'IFC text Q&A',
              opening_design: 'US drawing sets', upload: 'Your uploads'};
 const ROUTE = {swiss: 'CAD layers (DXF twin)', ifc: 'IFC model query', cubicasa: 'plan symbol detector', generic: 'generic drawing reader', ifctext: 'IFC fact sheet', normalize: 'question normaliser (small LLM)'};
 const NS = 'http://www.w3.org/2000/svg';
 
+// a drawing's name for people, not its file name: "Swiss apartment plan 9385", "Grundplan · Molio", "A-701 · Restrooms"
+const cap1 = s => s.charAt(0).toUpperCase() + s.slice(1);
+function friendly(d) {
+  const path = String(d.path || ''), file = path.split('/').pop(), stem = file.replace(/\.\w+$/, '');
+  let m;
+  if (path.startsWith('uploads/')) return {name: d.name || file.replace(/^[0-9a-f]{8,}[-_]/, ''), kind: 'Your upload'};
+  if (/swiss_dwellings\//.test(path) && (m = stem.match(/floor(\d+)/))) return {name: `Swiss apartment plan ${m[1]}`, kind: 'Swiss CAD plan'};
+  if (/cubicasa5k\//.test(path) && (m = stem.match(/(\d+)$/))) return {name: `Finnish apartment plan ${m[1]}`, kind: 'Finnish raster plan'};
+  if (/ifc_models\//.test(path) && (m = stem.match(/^[^_]+_(.+?)_plan-\d+-(.+)$/))) {
+    const proj = m[1].replace(/[-_]+/g, ' ').replace(/\b(with uris|example project|ar)\b/gi, '').replace(/\s+/g, ' ').trim();
+    return {name: `${cap1(m[2].replace(/[-_]+/g, ' '))} · ${cap1(proj)}`, kind: 'BIM model, plan sheet'};
+  }
+  if (/ifc_models\/|ifc_bench\//.test(path)) return {name: cap1(stem.replace(/^[^_]+_(?=.*_)/, '').replace(/[-_]+/g, ' ')), kind: 'BIM model'};
+  if (/opening_design\//.test(path)) {
+    const proj = path.split('/')[2] || '';
+    return {name: stem.replace(/\s+-\s+/, ' · ').replace(/\b([A-Z]{3,})\b/g, w => cap1(w.toLowerCase())), kind: `US drawing set${proj ? ' · ' + proj.replace(/_/g, ' ') : ''}`};
+  }
+  return {name: stem, kind: ''};
+}
+
 let tab = 'swiss_dwellings', cur = null, res = null, items = [], marks = [], adding = false, primary = '2d';
-let session = {n: 0, ours: 0, base: 0};
 let listOffset = 0, listQuery = '';
 let uploads = JSON.parse(localStorage.getItem('bp_uploads') || '[]');
 let askSeq = 0, animating = false;
@@ -79,7 +98,7 @@ $('#zfit').onclick = fit;
 // ------------------------------------------------------------ adding missed items
 function setAdding(on) {
   adding = on; viewer.classList.toggle('adding', adding);
-  $('#addbtn').textContent = adding ? '✓ done adding' : '+ add missed item'; $('#addbtn').classList.toggle('on', adding);
+  $('#addbtn').textContent = adding ? '✓ Done' : '+ Add missed'; $('#addbtn').classList.toggle('on', adding);
   hint(adding ? 'Click each item the solver missed' : '');
 }
 $('#addbtn').onclick = () => setAdding(!adding);
@@ -159,7 +178,7 @@ function highlight3d(animate) {
 const guidItem = () => { const m = new Map(); items.forEach((e, i) => (e.guids || []).forEach(g => m.set(g, i))); return m; };
 window.onPick3d = g => {
   const i = guidItem().get(g);
-  if (i != null) { items[i].on = !items[i].on; redraw(); flashRow(i); return; }
+  if (i != null && items[i]) { items[i].on = !items[i].on; redraw(); flashRow(i); return; }
   const info = V3.elementInfo(g);
   if (info && res && primary === 'ifc') hint(`${info.type} '${info.name}' is not part of this answer`);
 };
@@ -179,14 +198,14 @@ async function loadList(append = false) {
   if (tab === 'upload') {
     const r = await (await fetch('/api/drawings?limit=0')).json(); renderTabs(r.counts);
     box.innerHTML = ''; $('#more').hidden = true;
-    for (const d of uploads) box.appendChild(itemEl(d, `${d.kind || d.ext} · uploaded`));
-    if (!uploads.length) box.innerHTML = '<div class="item"><small>Nothing uploaded yet: use the box above.</small></div>';
+    for (const d of uploads) box.appendChild(itemEl(d, `${String(d.kind || d.ext || '').toUpperCase()} · uploaded`));
+    if (!uploads.length) box.innerHTML = '<div class="item empty-note"><small>Nothing uploaded yet.</small></div>';
     return;
   }
   const r = await (await fetch(`/api/drawings?source=${tab}&q=${encodeURIComponent(listQuery)}&offset=${listOffset}&limit=80`)).json();
   renderTabs(r.counts);
   if (!append) box.innerHTML = '';
-  for (const d of r.items) box.appendChild(itemEl(d, `${d.n} questions · ${d.split === 'test' ? 'test drawing, never trained on' : 'development drawing'}`));
+  for (const d of r.items) box.appendChild(itemEl(d, `${d.n} questions${d.split === 'test' ? ' · test set, never trained on' : ''}`));
   listOffset += r.items.length;
   $('#more').hidden = listOffset >= r.total;
   $('#more').textContent = `show more (${r.total - listOffset} left)`;
@@ -208,32 +227,69 @@ function renderTabs(counts) {
   for (const s of Object.keys(SRC)) {
     if (!all[s]) continue;
     const b = document.createElement('button'); b.className = 'tab' + (s === tab ? ' on' : '');
+    b.setAttribute('aria-pressed', s === tab);
     b.innerHTML = `${SRC[s]} <small>${all[s]}</small>`;
     b.onclick = () => { tab = s; loadList(); }; tabs.appendChild(b);
   }
 }
 function itemEl(d, sub) {
-  const el = document.createElement('div'); el.className = 'item' + (cur && cur.path === d.path ? ' on' : '');
-  el.dataset.path = d.path;
-  el.innerHTML = `${esc(d.path.split('/').pop())}<br><small>${esc(sub)}</small>`;
-  el.onclick = () => { select(d); document.body.classList.remove('drawer'); };
+  const el = document.createElement('button'); el.type = 'button'; el.className = 'item' + (cur && cur.path === d.path ? ' on' : '');
+  el.dataset.path = d.path; el.title = d.path.split('/').pop();
+  el.innerHTML = `<b>${esc(friendly(d).name)}</b><small>${esc(sub)}</small>`;
+  el.onclick = () => { closePicker(); select(d); };
   return el;
 }
 $('#more').onclick = () => loadList(true);
 let searchT; $('#search').oninput = e => { clearTimeout(searchT); searchT = setTimeout(() => { listQuery = e.target.value; loadList(); }, 200); };
-$('#drawerbtn').onclick = () => document.body.classList.toggle('drawer');
+
+// ------------------------------------------------------------ popovers: the drawing picker, the ⋯ view menu, the keyboard help
+// one open at a time; Esc, a click outside or picking something closes it and focus goes back to its button
+const POPS = {list: '#drawerbtn', vmenu: '#vmbtn', keys: '#keysbtn'};
+let popOpen = null;
+function openPop(id) {
+  if (popOpen && popOpen !== id) closePop(false);
+  popOpen = id; $('#' + id).hidden = false; $(POPS[id]).setAttribute('aria-expanded', 'true');
+  if (id === 'list') {
+    document.body.classList.add('drawer'); loadList();
+    if (!PHONE.matches) setTimeout(() => $('#search').focus(), 0); else $('#uploadbox').focus();
+  } else $('#' + id).querySelector('button, select, input')?.focus();
+}
+function closePop(refocus = true) {
+  if (!popOpen) return;
+  const id = popOpen; popOpen = null;
+  $('#' + id).hidden = true; $(POPS[id]).setAttribute('aria-expanded', 'false');
+  document.body.classList.remove('drawer');
+  if (refocus && !$(POPS[id]).hidden) $(POPS[id]).focus();
+}
+function closePicker() { if (popOpen === 'list') closePop(false); }
+window.bpOpenPicker = t => { if (t && SRC[t]) tab = t; openPop('list'); };
+$('#drawerbtn').onclick = () => popOpen === 'list' ? closePop() : openPop('list');
+$('#keysbtn').onclick = () => popOpen === 'keys' ? closePop() : openPop('keys');
+$('#vmbtn').onclick = () => { if (popOpen === 'vmenu') closePop(); else { viewMenu(); openPop('vmenu'); } };
+document.addEventListener('pointerdown', e => {
+  if (!popOpen) return;
+  const pop = $('#' + popOpen), btn = $(POPS[popOpen]);
+  if (!pop.contains(e.target) && !btn.contains(e.target)) closePop(false);
+}, true);
+$('#uploadbox').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#file').click(); } });
+function setPickerLabel(d) {
+  const f = friendly(d);
+  $('#pkname').textContent = f.name;
+  $('#drawerbtn').title = `${f.kind ? f.kind + ': ' : ''}${d.path.split('/').pop()}. Pick another drawing, or upload your own`;
+  $('#drawerbtn').setAttribute('aria-label', `Drawing: ${f.name}. Pick another drawing or upload your own`);
+}
 
 let pendingDraw = null;
 async function select(d, how = 'push') {
-  cur = {...d}; res = null; items = []; marks = []; ov.innerHTML = ''; setAdding(false); askSeq++; setHeat(false); closeSheet(); ptools.hidden = true;
-  $('#answer').hidden = true; $('#evwrap').hidden = true; hint(''); $('#empty').hidden = true; $('#intro').hidden = false;
+  cur = {...d}; res = null; items = []; marks = []; ov.innerHTML = ''; setAdding(false); askSeq++; setHeat(false); closeSheet();
+  $('#answer').hidden = true; $('#evwrap').hidden = true; hint(''); $('#empty').hidden = true; setAnswered(false); setPickerLabel(d); viewTools();
   syncURL(how);
   document.querySelectorAll('.item').forEach(e => e.classList.toggle('on', e.dataset.path === d.path));
   revealSelected();
   const r = await fetch('/api/questions?path=' + encodeURIComponent(d.path));
   if (!r.ok) {
     if (cur.path !== d.path) return;
-    img.removeAttribute('src'); cur.shown = null; $('#chips').innerHTML = ''; $('#modes').classList.remove('show'); $('#credit').textContent = '';
+    img.removeAttribute('src'); cur.shown = null; renderChips([]); $('#modes').classList.remove('show'); $('#credit').textContent = '';
     $('#empty').hidden = false;
     $('#empty').textContent = d.path.startsWith('uploads/') ? 'This upload is no longer on the server (uploads are cleared when it is rebuilt). Upload it again to ask about it.'
       : 'This drawing is not available. Pick another one from the list.';
@@ -252,16 +308,28 @@ async function select(d, how = 'push') {
   $('#credit').textContent = !info.credit ? '' : d.path.startsWith('uploads/') ? info.credit : '© ' + info.credit;  // an upload is not licensed to us
   showImage(info.view);
   if (!info.view && !has3d) { $('#empty').hidden = false; $('#empty').textContent = 'No preview for this file type, but you can still ask about it.'; }
-  const chips = $('#chips'); chips.innerHTML = '';
-  $('#qstitle').textContent = d.source === 'upload' || d.split === 'upload' ? 'Try asking' : `Dataset questions for this drawing (${info.questions.length})`;
-  for (const q of info.questions) {
-    const c = document.createElement('button'); c.className = 'chip';
-    c.innerHTML = `<span class="ty">${esc(q.type)}</span>${esc(q.question)}`;
-    c.onclick = () => { $('#q').value = q.question; ask(); }; chips.appendChild(c);
-  }
+  renderChips(info.questions || []);
   // chips first: a big model can take a while to tessellate and the questions should not wait for it
   if (cur.path === d.path) await setMode(info.view ? '2d' : (has3d ? '3d' : '2d'));
 }
+// three example questions, one click each (short, English, different kinds first); the rest folded under "More questions"
+function renderChips(qs) {
+  const chip = q => {
+    const c = document.createElement('button'); c.type = 'button'; c.className = 'chip'; c.title = q.type ? `${q.type} question` : '';
+    c.textContent = q.question; c.onclick = () => { $('#q').value = q.question; ask(); }; return c;
+  };
+  const en = q => /^(how|what|which|is|are|does|do|where|list|name)\b/i.test(q.question);
+  const ranked = [...qs].sort((a, b) => (en(b) - en(a)) || (a.question.length - b.question.length));
+  const pick = [];
+  for (const q of ranked) if (pick.length < 3 && !pick.some(p => p.type === q.type)) pick.push(q);
+  for (const q of ranked) if (pick.length < 3 && !pick.includes(q)) pick.push(q);
+  $('#chips3').replaceChildren(...pick.map(chip));
+  $('#chips').replaceChildren(...qs.map(chip));
+  $('#qstitle').textContent = `More questions (${qs.length})`;
+  $('#moreqs').open = false;
+}
+// landing (hero, tour button, three examples) vs answering (question box, answer card, more questions)
+function setAnswered(on) { $('#side').classList.toggle('answered', on); }
 function showImage(view, page = 0) {
   cur.shown = view || null; cur.page = page || 0; syncPageBar();
   if (!view) { img.removeAttribute('src'); return; }
@@ -275,7 +343,7 @@ $('#file').accept = '.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.bmp,.gif,.svg,.dxf,.
 // what the server did to an upload (rectified photo, turned scan, ...), a not-a-drawing warning, and a page picker
 function uploadPanel(info) {
   let box = $('#upnote');
-  if (!box) { box = document.createElement('div'); box.id = 'upnote'; box.style.cssText = 'font-size:12px;color:var(--mut);margin:0 0 10px;line-height:1.45'; $('#chips').parentElement.before(box); }
+  if (!box) { box = document.createElement('div'); box.id = 'upnote'; $('#qs').before(box); }
   const up = cur.path.startsWith('uploads/');
   const notes = (up ? info.notes || [] : []).map(n => `<div>· ${esc(n)}</div>`).join('');
   const orig = up && info.original ? `<div><a href="/api/file?path=${encodeURIComponent(info.original)}" target="_blank" rel="noopener">see your original file</a></div>` : '';
@@ -337,15 +405,15 @@ async function ask() {
   const question = $('#q').value.trim(); if (!question || !cur) return;
   const seq = ++askSeq;
   setAdding(false); if (heat.on) setHeat(false);
-  const a = $('#answer'); a.hidden = false; a.classList.remove('pop'); $('#intro').hidden = true;
+  const a = $('#answer'); a.hidden = false; a.classList.remove('pop'); setAnswered(true); $('#atail').innerHTML = '';
   if (PHONE.matches) $('#q').blur();  // drop the phone keyboard so the answer is visible
   const steps = THINK[cur.source || cur.split] || THINK[cur.path.startsWith('uploads/') ? 'upload' : ''] || ['reading the drawing'];
   const t0 = performance.now();
   const tick = () => {
     if (seq !== askSeq || res?._seq === seq) return;
     const s = (performance.now() - t0) / 1000;
-    a.innerHTML = `<div class="qecho">${esc(question)}</div><div class="thinking"><div><span class="spin"></span> ${esc(steps[Math.min(steps.length - 1, Math.floor(s / 1.5))])}…</div>
-      <small>${s.toFixed(1)} s${s > 6 ? ' · big models load slowly the first time, then answers come from cache' : ''}</small></div>`;
+    $('#ahead').innerHTML = `<div class="qecho">${esc(question)}</div><div class="thinking"><div><span class="spin"></span> ${esc(cap1(steps[Math.min(steps.length - 1, Math.floor(s / 1.5))]))}…</div>
+      <small>${s.toFixed(1)} s${s > 6 ? ' · the first load of a big model is slow' : ''}</small></div>`;
     setTimeout(tick, 100);
   };
   res = null; tick();
@@ -355,7 +423,10 @@ async function ask() {
     const body = {path: cur.path, question}; if (cur.pin != null) body.page = cur.pin;
     const resp = await fetch('/api/ask', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
     r = await resp.json();
-    if (!resp.ok) r = {answer: null, confidence: 0, evidence: [], explanation: r.detail || `server error ${resp.status}`, method: 'error'};
+    if (resp.status === 429) {  // the public demo's per-visitor limit: not an abstention, say when to come back
+      const m = String(r.detail || '').match(/per (\d+) minutes?/);
+      r = {answer: null, confidence: 0, evidence: [], explanation: r.detail || 'too many questions', method: 'rate-limit', limited: m ? +m[1] : 0};
+    } else if (!resp.ok) r = {answer: null, confidence: 0, evidence: [], explanation: r.detail || `server error ${resp.status}`, method: 'error'};
   } catch (err) {
     r = {answer: null, confidence: 0, evidence: [], explanation: 'could not reach the server: ' + err.message, method: 'error'};
   }
@@ -363,9 +434,6 @@ async function ask() {
   res = r; res._seq = seq; res.question = question; showSecond = false;
   recordTakeoff(res);
   syncURL('replace');
-  // a declined question (or a file that is not a drawing) would not have gone to a frontier model either: no estimate
-  session.n++; session.ours += res.cost_usd || 0; if (res.answer != null && !cur.not_drawing) session.base += res.baseline_cost_usd || 0;
-  updateMeter();
   a.classList.add('pop');
   setupEvidence();
   renderAnswer(items.length && typeof res.answer === 'number' ? 0 : null);
@@ -377,10 +445,7 @@ async function ask() {
     else pendingDraw = go;
   }
   renderEvidence();
-  if (!PHONE.matches && seq === askSeq) {  // bring the answer card up under the question box (desktop side panel)
-    const side = $('#side');
-    side.scrollTo({top: Math.max(0, a.getBoundingClientRect().top - side.getBoundingClientRect().top + side.scrollTop - $('.ask').offsetHeight - 16), behavior: smooth()});
-  }
+  if (!PHONE.matches && seq === askSeq) $('#side').scrollTo({top: 0, behavior: smooth()});  // the question box and the answer card
 }
 $('#go').onclick = ask; $('#q').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) ask(); });
 
@@ -463,22 +528,27 @@ function pctOf(right, n) {  // never round up to 100 % unless every one was righ
   const p = Math.floor(1000 * right / n) / 10;
   return p >= 99.9 ? (Math.floor(10000 * right / n) / 100).toFixed(2) : p.toFixed(1);
 }
+// why there is no number, short (the trust line) and long (How it was worked out)
+function whyNone(r) {
+  const m = String(r.method || ''), e = String(r.explanation || '');
+  const nd = e.match(/[^|]*does not look like a construction drawing[^|]*/);
+  if (nd) return {short: 'This file does not look like a construction drawing',
+    long: cap1(nd[0].trim()) + '. Upload a plan, section or elevation (PDF, image, DXF or IFC) to ask about it.'};
+  const why = r.budget_exhausted ? 'the daily budget for paid model calls is used up'
+    : m === 'timeout' ? 'the solver ran out of time; it stops rather than guess'
+    : /error/.test(m) ? 'the solver failed on this input; it reports that rather than a number'
+    : /not understood|not recognised|no room label|not found/.test(e) ? 'the question is outside what the solver can check on this drawing'
+    : /-na$|-none$/.test(m) || /no .* values|not in the/.test(e) ? 'the file does not contain what the question asks for'
+    : 'the evidence was not good enough';
+  return {short: cap1(why.split(';')[0]), long: `${cap1(why)}. A wrong number on a drawing costs more than an honest “not sure”, so we abstain.`};
+}
+const isCompare = r => /-compare$/.test(String(r.method || '')) || !!r.comparison;
 function calibHTML(r) {
-  if (r.answer == null) {
-    const m = String(r.method || ''), e = String(r.explanation || '');
-    const nd = e.match(/[^|]*does not look like a construction drawing[^|]*/);
-    if (nd) return `<div class="calib none"><b>Why no answer</b><span>${esc(nd[0].trim().replace(/^./, c => c.toUpperCase()))}. Upload a plan, section or elevation (PDF, image, DXF or IFC) to ask about it.</span></div>`;
-    const why = r.budget_exhausted ? 'the daily budget for paid model calls is used up'
-      : m === 'timeout' ? 'the solver ran out of time; it stops rather than guess'
-      : /error/.test(m) ? 'the solver failed on this input; it reports that rather than a number'
-      : /not understood|not recognised|no room label|not found/.test(e) ? 'the question is outside what the solver can check on this drawing'
-      : /-na$|-none$/.test(m) || /no .* values|not in the/.test(e) ? 'the file does not contain what the question asks for'
-      : 'the evidence was not good enough';
-    return `<div class="calib none"><b>Why no answer</b><span>${esc(why)}. A wrong number on a drawing costs more than an honest “not sure”, so we abstain.</span></div>`;
-  }
+  if (r.answer == null) return `<div class="calib none"><b>Why no answer</b><span>${esc(whyNone(r).long)}</span></div>`;
   const c = r.calibration;
   if (!c) return '';
   const conf = Math.round(100 * (r.confidence ?? 0));
+  if (!c.measured && isCompare(r)) return `<div class="calib unk"><b>No track record for this question type yet</b><span>comparison questions are new: we have no measured track record for them, so check the listed items before relying on the answer.</span></div>`;
   if (!c.measured) {
     // deterministic routes (IFC / CAD geometry, the trained detector) compute rather than guess: say what the method did
     // on our test files, and that this file is new to us, instead of calling the confidence "the model's own guess"
@@ -500,7 +570,7 @@ function calibHTML(r) {
     <b>${word} · ${pctOf(c.right, c.n)} %</b>
     <span>${tally} similar answers were right on test drawings we never trained on</span></div>`;
 }
-let traceOpen = false;
+const secOpen = {vs: false, how: false};  // the answer card's folded sections stay as the reader left them
 function traceHTML(r) {
   const t = r.trace; if (!t) return '';
   const u = unitOf(r.type);
@@ -516,8 +586,7 @@ function traceHTML(r) {
   const ex = String(r.explanation || '').replace(/^(read as: [^|]*\| ?)+/, '').trim();  // "read as" is shown under the question
   const note = ex && !(t.read || []).some(x => String(x).includes(ex)) ? `<div>${esc(ex)}</div>` : '';
   const cost = `<div>${money(r.cost_usd || 0)} · ${latency(r.latency_s)} · ${esc(t.model_call)}${t.method ? ` · <code>${esc(t.method)}</code>` : ''}</div>`;
-  return `<details class="trace" ${traceOpen ? 'open' : ''}><summary>Why this answer</summary>
-    ${sec('1 · Route', route)}${sec('2 · What it read', read ? `<ul>${read}</ul>${r.answer == null ? note : ''}` : note)}${sec('3 · Arithmetic', arith)}${sec('4 · Cost and time', cost)}</details>`;
+  return `<div class="trace">${sec('Route', route)}${sec('What it read', read ? `<ul>${read}</ul>${r.answer == null ? note : ''}` : note)}${sec('Arithmetic', arith)}${sec('Cost and time', cost)}</div>`;
 }
 function predTxt(f, t) {
   if (f.pred == null || f.pred === '') return '<i>no answer</i>';
@@ -533,10 +602,8 @@ function frontierHTML(r, oursOk) {
   const ansCell = f => text ? '' : `<td class="num">${predTxt(f, r.type)}</td>`;
   const sub = f => text ? `<small class="said">${f.pred == null || f.pred === '' ? '<i>no answer</i>' : '“' + esc(String(f.pred).replace(/\s+/g, ' ').slice(0, 90)) + (String(f.pred).length > 90 ? '…' : '') + '”'}</small>` : '';
   const rows = fr.map(f => `<tr><td>${esc(f.model)}<small>${esc(f.setting)}</small>${sub(f)}</td>${ansCell(f)}<td>${mark(f.correct)}</td><td class="num">${money(f.cost_usd || 0)}</td><td class="num">${f.latency_s ? f.latency_s.toFixed(1) + ' s' : ''}</td></tr>`).join('');
-  const wrong = fr.filter(f => f.correct === false).length;
-  return `<div class="vs"><div class="vshead">Same question, asked to frontier models${wrong ? ` · <span class="badt">${wrong} of ${fr.length} wrong</span>` : ''}</div>
-    <table><tr class="us"><td>Blueprints that talk<small>${text ? 'answer above, with the facts it cites' : 'evidence on the drawing'}</small></td>${text ? '' : `<td class="num"><b>${ours}</b></td>`}<td>${mark(oursOk)}</td><td class="num"><b>${money(r.cost_usd || 0)}</b></td><td class="num">${latency(r.latency_s)}</td></tr>${rows}</table>
-    <div class="vsnote">From our baseline run on a 400-question sample of the same held-out test split${text ? '; free-text answers were scored by an LLM judge against the reference' : `; the gold answer is ${fmt(r.gold, r.type)}${r.type !== 'count' ? ' ' + unitOf(r.type) : ''}`}.</div></div>`;
+  return `<div class="vs"><table><tr class="us"><td>Blueprints that talk<small>${text ? 'answer above, with the facts it cites' : 'evidence on the drawing'}</small></td>${text ? '' : `<td class="num"><b>${ours}</b></td>`}<td>${mark(oursOk)}</td><td class="num"><b>${money(r.cost_usd || 0)}</b></td><td class="num">${latency(r.latency_s)}</td></tr>${rows}</table>
+    </div>`;
 }
 
 // ghost comparison: our number against what each frontier model answered on the same drawing, on one 0-based scale,
@@ -576,6 +643,29 @@ function ghostMove(a, val) {  // mid-count: slide our marker and its gap to the 
   r.querySelector('.gv').innerHTML = `<b>${fmt(val, res.type)}</b>`;
 }
 
+// the trust line under the number: how it was found (a badge, its explanation as a tooltip) and its track record in words
+function trustHTML(r, h) {
+  const badge = `<span class="tbadge ${h.cls}" title="${esc(cap1(h.how))}">${h.cls === 'geo' ? '✓ ' : ''}${esc(h.t)}</span>`;
+  if (r.answer == null) return `<div class="trust">${badge}<span>${esc(whyNone(r).short)}</span></div>`;
+  const c = r.calibration;
+  let tr = '';
+  if (c && c.measured) {
+    const p = c.right / c.n, cls = p >= 0.95 ? 'hi' : p >= 0.85 ? 'mid' : p >= 0.6 ? 'lo' : 'bad';
+    tr = `<span class="tr ${cls}" title="${c.right === c.n ? 'all ' + nf(c.n) : nf(c.right) + ' of ' + nf(c.n)} similar answers were right on held-out test drawings we never trained on">Right <b>${pctOf(c.right, c.n)} %</b> of the time on similar test drawings</span>`;
+  } else if (c && isCompare(r)) tr = `<span class="tr warn" title="Comparison questions are new: no measured track record for this question type">New question type: <b>check the evidence</b></span>`;
+  else if (c) tr = `<span class="tr warn" title="No track record on files like this one yet">New kind of file: <b>check the evidence</b></span>`;
+  else if (r.confidence != null) tr = `<span class="tr ${r.confidence >= 0.8 ? '' : 'warn'}">Model confidence <b>${Math.round(100 * r.confidence)} %</b></span>`;
+  return `<div class="trust">${badge}${tr}</div>`;
+}
+// the second opinion in one line: a check mark when it agrees, a warning when it does not
+function secondHTML(r) {
+  const c = r.crosscheck; if (!c || !c.status || c.status === 'single' || r.answer == null) return '';
+  const sec = c.second || {}, n2 = (sec.evidence || []).filter(e => e.bbox || e.points).length;
+  const v = typeof sec.answer === 'number' ? fmt(sec.answer, r.type) : esc(String(sec.answer ?? '—'));
+  const btn = n2 ? ` <button class="linkish" data-act="second">${showSecond ? 'hide' : 'show'} its marks</button>` : '';
+  if (c.status === 'agree') return `<div class="second" title="${esc(c.note || 'A second, independent method gave the same answer')}">✓ A second, independent method agrees${btn}</div>`;
+  return `<div class="second conflict" title="${esc(c.note || '')}">⚠ A second method says ${v}: check the evidence${btn}</div>`;
+}
 function renderAnswer(shownSoFar) {
   if (!res) return;
   const a = $('#answer'); const t = res.type;
@@ -605,30 +695,45 @@ function renderAnswer(shownSoFar) {
   const abst = res.answer == null;
   const num = typeof res.answer === 'number';
   const baseS = res.baseline_latency_s || 8;
-  a.innerHTML = `
-    <div class="qecho">${esc(res.question)}</div>
-    ${res.normalized_question && res.normalized_question !== res.question ? `<div class="readas" style="order:1;font-size:12px;color:var(--mut);margin:-2px 0 6px">read as: <i>${esc(res.normalized_question)}</i></div>` : ''}
-    ${typeof res.answer === 'string' ? '' : `<div class="big ${abst ? 'abstain' : ''} ${counting ? 'counting' : ''}">${abst ? 'Not sure, so no guess' : num ? `<span class="bn">${fmt(val, t)}</span>` : ''} <small>${abst ? '' : unitOf(t)}</small></div>`}
-    ${typeof res.answer === 'string' ? `<div class="textans">${esc(res.answer.trim().split('\n').map(l => l.replace(/^\s{1,4}(?=\S)/, '')).join('\n'))}</div>` : ''}
-    ${(() => { const h = howOf(res); if (num && res.answer === 0 && !items.length && h.cls !== 'geo') h.how = 'it found nothing to box, so there is nothing to check on the drawing: look at the plan yourself before relying on 0'; return `<div class="how ${h.cls}"><b>${h.cls === 'geo' ? '✓ ' : ''}${esc(h.t)}</b><span>${esc(h.how)}</span></div>`; })()}
-    ${res.rule ? `<div class="rule"><b>Rule</b> ${esc(res.rule)}</div>` : ''}
-    ${crossHTML(res)}
-    ${calibHTML(res)}
-    ${hasVs && num ? ghostHTML(res, val, counting) : ''}
-    ${!res.trace ? `<div class="expl">${esc(res.explanation || '')}</div>` : ''}
-    <div class="row">${abst || res.calibration ? '' : `<span class="pill ${confCls}">confidence ${(conf * 100).toFixed(0)}%</span>`}
-      ${gold}</div>
-    <div class="corr" id="corr"></div>
-    ${hasVs ? frontierHTML(res, oursOk) : ''}
-    ${traceHTML(res)}
-    ${abst ? '' : signHTML(res)}
-    <div class="costcmp" ${hasVs || (abst && cur.not_drawing) ? 'hidden' : ''}>
-      <span class="lab">this answer</span><span><span class="mbar" style="display:block"><i style="width:${Math.max(0.5, 100 * (res.cost_usd || 0) / Math.max(res.baseline_cost_usd || 1e-9, res.cost_usd || 0))}%"></i></span></span>
-      <span class="v"><b>${money(res.cost_usd || 0)}</b> · ${latency(res.latency_s)}</span>
-      <span class="lab">frontier model</span><span><span class="mbar" style="display:block"><i class="base" style="width:100%"></i></span></span>
-      <span class="v">~${money(res.baseline_cost_usd || 0)} · ~${baseS.toFixed(0)} s</span>
-    </div>`;
-  const d = a.querySelector('details.trace'); if (d) d.ontoggle = () => { traceOpen = d.open; };
+  const h = howOf(res);
+  if (num && res.answer === 0 && !items.length && h.cls !== 'geo') h.how = 'it found nothing to box, so there is nothing to check on the drawing: look at the plan yourself before relying on 0';
+  const qrow = `<div class="qrow"><div class="qecho" title="${esc(res.question)}">${esc(res.question)}</div><span class="qtools" id="qtools"></span></div>`;
+  if (res.method === 'rate-limit') {  // the demo's per-visitor limit: no abstain card, no comparison, no cost
+    $('#ahead').innerHTML = `${qrow}<div class="big limit">Demo limit reached</div>
+      <div class="trust"><span>Try again in ${res.limited ? `${res.limited} min` : 'a few minutes'}. Every visitor gets a fixed number of questions.</span></div>`;
+    $('#atail').innerHTML = '';
+    wireAnswerActions(a); return;
+  }
+  // head: the question, the number, one trust line, the second opinion in one line, a correction if any
+  $('#ahead').innerHTML = `${qrow}
+    ${res.normalized_question && res.normalized_question !== res.question ? `<div class="readas">read as: <i>${esc(res.normalized_question)}</i></div>` : ''}
+    ${typeof res.answer === 'string' ? `<div class="textans">${esc(res.answer.trim().split('\n').map(l => l.replace(/^\s{1,4}(?=\S)/, '')).join('\n'))}</div>`
+      : `<div class="big ${abst ? 'abstain' : ''} ${counting ? 'counting' : ''}">${abst ? 'Not sure, so no guess' : num ? `<span class="bn">${fmt(val, t)}</span>` : ''}${abst || !unitOf(t) ? '' : ` <small>${unitOf(t)}</small>`}</div>`}
+    ${trustHTML(res, h)}
+    ${secondHTML(res)}
+    <div class="corr" id="corr"></div>`;
+  // the rest folds: compared with frontier models, and how it was worked out (method, track record, rule, arithmetic, cost)
+  const fr = res.frontier || [], wrong = fr.filter(f => f.correct === false).length;
+  const vsSum = wrong ? `<span class="badt">${wrong} of ${fr.length} wrong</span>` : fr.length && fr.every(f => f.correct === true) ? `all ${fr.length} right` : `${fr.length} models`;
+  const vs = hasVs ? `<details class="sec" data-sec="vs" ${secOpen.vs ? 'open' : ''}><summary><span>Frontier models</span><span class="sv">${vsSum}</span></summary><div class="secbody">
+      ${(num && ghostHTML(res, val, counting)) || frontierHTML(res, oursOk)}
+      <div class="vsnote">Same drawing and question, from our baseline run on held-out test questions.</div></div></details>` : '';
+  const how = `<details class="sec" data-sec="how" ${secOpen.how ? 'open' : ''}><summary><span>How it was worked out</span><span class="sv">${abst && cur.not_drawing ? '' : `${money(res.cost_usd || 0)} · ${latency(res.latency_s)}`}</span></summary><div class="secbody">
+      <div class="how ${h.cls}"><b>${h.cls === 'geo' ? '✓ ' : ''}${esc(h.t)}</b><span>${esc(h.how)}</span></div>
+      ${calibHTML(res)}
+      ${crossHTML(res)}
+      ${res.rule ? `<div class="rule"><b>Rule</b> ${esc(res.rule)}</div>` : ''}
+      ${!res.trace ? `<div class="expl">${esc(res.explanation || '')}</div>` : ''}
+      <div class="row">${abst || res.calibration ? '' : `<span class="pill ${confCls}">confidence ${(conf * 100).toFixed(0)}%</span>`}${gold}</div>
+      ${traceHTML(res)}
+      <div class="costcmp" ${abst && cur.not_drawing ? 'hidden' : ''}>
+        <span class="lab">this answer</span><span><span class="mbar" style="display:block"><i style="width:${Math.max(0.5, 100 * (res.cost_usd || 0) / Math.max(res.baseline_cost_usd || 1e-9, res.cost_usd || 0))}%"></i></span></span>
+        <span class="v"><b>${money(res.cost_usd || 0)}</b> · ${latency(res.latency_s)}</span>
+        <span class="lab">frontier model</span><span><span class="mbar" style="display:block"><i class="base" style="width:100%"></i></span></span>
+        <span class="v">~${money(res.baseline_cost_usd || 0)} · ~${baseS.toFixed(0)} s</span>
+      </div></div></details>`;
+  $('#atail').innerHTML = vs + how + (abst ? '' : signHTML(res));
+  a.querySelectorAll('#atail details.sec').forEach(d => d.ontoggle = () => { secOpen[d.dataset.sec] = d.open; });
   wireAnswerActions(a);
   if (!counting) { recompute(); announce(); }
 }
@@ -687,12 +792,13 @@ function recordTakeoff(r) {
     rule: r.rule || '', credit: $('#credit').textContent.replace(/^© /, ''), cost_usd: r.cost_usd || 0, asked_at: new Date().toISOString()});
   saveTakeoff();
 }
-function signHTML(r) {
+function signHTML(r) {  // the card's footer: sign-off, the session's takeoff CSV, and what the answer cost
   const row = takeoffRow(r), n = takeoff.length;
-  const signed = row && row.signed_by ? `<span class="signed">✓ checked by ${esc(row.signed_by)} · ${new Date(row.signed_at).toLocaleString([], {dateStyle: 'short', timeStyle: 'short'})}</span>
-    <button class="linkish" data-act="unsign">undo</button>` : `<button class="btn ghost" data-act="sign">✓ Mark as checked</button>`;
-  return `<div class="signrow">${signed}<span class="grow"></span>
-    <button class="btn ghost" data-act="csv" title="Download every answer of this session as a CSV takeoff">⬇ Takeoff CSV${n ? ` (${n})` : ''}</button></div>`;
+  const signed = row && row.signed_by ? `<span class="signed">✓ Checked by ${esc(row.signed_by)} · ${new Date(row.signed_at).toLocaleString([], {dateStyle: 'short', timeStyle: 'short'})}</span>
+    <button class="act" data-act="unsign">undo</button>` : `<button class="act" data-act="sign" title="Sign this answer off with your initials">Mark as checked</button>`;
+  return `<div class="afoot signrow">${signed}
+    <button class="act" data-act="csv" title="Download every answer of this session as a CSV takeoff">Export CSV${n > 1 ? ` (${n})` : ''}</button>
+    <span class="grow"></span><span class="cost" title="What this answer cost us">${(r.cost_usd || 0) === 0 ? '<b>$0</b>' : money(r.cost_usd)} · ${latency(r.latency_s)}</span></div>`;
 }
 function wireAnswerActions(a) {
   a.querySelectorAll('[data-act]').forEach(b => b.onclick = ev => { ev.stopPropagation(); answerAction(b.dataset.act, b); });
@@ -705,7 +811,7 @@ async function answerAction(act, b) {
   if (act === 'sign') {  // inline initials field instead of a prompt() box
     const wrap = b.parentElement;
     wrap.innerHTML = `<input class="initials" maxlength="40" placeholder="your initials" value="${esc(localStorage.getItem('bp_initials') || '')}" aria-label="Your initials">
-      <button class="btn" data-act="signok">Sign</button><button class="linkish" data-act="signcancel">cancel</button>`;
+      <button class="btn" data-act="signok">Sign</button><button class="act" data-act="signcancel">cancel</button>`;
     wireAnswerActions(wrap);
     const inp = wrap.querySelector('input'); inp.focus(); inp.select();
     inp.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') answerAction('signok'); if (e.key === 'Escape') renderAnswer(null); };
@@ -743,19 +849,6 @@ function downloadCSV(rows, filename) {  // UTF-8 with a BOM, so Excel opens the 
   const url = URL.createObjectURL(new Blob(['\ufeff' + csv], {type: 'text/csv;charset=utf-8'}));
   const link = document.createElement('a'); link.href = url; link.download = filename;
   document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
-}
-
-function updateMeter() {
-  const mx = Math.max(session.base, session.ours, 1e-9);
-  $('#m-ours').textContent = money(session.ours); $('#m-base').textContent = money(session.base);
-  $('#bar-ours').style.width = (100 * session.ours / mx) + '%'; $('#bar-base').style.width = (100 * session.base / mx) + '%';
-  const saved = session.base > 0 ? 100 * (1 - session.ours / session.base) : 0;
-  $('#m-sum').innerHTML = `<span class="only-desk">${session.n} question${session.n === 1 ? '' : 's'} · </span>` + (saved >= 0
-    ? (session.ours > 0 ? `<b>${saved >= 99.95 ? '>99.9' : saved.toFixed(1)}% cheaper</b> (${(session.base / session.ours).toFixed(0)}×)`
-      : '<b>no model cost</b>')
-    : `${(-saved).toFixed(0)}% dearer`);
-  $('#meter').dataset.n = session.n;
-  $('#meter').dataset.short = `this session: ours ${money(session.ours)} vs frontier ${money(session.base)}`;
 }
 
 // ------------------------------------------------------------ evidence overlay
@@ -977,9 +1070,10 @@ function renderEvidence() {
   const ev = $('#ev'); ev.innerHTML = '';
   const t = res.type, num = typeof res.answer === 'number';
   const on = items.filter(e => e.on).length;
-  $('#evtitle').textContent = `Evidence · ${on} of ${items.length}`;
+  $('#evtitle').textContent = on === items.length ? `${items.length} item${items.length === 1 ? '' : 's'}` : `${on} of ${items.length}`;
   $('#addbtn').hidden = primary === 'ifc' || mode === '3d' || !num;
-  $('#evhelp').textContent = primary === 'ifc'
+  $('#evhelp').textContent = primary === 'ifc' ? 'Untick a row, or click it in 3D, to drop it.' : 'Untick a row, or click its mark, to drop it.';
+  $('#evhelp').title = primary === 'ifc'
     ? 'Each row is an IFC element. Hover or click a row to find it in 3D; untick it (or click the element) to drop it from the answer.'
     : primary === 'paired' ? 'Each row is an IFC element, numbered on the plan: click a row to zoom to it, untick it to drop it. Switch to 3D to see the same elements in the model.'
     : 'Click a row to zoom to it; untick it (or click its shape) to drop it. Missed one? Add it.'
@@ -1066,6 +1160,7 @@ function queueFeedback(changed, v) {
   if (fb.res !== res) { fb.res = res; fb.sent = ''; fb.state = ''; }
   const removed = items.filter(e => !e.on && !e.added), added = items.filter(e => e.on && e.added);
   const sig = JSON.stringify([removed.map(e => items.indexOf(e)), added.map(e => e.bbox)]);
+  if (tour) return;  // the tour's scripted correction is not a visitor's feedback
   if (!changed && !fb.sent) return;  // nothing changed and nothing to revert
   if (sig === fb.sent) return;
   clearTimeout(fb.timer);
@@ -1094,9 +1189,6 @@ const SYM = [['door', 'Doors'], ['window', 'Windows'], ['toilet', 'Toilets (WC)'
              ['shower', 'Showers'], ['stove', 'Stoves'], ['stairs', 'Stair flights']];
 const heat = {on: false, data: null, path: null};
 const isSwiss = () => !!cur && !cur.path.startsWith('uploads/') && /swiss_dwellings\//.test(cur.path) && !!cur.shown;
-const ptools = document.createElement('div'); ptools.className = 'ptools'; ptools.hidden = true;
-ptools.innerHTML = `<button id="heatbtn" aria-pressed="false" title="Shade every room by its net area (from the CAD layers)">Heat-map</button><button id="sheetbtn" title="A printable room schedule with areas per apartment and symbol counts">Takeoff sheet</button>`;
-viewer.appendChild(ptools);
 const heatSvg = document.createElementNS(NS, 'svg'); heatSvg.id = 'heat'; heatSvg.setAttribute('viewBox', '0 0 1 1'); stage.insertBefore(heatSvg, ov);
 const legend = document.createElement('div'); legend.className = 'hlegend'; legend.hidden = true; viewer.appendChild(legend);
 async function roomData() {
@@ -1105,9 +1197,33 @@ async function roomData() {
   if (!r.ok || cur.path !== path) return null;
   heat.data = await r.json(); heat.path = path; return heat.data;
 }
-function plantools() {  // after a drawing is shown / the mode changes
-  ptools.hidden = !(isSwiss() && mode === '2d');
-  if (ptools.hidden && heat.on) setHeat(false);
+// the ⋯ view menu on the drawing: heat-map and takeoff sheet (Swiss CAD plans); explode, x-ray, storey and section (3D models).
+// The 3D viewer keeps its own buttons (hidden by CSS); the menu offers them by name and clicks them.
+function viewTools() {  // after a drawing is shown or the mode changes: is there anything to offer?
+  const swiss2d = isSwiss() && mode === '2d';
+  if (!swiss2d && heat && heat.on) setHeat(false);
+  const v3 = mode === '3d' && [...document.querySelectorAll('#three .v3bar button')].some(b => !b.hidden);
+  const t3 = mode === '3d' && $('#tools3d').classList.contains('show');
+  $('#vmbtn').hidden = !(swiss2d || v3 || t3);
+  if ($('#vmbtn').hidden && popOpen === 'vmenu') closePop(false);
+}
+function plantools() { viewTools(); }
+function viewMenu() {  // the items, built as the menu opens
+  const box = $('#vmitems'); box.innerHTML = '';
+  const add = (label, pressed, fn, title) => {
+    const b = document.createElement('button'); b.type = 'button';
+    b.innerHTML = `${esc(label)}${pressed != null ? `<small>${pressed ? 'On' : ''}</small>` : ''}`;
+    if (pressed != null) b.setAttribute('aria-pressed', String(pressed));
+    if (title) b.title = title;
+    b.onclick = () => { closePop(); fn(); }; box.appendChild(b);
+  };
+  if (isSwiss() && mode === '2d') {
+    add('Room heat-map', heat.on, () => setHeat(!heat.on), 'Shade every room by its net area (from the CAD layers)');
+    add('Takeoff sheet', null, () => openSheet(), 'A printable room schedule with areas per apartment and symbol counts');
+  }
+  if (mode === '3d') for (const b of document.querySelectorAll('#three .v3bar button')) {
+    if (!b.hidden) add(b.textContent.trim(), b.getAttribute('aria-pressed') === 'true', () => b.click(), b.title);
+  }
 }
 const inLiving = r => !r.outdoor && !r.shaft && !r.common;  // the dataset's "net living area" of an apartment
 function heatBreaks(rooms) {
@@ -1117,7 +1233,7 @@ function heatBreaks(rooms) {
 }
 const heatClass = (a, br) => br.findIndex(b => a < b) < 0 ? 4 : br.findIndex(b => a < b);
 async function setHeat(on) {
-  heat.on = on; $('#heatbtn').classList.toggle('on', on); $('#heatbtn').setAttribute('aria-pressed', on);
+  heat.on = on;
   viewer.classList.toggle('heaton', on); heatSvg.innerHTML = ''; legend.hidden = true;
   if (!on) return;
   const d = await roomData();
@@ -1174,8 +1290,6 @@ function rescaleHeat() {
     t.style.display = +t.dataset.w > t.textContent.length * f * 0.62 && +t.dataset.h > f * 5 ? '' : 'none';
   });
 }
-$('#heatbtn').onclick = () => setHeat(!heat.on);
-$('#sheetbtn').onclick = () => openSheet();
 
 // the takeoff sheet: a white A4 page over the app (print: only the page is printed)
 const sheetWrap = document.createElement('div'); sheetWrap.id = 'sheetwrap'; sheetWrap.hidden = true; document.body.appendChild(sheetWrap);
@@ -1447,10 +1561,10 @@ async function typeQuestion(text) {
 async function runStep() {
   const s = tour[tourI];
   $('#caption').hidden = false; document.body.classList.add('touring');
-  $('#capstep').textContent = `Demo tour · ${tourI + 1} / ${tour.length}`;
+  $('#capstep').textContent = `Tour · ${tourI + 1} of ${tour.length}`;
   $('#captitle').textContent = s.title; $('#captext').textContent = s.caption || '';
   capFit();
-  $('#tnext').textContent = tourI === tour.length - 1 ? 'finish ✓' : 'next ›';
+  $('#tnext').textContent = tourI === tour.length - 1 ? 'Finish' : 'Next';
   $('#tprev').disabled = tourI === 0;
   const myI = tourI;
   if (s.path && (!cur || cur.path !== s.path)) {
@@ -1459,7 +1573,7 @@ async function runStep() {
     loadList();
   }
   if (s.question) {
-    traceOpen = false;
+    secOpen.vs = secOpen.how = false; $('#evwrap').open = false;
     await sleep(400); await typeQuestion(s.question); await sleep(250);
     if (myI !== tourI) return;
     await ask();
@@ -1472,46 +1586,42 @@ async function runStep() {
   }
   window.__tourStepDone = myI;
 }
+// open one folded section of the answer card (ev: Evidence, vs: Frontier models, how: How it was worked out) and bring it
+// into view, keeping the big number on screen when it fits (on a phone, keepView leaves the drawing in view)
+async function openSec(name, keepView = false) {
+  const d = name === 'ev' ? $('#evwrap') : $(`#answer details[data-sec="${name}"]`); if (!d || d.hidden) return;
+  if (name !== 'ev') secOpen[name] = true;
+  d.open = true;
+  await sleep(50);
+  if (PHONE.matches) { if (!keepView) d.scrollIntoView({behavior: smooth(), block: 'start'}); }
+  else {
+    const side = $('#side'), top = el => el.getBoundingClientRect().top - side.getBoundingClientRect().top + side.scrollTop;
+    const card = top($('#answer')) - 12, want = top(d) + d.offsetHeight - side.clientHeight + 16;
+    side.scrollTo({top: Math.max(0, Math.min(card, Math.max(side.scrollTop, want))), behavior: smooth()});
+  }
+  await sleep(900);
+}
 async function doAction(act) {
   const [k, arg] = act.split(':');
   if (k === 'wait') await sleep(+arg);
   else if (k === 'toggle') {
-    const i = +arg; if (!items[i]) return;
-    // on a phone the evidence list sits below the drawing: bring the row up so the change is seen
-    if (PHONE.matches) { const row = $(`#ev div[data-i="${i}"]`); if (row) { row.scrollIntoView({behavior: smooth(), block: 'center'}); await sleep(600); } }
-    hotItem(i, true); await sleep(700); items[i].on = !items[i].on; redraw(); hotItem(i, false); flashRow(i); await sleep(900);
+    const i = +arg, r0 = res; if (!items[i]) return;
+    await openSec('ev');  // the evidence list is folded: open it so the change is seen
+    const row = $(`#ev div[data-i="${i}"]`); if (row && PHONE.matches) { row.scrollIntoView({behavior: smooth(), block: 'center'}); await sleep(600); }
+    if (res !== r0 || !items[i]) return;
+    hotItem(i, true); rowHot(i, true, true); await sleep(700);
+    if (res !== r0 || !items[i]) return;  // the tour moved on meanwhile
+    items[i].on = !items[i].on; redraw(); hotItem(i, false); flashRow(i); await sleep(900);
   } else if (k === 'add') {
     const [u, v] = arg.split(',').map(Number); const r = img.getBoundingClientRect();
     setAdding(true); await sleep(500); addAt(r.left + u * r.width, r.top + v * r.height); await sleep(600); setAdding(false);
   } else if (k === 'mode') await setMode(arg);
   else if (k === 'storey') { storeyFocus = arg; $('#storey').value = arg; applyStorey(true); await sleep(600); }
-  else if (k === 'trace') {
-    traceOpen = arg !== 'close'; const d = $('#answer details.trace'); if (!d) return;
-    d.open = traceOpen;
-    if (PHONE.matches) d.scrollIntoView({behavior: smooth(), block: 'start'});
-    else {  // bring the trace up, but never past the top of the answer card (the big number stays visible)
-      const side = $('#side'), a = $('#answer'), top = el => el.getBoundingClientRect().top - side.getBoundingClientRect().top + side.scrollTop;
-      const card = top(a) - $('.ask').offsetHeight - 16, want = top(d) + d.offsetHeight - side.clientHeight + 16;
-      side.scrollTo({top: Math.max(0, Math.min(card, Math.max(side.scrollTop, want))), behavior: smooth()});
-    }
-    await sleep(900);
-  }
-  else if (k === 'scroll') {  // bring one part of the answer card into view (e.g. the frontier table)
-    const gh = arg === '.vs' && $('#answer .ghostcmp');
-    if (gh && !PHONE.matches) {  // the frontier comparison as a picture: keep the big number and the ghost strip in view together
-      const side = $('#side'), a = $('#answer'), top = el => el.getBoundingClientRect().top - side.getBoundingClientRect().top + side.scrollTop;
-      const card = top(a) - $('.ask').offsetHeight - 16, want = top(gh) + gh.offsetHeight - side.clientHeight + 24;
-      side.scrollTo({top: Math.max(0, Math.min(card, want)), behavior: smooth()}); await sleep(900); return;
-    }
-    const el = gh || $('#answer ' + arg); if (!el) return;
-    if (PHONE.matches) el.scrollIntoView({behavior: smooth(), block: 'start'});
-    else {
-      const side = $('#side'), top = el.getBoundingClientRect().top - side.getBoundingClientRect().top + side.scrollTop;
-      side.scrollTo({top: Math.max(0, top - $('.ask').offsetHeight - 24), behavior: smooth()});
-    }
-    await sleep(900);
-  }
-  else if (k === 'hover') { const i = +arg; hotItem(i, true); rowHot(i, true, true); await sleep(1400); hotItem(i, false); rowHot(i, false); }
+  // on a phone the 3D view is the point of a 3D step: open the section without scrolling the drawing away
+  else if (k === 'trace') { if (arg === 'close') { secOpen.how = false; const d = $('#answer details[data-sec="how"]'); if (d) d.open = false; } else await openSec('how', mode === '3d'); }
+  else if (k === 'scroll') await openSec(arg === '.vs' ? 'vs' : arg.replace(/^\./, ''));
+  else if (k === 'open') await openSec(arg);
+  else if (k === 'hover') { const i = +arg; if (!items[i]) return; hotItem(i, true); rowHot(i, true, true); await sleep(1400); hotItem(i, false); rowHot(i, false); }
 }
 function endTour() { tour = null; $('#caption').hidden = true; document.body.classList.remove('touring'); capFit(); }
 // phone: the caption is a compact bottom sheet; the text shows two lines and opens on a tap ("more")
@@ -1557,7 +1667,7 @@ async function restore(first) {
   if (path && (!cur || cur.path !== path)) await select({path, source: tab, split: tab === 'upload' ? 'upload' : ''}, 'none');
   if (first || tabChanged) await loadList();
   if (q && (!res || res.question !== q)) { $('#q').value = q; await ask(); }
-  else if (!q && res) { askSeq++; res = null; items = []; marks = []; ov.innerHTML = ''; $('#answer').hidden = true; $('#evwrap').hidden = true; $('#intro').hidden = false; $('#q').value = ''; fit(); }
+  else if (!q && res) { askSeq++; res = null; items = []; marks = []; ov.innerHTML = ''; $('#answer').hidden = true; $('#evwrap').hidden = true; setAnswered(false); $('#q').value = ''; fit(); }
 }
 window.addEventListener('popstate', () => { if (tour) endTour(); restore(false); });
 
@@ -1572,7 +1682,7 @@ document.addEventListener('keydown', e => {
     if (!sheetWrap.hidden) closeSheet();
     else if (tour) endTour();
     else if (adding) setAdding(false);
-    else if (document.body.classList.contains('drawer')) document.body.classList.remove('drawer');
+    else if (popOpen) closePop();
     else if (typing) e.target.blur();
     return;
   }
@@ -1585,11 +1695,11 @@ document.addEventListener('keydown', e => {
   else if (e.key === '-' && mode === '2d') $('#zout').click();
 });
 $('#credit').onclick = () => $('#credit').classList.toggle('open');
-$('#scrim').onclick = () => document.body.classList.remove('drawer');
+$('#scrim').onclick = () => closePop(false);
 
 // ------------------------------------------------------------ start
 (async () => {
+  const p = new URLSearchParams(location.search);  // read before restore(), which rewrites the URL
   await restore(true);
-  const p = new URLSearchParams(location.search);
   if (p.has('tour')) startTour(p.get('tour') === 'auto');
 })();

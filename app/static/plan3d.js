@@ -62,8 +62,8 @@ const labs = box.querySelector('.p3labs'), leg = box.querySelector('.p3leg'), lo
 for (const t of ['pointerdown', 'wheel', 'click', 'dblclick']) box.addEventListener(t, e => e.stopPropagation(), {passive: true});
 
 const tog = document.createElement('div'); tog.className = 'modes'; tog.id = 'p3modes';
-tog.innerHTML = '<button id="p3plan" class="on">Plan</button><button id="p3go" title="Raise the walls of this plan from its CAD layers and see the evidence in 3D">See it in 3D</button>';
-viewer.appendChild(tog);
+tog.innerHTML = '<button id="p3plan" class="on" aria-pressed="true">Plan</button><button id="p3go" aria-pressed="false" title="Raise the walls of this plan from its CAD layers and see the evidence in 3D">3D</button>';
+($('#vtools') || viewer).prepend(tog);  // beside the app's ⋯ view menu
 tog.querySelector('#p3plan').onclick = () => close();
 tog.querySelector('#p3go').onclick = () => open();
 
@@ -392,6 +392,7 @@ async function open() {
   opened = true; path = c.path;
   box.classList.add('on'); viewer.classList.add('p3on');
   tog.querySelector('#p3plan').classList.remove('on'); tog.querySelector('#p3go').classList.add('on');
+  tog.querySelector('#p3plan').setAttribute('aria-pressed', 'false'); tog.querySelector('#p3go').setAttribute('aria-pressed', 'true');
   initGL(); resize();
   let d;
   loadEl.hidden = false;
@@ -417,6 +418,7 @@ function close() {
   opened = false; tweens.clear(); hover(null);
   box.classList.remove('on'); viewer.classList.remove('p3on');
   tog.querySelector('#p3plan').classList.add('on'); tog.querySelector('#p3go').classList.remove('on');
+  tog.querySelector('#p3plan').setAttribute('aria-pressed', 'true'); tog.querySelector('#p3go').setAttribute('aria-pressed', 'false');
 }
 
 function hintMsg(msg) {
