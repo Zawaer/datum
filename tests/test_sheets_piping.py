@@ -142,3 +142,10 @@ def test_tag_list_and_tiles():
 def test_detect():
     assert P.detect({"kind": "piping", "title": "PIPING PLAN M-101A"}) >= 0.9
     assert P.detect({"kind": "arch", "title": "SECOND FLOOR PLAN A-2"}) < 0.5
+
+
+def test_tag_chips_and_valve_families(sheet):
+    r = ask("How many control valves?")
+    tagged = [e for e in r["evidence"] if e.get("tag")]
+    assert tagged and all(e["group"] == "FSCV" and e["tag"].startswith("FSCV-") for e in tagged)
+    assert "CV (check valves, 5)" in r["explanation"]  # says which valve families were not counted
