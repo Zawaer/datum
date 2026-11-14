@@ -1172,7 +1172,18 @@ def answer(path, question, meta) -> dict | None:
         if not tys and A["types"]:
             tys = [(None, t) for t in A["types"]]
         if not tys:
-            return None
+            # no "<thk> SLAB W/ <bar> @ <s>" note (e.g. a tank slab detailed bar by bar): list the bar callouts
+            calls = []
+            pat = (rf"\b(?:\d+\s*-\s*)?{_BAR}\s*(?:(?:HOOP|RADIAL BARS|BARS)\s*)?(?:@|X|x)\s*\d{{2,5}}"
+                   r"(?:\s*(?:E\.?\s?W\.?|EACH WAY|TOP AND BOTTOM|TOP|BOTTOM|LONG|O\.?C\.?))*")
+            for m in re.finditer(pat, A.get("text", ""), re.I):
+                c = re.sub(r"\s+", " ", m.group(0)).strip()
+                if c not in calls:
+                    calls.append(c)
+            if not calls or not re.search(r"bars?|reinforc|rebar", ql):
+                return None
+            return _res("; ".join(calls[:8]), conf0 * 0.6, f"{len(calls)} bar callouts read on the sheet (no slab-type "
+                        "note)", [], A, "bars")
         out, ev = [], []
         for z, t in tys:
             if re.search(r"elevation|top of slab|\bt\.?o\.?s\b|\bel\b", ql):
@@ -1198,8 +1209,8 @@ def answer(path, question, meta) -> dict | None:
 
     # ---- areas
     if re.search(r"\barea\b|how much slab|m2|m²|square|how big|size of", ql) or "slab" in ql:
-        if not zones or not k:
-            return None
+        if not zones or not k or not any(_type_of(z, A) for z in zones):
+            return None  # no slab zone tied to a slab note: not a plan this module understands (let generic answer)
         rows = []
         for z in zones:
             a, how, used = _zone_area(z, A)
