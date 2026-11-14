@@ -450,6 +450,8 @@ def answer(path, question, meta):
             logging.getLogger(__name__).exception("sheet module %s failed", name)
             r = {"answer": None, "confidence": 0.0, "evidence": [], "cost_usd": 0.0, "method": f"sheets-{name}-error",
                  "explanation": f"{name} failed: {type(e).__name__}"}
+        if r is not None and r.get("answer") is not None and it == "rooms_count" and not _count_like(r["answer"]):
+            r = None  # a count question answered with an area or a list: not this specialist's question
         if r is not None and r.get("answer") is not None:
             r.setdefault("method", f"sheets-{name}")
             return r
@@ -459,6 +461,14 @@ def answer(path, question, meta):
     if (r is None or r.get("answer") is None) and tried:
         return max(tried, key=lambda x: bool(x.get("not_found")))  # keep a specialist's "not on this drawing"
     return r
+
+
+def _count_like(a) -> bool:
+    if isinstance(a, bool):
+        return False
+    if isinstance(a, int) or (isinstance(a, float) and a == int(a)):
+        return True
+    return bool(re.fullmatch(r"\s*\d{1,4}\s*[a-zA-Z ]{0,30}", str(a))) and not re.search(r"SF|m²|m2|sq", str(a))
 
 
 def _answer_builtin(path, question, meta, it):
