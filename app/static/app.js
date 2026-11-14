@@ -577,8 +577,15 @@ async function ask() {
     if (seq !== askSeq || res?._seq === seq) { unwatch(); return; }
     const s = (performance.now() - t0) / 1000;
     const step = queued ? 'Queued behind other uploads' : cap1(steps[Math.min(steps.length - 1, Math.floor(s / 1.5))]);
-    $('#ahead').innerHTML = `<div class="qecho">${esc(question)}</div><div class="thinking"><div><span class="spin"></span> ${esc(step)}…</div>
-      <small>${s.toFixed(1)} s${s > 6 ? ' · the first load of a big model is slow' : ''}</small></div>`;
+    // build once, then update only the text: re-rendering the spinner every tick restarted its animation
+    let th = $('#ahead').querySelector('.thinking');
+    if (!th || th.dataset.seq !== String(seq)) {
+      $('#ahead').innerHTML = `<div class="qecho">${esc(question)}</div><div class="thinking" data-seq="${seq}"><div><span class="spin"></span> <span class="tstep"></span>…</div>
+        <small class="ttime"></small></div>`;
+      th = $('#ahead').querySelector('.thinking');
+    }
+    th.querySelector('.tstep').textContent = step;
+    th.querySelector('.ttime').textContent = `${s.toFixed(1)} s${s > 6 ? ' · the first load of a big model is slow' : ''}`;
     setTimeout(tick, 100);
   };
   res = null; tick();
