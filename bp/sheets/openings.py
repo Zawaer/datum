@@ -1036,7 +1036,7 @@ def _answer_yolo(it, y, hk=None, size=None, px_per_m=None):
             "this drawing, so expect a few wrong or missed boxes: about 1 in 5 for doors on our test sheet)"
             + ("; " + "; ".join(notes) if notes else "") + ". Every counted item is a numbered box: check the marked "
             "ones; a higher-resolution upload or the PDF gives a more exact count.")
-    low = True
+    low = not (size and max(size) >= 3000)  # the low-resolution note only for genuinely small images
     # too coarse to count: door symbols only a few pixels across (dorm at 2000 px: the detector finds a third)
     if it in ("doors", "doors_windows") and y["doors"] and size and size[0] and size[1]:
         W, H = size
