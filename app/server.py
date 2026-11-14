@@ -976,6 +976,18 @@ def _upload_question(req: Ask) -> dict:
     from bp.generic.sheets import page_info
 
     info = page_info(sh, page or 0) or {}
+    if SHEET_TYPES and "sheet_kind" not in meta and meta.get("kind") in ("raster", "pdf-vector", "pdf-raster") \
+            and not meta.get("not_drawing") and not (DAILY_CAP and spent_today() >= DAILY_CAP):
+        try:  # an upload prepared before sheet types existed (or with BP_SHEETS=0): classify it now, once
+            from bp import sheets as sheet_types
+
+            sm = sheet_types.build_meta(str(p.resolve()), 0, cache_dir=p.parent)
+            meta["sheet_kind"], meta["sheet_title"] = sm.get("kind"), sm.get("title")
+            mf = p.parent / "meta.json"
+            mf.write_text(json.dumps({**json.loads(mf.read_text()), "sheet_kind": meta["sheet_kind"],
+                                      "sheet_title": meta["sheet_title"]}))
+        except Exception as e:  # noqa: BLE001
+            print(f"sheet type check failed for {p}: {e!r}", flush=True)
     return {"path": str(p), "question": question, "type": guess_type(question), "unit": None,
             "source": "upload", "ext": p.suffix.lower().lstrip("."), "kind": meta.get("kind"), "id": None,
             "split": "upload", "answer": None, "view": str(resolve(view)) if view else "",
