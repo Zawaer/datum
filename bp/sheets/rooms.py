@@ -1321,6 +1321,9 @@ def answer(path, question, meta):
         # off per-room crops; a crisp sheet's own labels are counted by the arch module from the page text
         if not (coarse and seg.get("_crop_read") and sel and qw):
             return None
+        big = [r for r in rooms if r["area_m2"] >= 4]
+        if sum(1 for r in big if r.get("label_source") == "vision") < 0.6 * len(big):
+            return None  # most names unreadable even on the crops (a ~2000 px screenshot): a count would be short
         lw = lambda r: {SYN.get(w, w) for w in _norm(r["label"])}  # noqa: E731
         sel = [r for r in sel if r.get("label_source") == "vision" and
                all(any(_close(w, x) for x in lw(r)) for w in set(qw))]
