@@ -735,6 +735,7 @@ function renderAnswer(shownSoFar) {
   $('#atail').innerHTML = vs + how + (abst ? '' : signHTML(res));
   a.querySelectorAll('#atail details.sec').forEach(d => d.ontoggle = () => { secOpen[d.dataset.sec] = d.open; });
   wireAnswerActions(a);
+  speakTools(counting);  // spoken answers: the read-aloud button (block "spoken answers" below)
   if (!counting) { recompute(); announce(); }
 }
 // screen readers hear each answer once, when its count has finished (the card itself is not a live region:
@@ -1472,7 +1473,7 @@ const voice = {rec: null, lang: null, final: '', timer: 0, engine: null};
       }
       const q = (j.text || '').trim();
       if (!q) { fail('Nothing heard. Press the mic and speak, or type the question.'); return; }
-      voice.final = q; submit(sess);
+      voice.final = q; voice.heard = j.language; submit(sess);
     };
     tick = setInterval(() => {
       const now = performance.now(), el = (now - t0) / 1000;
@@ -1523,12 +1524,13 @@ const voice = {rec: null, lang: null, final: '', timer: 0, engine: null};
     text('', 'Speak your question…'); show('listening');
     try { rec.start(); } catch { voice.rec = null; show('idle'); }
   };
-  const start = () => (voice.engine === 'server' ? record() : listen());
+  const start = () => { speakStop(); return voice.engine === 'server' ? record() : listen(); };  // don't record our own voice
   const submit = rec => {
     if (rec.submitted) return; rec.submitted = true;
     if (voice.rec === rec) { voice.rec = null; try { rec.stop(); } catch {} }
     const q = voice.final; if (!q) { show('idle'); return; }
     $('#q').value = q; show('asking', 'Asking'); text(q, '');
+    speakVoiceAsked(q, voice.engine === 'server' && voice.lang === 'auto' ? voice.heard : voice.lang);
     voice.timer = setTimeout(() => show('idle'), 1200);
     ask();
   };
@@ -1543,6 +1545,79 @@ const voice = {rec: null, lang: null, final: '', timer: 0, engine: null};
   sel.onchange = () => { voice.lang = sel.value; localStorage.setItem('bp_voice_lang', voice.lang); if (voice.rec && !voice.rec.finish) start(); };
   window.bpVoice = {start, stop, get lang() { return voice.lang; }, get engine() { return voice.engine; }};
 })();
+
+// ------------------------------------------------------------ spoken answers (ElevenLabs text-to-speech)
+// Self-contained: renderAnswer calls speakTools(counting) and the voice code calls speakVoiceAsked / speakStop.
+// The server says the answer as one short sentence in the question's language (it builds the sentence from the
+// answer it returned; we only send the answer's speak_id). A question asked by voice is answered out loud once the
+// X-ray count has finished, unless auto-read is off (remembered); every answer card gets a read-aloud button.
+// When the server has no text-to-speech (no key, no permission, budget used) nothing is shown; it is asked again
+// every few minutes, so the button appears once it is switched on.
+const speak = {on: false, checked: 0, recheck: 180, audio: null, url: '', seq: null, busy: false, voiceQ: null, voiceLang: null, spokenSeq: null,
+               auto: localStorage.getItem('bp_speak_auto') !== '0'};
+async function speakCheck(force) {
+  if (!force && performance.now() - speak.checked < speak.recheck * 1000) return;
+  speak.checked = performance.now();
+  try { const j = await (await fetch('/api/speak')).json(); speak.on = !!j.available && !j.over_cap; if (j.recheck_s) speak.recheck = Math.max(60, j.recheck_s); }
+  catch { speak.on = false; }
+  speakTools(false, true);
+}
+function speakStop() {
+  if (speak.audio) { speak.audio.pause(); speak.audio.removeAttribute('src'); speak.audio.load(); }
+  if (speak.url) { URL.revokeObjectURL(speak.url); speak.url = ''; }
+  speak.seq = null; speak.busy = false; speakTools(false, true);
+}
+function speakVoiceAsked(q, lang) { speak.voiceQ = String(q || '').trim(); speak.voiceLang = lang || null; }
+async function speakNow(r, lang = null) {
+  if (!r || !r.speak_id) return;
+  speakStop(); speak.seq = r._seq; speak.busy = true; speakTools(false, true);
+  try {
+    const resp = await fetch('/api/speak', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: r.speak_id, lang})});
+    if (speak.seq !== r._seq) return;
+    if (!resp.ok) { if (resp.status === 503) { speak.on = false; speak.checked = performance.now(); } speakStop(); return; }
+    speak.url = URL.createObjectURL(await resp.blob());
+    if (speak.seq !== r._seq) { URL.revokeObjectURL(speak.url); speak.url = ''; return; }
+    if (!speak.audio) { speak.audio = new Audio(); speak.audio.onended = speak.audio.onerror = () => { speak.seq = null; speakTools(false, true); }; }
+    speak.audio.src = speak.url; speak.busy = false; speakTools(false, true);
+    await speak.audio.play();
+  } catch { if (speak.seq === r._seq) speakStop(); }
+}
+function speakTools(counting, refresh) {
+  const box = $('#qtools'); if (!box || !res) return;
+  if (speak.seq != null && speak.seq !== res._seq) speakStop();  // a new answer silences the old one
+  // no button mid-count: each tick re-renders the card, so a click there would land on a button that is gone
+  const off = !speak.on || !res.speak_id || res.method === 'rate-limit' || counting;
+  let b = box.querySelector('.speakbtn'), t = box.querySelector('.speakauto');
+  if (off) { if (b) b.remove(); if (t) t.remove(); if (!refresh && !counting) speakCheck(); return; }
+  if (!b) {
+    b = document.createElement('button'); b.type = 'button'; b.className = 'speakbtn'; box.appendChild(b);
+    b.onclick = ev => { ev.stopPropagation(); speak.seq === res._seq ? speakStop() : speakNow(res); };
+  }
+  const playing = speak.seq === res._seq;
+  b.setAttribute('aria-label', playing ? 'Stop reading aloud' : 'Read the answer aloud');
+  b.title = playing ? 'Stop' : 'Read aloud (ElevenLabs voice)';
+  b.setAttribute('aria-pressed', String(playing));
+  b.innerHTML = playing
+    ? '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>'
+    : '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+  if (window.bpVoice) {  // auto-read only matters when you can ask by voice
+    if (!t) {
+      t = document.createElement('button'); t.type = 'button'; t.className = 'speakauto'; box.appendChild(t);
+      t.onclick = ev => { ev.stopPropagation(); speak.auto = !speak.auto; localStorage.setItem('bp_speak_auto', speak.auto ? '1' : '0'); if (!speak.auto) speakStop(); speakTools(false, true); };
+    }
+    t.setAttribute('aria-pressed', String(speak.auto));
+    t.title = speak.auto ? 'Answers to voice questions are read aloud: click to mute' : 'Voice questions are answered silently: click to read answers aloud';
+    t.setAttribute('aria-label', speak.auto ? 'Mute spoken answers to voice questions' : 'Read answers to voice questions aloud');
+    t.style.width = 'auto'; t.style.padding = '0 6px'; t.style.fontSize = '11px';
+    t.textContent = speak.auto ? 'auto' : 'muted';
+  }
+  // a voice question: speak once, after the count (renderAnswer calls us with counting=false when it has finished)
+  if (!counting && !refresh && speak.auto && speak.spokenSeq !== res._seq && speak.voiceQ && speak.voiceQ === String(res.question || '').trim()) {
+    const lang = speak.voiceLang; speak.spokenSeq = res._seq; speak.voiceQ = null; speakNow(res, lang);
+  }
+}
+speakCheck(true);
+window.bpSpeak = {get on() { return speak.on; }, get audio() { return speak.audio; }, get auto() { return speak.auto; }, speakNow: () => speakNow(res), stop: speakStop, check: () => speakCheck(true)};
 
 // ------------------------------------------------------------ demo tour
 let tour = null, tourI = 0, tourAuto = false;
