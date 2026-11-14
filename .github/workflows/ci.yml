@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: craci  # CRACI runners (GitHub Actions compatible): build-time SBOMs for every dependency this job pulls in
     timeout-minutes: 20
     env:
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
