@@ -1217,6 +1217,86 @@ async function openSheet() {
 }
 function closeSheet() { sheetWrap.hidden = true; document.body.classList.remove('sheeton'); }
 
+// ------------------------------------------------------------ ask by voice (Web Speech API: runs in the browser, no server cost)
+// The mic sits in the ask box; while it listens, a strip under the box shows the words as they are heard and the
+// language it listens for. The final result is asked straight away. Browsers without speech recognition (Firefox)
+// never see the button.
+const VOICE_LANGS = [['en-US', 'English'], ['fi-FI', 'Suomi'], ['de-DE', 'Deutsch'], ['fr-FR', 'Français'], ['it-IT', 'Italiano'],
+                     ['nl-NL', 'Nederlands'], ['sv-SE', 'Svenska']];
+const voice = {rec: null, lang: null, final: '', timer: 0};
+(() => {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return;
+  const pick = () => {
+    const saved = localStorage.getItem('bp_voice_lang'); if (VOICE_LANGS.some(l => l[0] === saved)) return saved;
+    for (const n of navigator.languages || [navigator.language || '']) {
+      const hit = VOICE_LANGS.find(l => l[0].toLowerCase() === n.toLowerCase()) || VOICE_LANGS.find(l => l[0].slice(0, 2) === n.slice(0, 2).toLowerCase());
+      if (hit) return hit[0];
+    }
+    return 'en-US';
+  };
+  voice.lang = pick();
+  const mic = document.createElement('button');
+  mic.id = 'mic'; mic.type = 'button'; mic.className = 'mic'; mic.setAttribute('aria-label', 'Ask by voice'); mic.title = 'Ask by voice';
+  mic.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4M8.5 21h7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+  $('#go').before(mic);
+  const strip = document.createElement('div'); strip.id = 'voice'; strip.className = 'voice'; strip.hidden = true; strip.setAttribute('aria-live', 'polite');
+  strip.innerHTML = `<div class="vrow"><span class="vdot"></span><b class="vstate">Listening</b>
+      <select class="vlang" aria-label="Language to listen for">${VOICE_LANGS.map(([c, n]) => `<option value="${c}">${n} · ${c}</option>`).join('')}</select>
+      <span class="grow"></span><button type="button" class="linkish vstop">stop</button></div>
+    <div class="vtext"><span class="vfin"></span><span class="vint"></span></div>`;
+  $('.ask').after(strip);
+  const sel = strip.querySelector('.vlang'); sel.value = voice.lang;
+  const show = (state, msg) => {
+    strip.hidden = state === 'idle'; strip.dataset.state = state; mic.classList.toggle('on', state === 'listening');
+    mic.setAttribute('aria-pressed', state === 'listening');
+    const sb = strip.querySelector('.vstop'); sb.textContent = state === 'error' ? 'dismiss' : 'stop'; sb.hidden = state === 'asking';
+    strip.querySelector('.vstate').textContent = msg || {listening: 'Listening', asking: 'Asking', error: 'Voice'}[state] || '';
+  };
+  const text = (fin, int) => { strip.querySelector('.vfin').textContent = fin; strip.querySelector('.vint').textContent = int; };
+  const stop = () => { if (voice.rec) { const r = voice.rec; voice.rec = null; try { r.abort(); } catch {} } };
+  const start = () => {
+    stop(); clearTimeout(voice.timer);
+    const rec = new SR(); voice.rec = rec; voice.final = '';
+    rec.lang = voice.lang; rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
+    rec.onresult = e => {
+      if (voice.rec !== rec) return;
+      let fin = '', int = '';
+      for (let i = 0; i < e.results.length; i++) (e.results[i].isFinal ? (fin += e.results[i][0].transcript) : (int += e.results[i][0].transcript));
+      voice.final = fin.trim(); text(fin, int ? (fin ? ' ' : '') + int : '');
+      $('#q').value = (fin + int).trim();
+      if (fin && !int) submit(rec);
+    };
+    rec.onerror = e => {
+      if (voice.rec !== rec) return;
+      voice.rec = null;
+      const why = e.error === 'not-allowed' || e.error === 'service-not-allowed' ? 'Microphone access is blocked: allow it in the site settings, or type the question.'
+        : e.error === 'no-speech' ? 'Nothing heard. Press the mic and speak, or type the question.'
+        : e.error === 'audio-capture' ? 'No microphone found. Type the question instead.'
+        : e.error === 'network' ? 'Speech recognition needs a connection. Type the question instead.'
+        : e.error === 'language-not-supported' ? 'This browser cannot listen for that language. Pick another one, or type.'
+        : e.error === 'aborted' ? '' : 'Voice input stopped. Type the question instead.';
+      if (!why) { show('idle'); return; }
+      show('error', 'Voice'); text(why, ''); voice.timer = setTimeout(() => { if (!voice.rec) show('idle'); }, 5000);
+    };
+    rec.onend = () => { if (voice.rec !== rec) return; voice.rec = null; if (voice.final) submit(rec); else show('idle'); };
+    text('', 'Speak your question…'); show('listening');
+    try { rec.start(); } catch { voice.rec = null; show('idle'); }
+  };
+  const submit = rec => {
+    if (rec.submitted) return; rec.submitted = true;
+    if (voice.rec === rec) { voice.rec = null; try { rec.stop(); } catch {} }
+    const q = voice.final; if (!q) { show('idle'); return; }
+    $('#q').value = q; show('asking', 'Asking'); text(q, '');
+    voice.timer = setTimeout(() => show('idle'), 1200);
+    ask();
+  };
+  mic.onclick = () => { if (voice.rec) { stop(); show('idle'); } else start(); };
+  strip.querySelector('.vstop').onclick = () => { stop(); show('idle'); };
+  sel.onchange = () => { voice.lang = sel.value; localStorage.setItem('bp_voice_lang', voice.lang); if (voice.rec) start(); };
+  window.bpVoice = {start, stop, get lang() { return voice.lang; }};
+})();
+
 // ------------------------------------------------------------ demo tour
 let tour = null, tourI = 0, tourAuto = false;
 const sleep = ms => new Promise(r => setTimeout(r, ms));

@@ -495,3 +495,24 @@ svg .ping.model { stroke: var(--chk); }
   .splan, .st tbody { break-inside: avoid; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* ------------------------------------------------------------ ask by voice */
+.ask .mic { background: var(--panel); color: var(--text); border: 1px solid var(--faint); width: 40px; padding: 0; display: grid; place-items: center; flex: none; }
+.ask .mic:hover { background: var(--panel2); border-color: var(--ink); }
+.ask .mic.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.voice { order: 0; margin-top: -8px; border: 1px solid var(--line2); border-left: 3px solid var(--ink); border-radius: var(--r1); padding: 6px 10px; font-size: 13px; background: var(--panel); }
+.voice .vrow { display: flex; align-items: center; gap: 8px; }
+.voice .grow { flex: 1; }
+.voice .vstate { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; }
+.voice .vdot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); flex: none; }
+.voice[data-state="listening"] .vdot { animation: vpulse 1.1s ease-in-out infinite; }
+.voice[data-state="asking"] .vdot { background: var(--ev); }
+.voice[data-state="error"] { border-left-color: var(--chk); }
+.voice[data-state="error"] .vdot { background: var(--chk); }
+.voice[data-state="error"] .vlang { display: none; }
+.voice .vlang { font-size: 12px; border: 1px solid var(--line2); border-radius: var(--r1); background: var(--panel); padding: 1px 4px; max-width: 170px; }
+.voice .vtext { margin-top: 4px; font-size: 15px; line-height: 1.35; min-height: 20px; }
+.voice .vint { color: var(--mut); font-style: italic; }
+.voice[data-state="error"] .vtext { font-size: 13px; color: var(--text); }
+@keyframes vpulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+@media (max-width: 860px) { .voice { margin-top: 0; } .ask .mic { width: 44px; } }
