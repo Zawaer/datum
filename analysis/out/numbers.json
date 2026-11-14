@@ -53,6 +53,19 @@
    "answered": 0.8475
   },
   {
+   "run": "baseline_nemotron_full400",
+   "system": "Nemotron 3.5 Super VL (open), direct",
+   "n": 400,
+   "accuracy": 0.4903793243211025,
+   "ci_lo": 0.4001433771229207,
+   "ci_hi": 0.580208967461131,
+   "ci": "re-weighted, stratified bootstrap",
+   "api_usd_per_1k": 2.591125072976287,
+   "compute_usd_per_1k": 5.5746095850872575,
+   "mean_latency_s": 40.137189012628255,
+   "answered": 0.73
+  },
+  {
    "run": "baseline_sonnetfair_full400",
    "system": "Claude Sonnet + sibling CAD/IFC files",
    "n": 400,

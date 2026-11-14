@@ -10,5 +10,6 @@ router_full_test_v4,Swiss DXF geometry · slowest per drawing,228,0.04,0.0743,0.
 baseline_sonnet_full400,"Claude Sonnet, direct",400,14.964,27.3536,58.74627,17.15185,71.103
 baseline_haiku_full400,"Claude Haiku, direct",400,29.165,60.7942,119.09709,34.853562,140.403
 baseline_gemini_full400,gemini-3.1-pro-preview,400,18.7285,149.0992,213.04753,47.670482,385.108
+baseline_nemotron_full400,nemotron-3.5-vl,400,27.4845,116.8177,207.91211,46.591705,302.868
 baseline_sonnetfair_full400,"Claude Sonnet, direct",400,12.779,45.3241,96.6675,20.161008,164.945
 generic_cubicasa_300_haiku,Generic VLM pipeline (Haiku),300,28.2855,80.7843,378.70978,48.391407,654.911

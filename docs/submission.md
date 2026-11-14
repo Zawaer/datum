@@ -2,7 +2,7 @@
 
 Every number below comes from a run log (`runs/*.jsonl`, rebuilt into `docs/RESULTS.md` by
 `BP_OURS_RUN=router_full_test_v4 bash analysis/run_all.sh`) or from `docs/COSTS.md`.
-TODO markers remain only for the Nemotron baseline (still running) and the demo / video links.
+TODO markers remain only for the demo / video links.
 
 ## Project name (≤ 30 chars)
 
@@ -41,7 +41,7 @@ Held-out test split of the full dataset, split by drawing (every format and lang
 | Claude Sonnet 5.5, drawing only* | 63.2 % | $13.06 | 13 |
 | Claude Haiku 5.5, drawing only* | 60.6 % | $1.21 | 29 |
 | Gemini 3.1 Pro, drawing only* | 64.2 % | $52.47 | 31 |
-| Nemotron 3.5 Super VL (open), drawing only* | TODO | TODO | TODO |
+| Nemotron 3.5 Super VL (open), drawing only* | 49.0 % [40.0–58.0] | $2.59 | 40 |
 
 By source: Swiss apartment plans 100.0 % (8,214), IFC numeric 100 % (600), Finnish raster plans 82.2 % (16,496), IFC free text 36.4 % (110, LLM judge; our weak spot).
 

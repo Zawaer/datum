@@ -36,7 +36,7 @@ tolerance: counts exact, areas / lengths / volumes within 2 %. An abstention cou
 | Claude Sonnet 5.5, drawing only¹ | 63.2 % [54.4–71.8] | $13.06 | 12.9 |
 | Claude Haiku 5.5, drawing only¹ | 60.6 % [51.5–69.3] | $1.21 | 28.6 |
 | Gemini 3.1 Pro, drawing only¹ | 64.2 % [55.9–72.3] | $52.47 | 31.4 |
-| Nemotron 3.5 Super VL (open weights), drawing only¹ | TODO (run still finishing) | TODO | TODO |
+| Nemotron 3.5 Super VL (open weights), drawing only¹ | 49.0 % [40.0–58.0] | $2.59 | 40.1 |
 | Most common answer per question template (no drawing) | 41.6 % [41.0–42.2] | $0 | 0 |
 
 **By source (ours):** Swiss apartment plans 100.0 % (8,214 questions: counts 100.0 %, room areas 99.9 %),
