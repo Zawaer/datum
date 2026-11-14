@@ -79,6 +79,12 @@ _STOP = {"the", "of", "on", "in", "is", "are", "how", "many", "what", "which", "
          "and", "for", "with", "does", "do", "an", "to", "by", "be", "there", "drawn", "shown", "total", "all"}
 
 CONF = {"high": 0.85, "medium": 0.6, "low": 0.3}
+SF_TO_M2 = 0.09290304
+M2_RX = re.compile(r"m²|m2\b|sq(uare)?\.? ?met|neliö|quadratmeter|mètres? carr", re.I)
+
+
+def _asks_m2(q) -> bool:
+    return bool(M2_RX.search(q.get("question") or ""))
 
 
 def _num(x):
@@ -181,6 +187,7 @@ class GenericSolver:
         if not isinstance(d, dict):
             return {"mode": "error", "raw": txt[-500:]}, cost, gs
         d["_segs"] = {s.id: s for s in segs}
+        d["_aspect"] = {p: T.layout(path, p)[1] for p in pages}
         d["_raw"] = txt[-1500:]
         return d, cost, gs
 
@@ -189,7 +196,9 @@ class GenericSolver:
         op = d.get("op", "read")
         items = d.get("items") or []
         ev, grounded, checked, bad_ids = [], 0, 0, 0
-        values, srcs = [], []
+        values, srcs, units, rows_cells = [], [], [], []
+        all_segs = list(segs.values())
+        aspect = d.get("_aspect") or {}
         for i, it in enumerate(items, 1):
             if not isinstance(it, dict):
                 continue
@@ -198,25 +207,51 @@ class GenericSolver:
             bad_ids += len(ids) - len(ss)
             if not ss:
                 continue
-            txt = " ".join(s.text for s in ss)
+            if op == "sum" and _num(it.get("value")) is not None and len({(s.page, s.row) for s in ss}) > 1:
+                # several rows cited for one number: the box goes on the row that prints it
+                hit = [s for s in ss if T.value_in_text(_num(it.get("value")), s.text)]
+                keys = {(s.page, s.row) for s in hit}
+                if len(keys) == 1:
+                    ss = [s for s in ss if (s.page, s.row) in keys]
+            if op in ("count", "sum"):  # an item is a table row: its box spans the whole row, not the cited part
+                ss = T.table_row(ss, all_segs)
+            rows_cells.append(min(len(s.cells) for s in ss) if len(ss) == 1 else sum(len(s.cells) for s in ss))
+            txt = " | ".join(s.text for s in ss)
             v = it.get("value")
             ok = False
             if op in ("count", "sum"):
                 nv = _num(v)
                 if nv is None:
                     continue
+                if op == "sum" and not T.value_in_text(nv, txt):
+                    # the model misread the printed number: the vector text of the row it cited is the truth when
+                    # the row prints exactly one number in the answer's unit (or exactly one number near it)
+                    u = T.unit_after(None, txt)
+                    alt = T.numbers_with_unit(txt, u) if u else []
+                    if len(alt) == 1:
+                        it["misread"], nv = nv, alt[0]
                 values.append(nv)
                 if op == "sum" or nv != 1:
                     checked += 1
                     ok = T.value_in_text(nv, txt)
                     grounded += ok
+                if op == "sum":
+                    units.append(T.unit_after(nv, txt))
+            else:
+                nv = _num(v)
+                units.append(T.unit_after(nv, txt) if nv is not None else None)
             srcs.append((f"item{i}", txt))
             n_ev = len(ev)
-            # one evidence item per segment page; the box covers the item's segments on that page
+            # one evidence item per segment page; the box covers the item's segments on that page, with a margin
+            # so its outline never runs through the first or last printed character
             for pg in sorted({s.page for s in ss}):
-                bb = T._union([s.bbox for s in ss if s.page == pg])
+                pss = [s for s in ss if s.page == pg]
+                bb = T._union([s.bbox for s in pss])
+                h = min(s.bbox[3] - s.bbox[1] for s in pss)
+                px, py = 0.35 * h / aspect.get(pg, 1.0), 0.12 * h
+                bb = (max(0.0, bb[0] - px), max(0.0, bb[1] - py), min(1.0, bb[2] + px), min(1.0, bb[3] + py))
                 ev.append({"kind": "text" if op == "read" else "box", "file": q["path"], "page": pg,
-                           "bbox": [round(x, 5) for x in bb],
+                           "bbox": [round(x, 5) for x in bb], "row": op != "read",
                            "label": f"{it.get('what') or 'item'} {i}: '{txt[:80]}'"
                            if op != "read" else f"label read: '{txt[:100]}'",
                            "value": _fmt(values[-1]) if op in ("count", "sum") else None})
@@ -224,6 +259,8 @@ class GenericSolver:
                 e["_src"] = f"item{i}"
                 if ok:
                     e["verified"] = True
+                if it.get("misread") is not None:
+                    e["misread"] = _fmt(it["misread"])
         conf = CONF.get(str(d.get("confidence", "")).lower(), 0.5)
         stated = d.get("answer")
         if op in ("count", "sum"):
@@ -253,6 +290,29 @@ class GenericSolver:
             conf *= 0.5
         out = {"answer": ans, "confidence": round(conf, 3), "evidence": ev,
                "explanation": str(d.get("explanation") or "")[:200]}
+        # the unit is the sheet's own: the one printed beside every value used (611 SF), never assumed
+        us = {u for u in units if u}
+        if len(us) == 1 and all(units) and _num(ans) is not None:
+            unit = us.pop()
+            out["unit"] = unit
+            n = _num(ans)
+            if unit == "SF" and n is not None and _asks_m2(q):
+                out["answer_m2"] = round(n * SF_TO_M2, 2)
+        elif op == "read" and isinstance(ans, str):
+            # "29690 SF" read off the sheet: the number, in the unit printed beside it
+            m = re.fullmatch(r"\s*(-?\d[\d,]*(?:\.\d+)?)\s*" + T.UNIT_RX + r"\s*", ans)
+            if m and q.get("type") in ("area", "length", "volume"):
+                out["answer"], out["unit"] = _fmt(float(m.group(1).replace(",", ""))), \
+                    T.UNIT_CANON.get(m.group(2).lower(), m.group(2))
+                if out["unit"] == "SF" and _asks_m2(q):
+                    out["answer_m2"] = round(out["answer"] * SF_TO_M2, 2)
+        fixed = [e for e in ev if e.get("misread") is not None]
+        if fixed:
+            out["explanation"] = "; ".join(f"read {e['misread']} as printed {e['value']}" for e in fixed) + \
+                " (the drawing's text layer) | " + out["explanation"]
+        # values read off a printed table (each item a multi-column row) are a table read, not free text
+        if op in ("sum", "count", "read") and rows_cells and min(rows_cells) >= 3 and (op != "sum" or grounded == checked):
+            out["read_from"] = "table"
         # provenance: numbers / quoted names of the answer must be in the cited segments (or their total)
         from bp import provenance
 

@@ -286,3 +286,60 @@ def value_in_text(v, text: str) -> bool:
     except (TypeError, ValueError):
         return False
     return any(math.isclose(v, n, rel_tol=1e-6, abs_tol=1e-6) for n in numbers_in(text))
+
+
+def table_row(cited: list[Segment], segs: list[Segment]) -> list[Segment]:
+    """The cited segments widened to their whole table row. A row is split into several segments where a column
+    gap is wide (a short name in a wide column); the next segment on the same baseline belongs to the same row
+    when a neighbouring row of the table runs across that gap (row 104 spans the columns that row 105 leaves
+    empty), so another table that merely shares the baseline is not taken in."""
+    out = {s.id: s for s in cited}
+    for s0 in cited:
+        if s0.row < 0:
+            continue
+        same = sorted((s for s in segs if s.page == s0.page and s.row == s0.row), key=lambda s: s.bbox[0])
+        h = s0.bbox[3] - s0.bbox[1]
+        near = [s for s in segs if s.page == s0.page and s.row != s0.row and s.row >= 0
+                and abs(s.bbox[1] - s0.bbox[1]) < 6 * h and len(s.cells) >= 3]
+
+        def bridged(a, b):  # some neighbouring row spans the gap between a's right end and b's left end
+            return any(n.bbox[0] <= a + 1e-4 and n.bbox[2] >= b - 1e-4 for n in near)
+
+        lo, hi = s0.bbox[0], s0.bbox[2]
+        k = same.index(s0) if s0 in same else -1
+        for s in same[k + 1:] if k >= 0 else []:
+            if not bridged(hi, s.bbox[0]):
+                break
+            out[s.id], hi = s, s.bbox[2]
+        for s in reversed(same[:k]) if k > 0 else []:
+            if not bridged(s.bbox[2], lo):
+                break
+            out[s.id], lo = s, s.bbox[0]
+    return sorted(out.values(), key=lambda s: (s.page, s.row, s.bbox[0]))
+
+
+UNIT_RX = r"(SF|S\.F\.|SQ\.? ?FT\.?|sq\.? ?ft\.?|ft²|ft2|m²|m2|sqm|mm|cm|LF|ft|m)(?![A-Za-z0-9²])"
+UNIT_CANON = {"sf": "SF", "s.f.": "SF", "sqft": "SF", "sq.ft": "SF", "sq ft": "SF", "sq.ft.": "SF", "sq ft.": "SF",
+              "sq. ft": "SF", "sq. ft.": "SF", "ft²": "SF", "ft2": "SF", "m²": "m²", "m2": "m²", "sqm": "m²",
+              "mm": "mm", "cm": "cm", "lf": "LF", "ft": "ft", "m": "m"}
+
+
+def unit_after(value, text: str) -> str | None:
+    """The unit printed right after `value` in `text` ('611 SF' -> 'SF'), canonical, or None."""
+    for m in re.finditer(r"(?<![\d.])(-?\d[\d,]*(?:\.\d+)?)\s*" + UNIT_RX, text):
+        try:
+            n = float(m.group(1).replace(",", ""))
+        except ValueError:
+            continue
+        if value is None or math.isclose(n, float(value), rel_tol=1e-6, abs_tol=1e-6):
+            return UNIT_CANON.get(m.group(2).lower(), m.group(2))
+    return None
+
+
+def numbers_with_unit(text: str, unit: str) -> list[float]:
+    """Numbers printed with `unit` in a row's text (to re-read a value the model misread)."""
+    out = []
+    for m in re.finditer(r"(?<![\d.])(-?\d[\d,]*(?:\.\d+)?)\s*" + UNIT_RX, text):
+        if UNIT_CANON.get(m.group(2).lower(), m.group(2)) == unit:
+            out.append(float(m.group(1).replace(",", "")))
+    return out

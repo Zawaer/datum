@@ -88,12 +88,20 @@ def answer(meta, question: str, model: str = "haiku", max_lines: int = 700) -> d
         cited = " ".join(e["label"] for e in ev).replace(",", "")
         if not re.search(re.escape(f"{_num(ans):g}"), cited):
             conf *= 0.6
+    # a value read off a printed row (each cited line prints the number it contributes) is a table read
+    read_from = None
+    if d["op"] in ("sum", "read") and ev and all(
+            (_num(e.get("value")) if d["op"] == "sum" else _num(ans)) is not None
+            and re.search(r"(?<![\d.])" + re.escape(f"{(_num(e.get('value')) if d['op'] == 'sum' else _num(ans)):g}")
+                          + r"(?![\d])", e["label"].replace(",", "")) for e in ev):
+        read_from = "table"
     shown = f"{_fmt(ans)} {unit}".strip() if isinstance(ans, (int, float)) else ans
     if isinstance(ans, (int, float)) and unit and unit.lower() not in ("m2", "m²", "sq m", "m", "sqm"):
         ans = f"{_fmt(ans):,} {unit}" if isinstance(_fmt(ans), int) else f"{ans} {unit}"  # the UI assumes m² for numbers
     return {"answer": ans if not isinstance(ans, (int, float)) else _fmt(ans), "unit": unit,
             "display": shown, "confidence": round(conf, 3), "evidence": ev, "cost_usd": cost,
-            "method": f"sheets-text-{d['op']}", "explanation": f"read from the sheet's printed text: {expl}"}
+            "method": f"sheets-text-{d['op']}", "explanation": f"read from the sheet's printed text: {expl}",
+            **({"read_from": read_from} if read_from else {})}
 
 
 def _num(x):

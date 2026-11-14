@@ -1697,6 +1697,21 @@ def _fix_upload_evidence(res: dict, q: dict, client_path: str):
             e["file"] = view
 
 
+def _locate_evidence(res: dict, client_path: str):
+    from bp.generic import locate
+
+    view = view_path(client_path) or client_path
+
+    def path_of(f):
+        try:
+            p = resolve(f or view)
+        except HTTPException:
+            return None
+        return p if p.exists() else None
+
+    locate.check(res, path_of)
+
+
 # ---------------------------------------------------------------- honest confidence, "why" trace, frontier answers
 
 from app.calibration import BINS as CAL_BINS, build_frontier, family as cal_family  # noqa: E402
@@ -2038,6 +2053,10 @@ def ask(req: Ask, request: Request):
         _fix_upload_evidence(res, q, req.path)
         _upload_honesty(res, q)
         _gpu_second_pending(res, q, req.path)
+    try:  # every text-evidence box on the text it cites: moved there, or dropped as "not located"
+        _locate_evidence(res, req.path)
+    except Exception:  # noqa: BLE001  a check never breaks an answer
+        traceback.print_exc()
     res.pop("raw", None)
     if res.get("error") not in (None, "timeout", "internal error"):  # raw exception / CLI text: log, don't return
         print(f"ask error ({res.get('method')}): {str(res['error'])[:500]}", flush=True)
