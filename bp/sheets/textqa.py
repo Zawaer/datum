@@ -27,6 +27,8 @@ Rules:
   Prefer a printed TOTAL row over adding rows yourself when the question asks for that total.
 - "sum": the question asks for a total that is not printed: one item per number added (value = that number).
 - "count": one item per counted line.
+- A row answers only what it names: "SECOND FLOOR = 48 DORMS" is not the number of accessible / ABA / corner / single
+  rooms; a count or area of such a subgroup with no row of its own is "none".
 - "none": the text does not answer it (e.g. the question is about drawn symbols, or a room not listed). Also "none"
   for the area of a room or of several rooms read from ROOM TAGS on the plan (a room name with its area printed
   under it, not a table row): the OCR misses and mispairs tags (the area above a name belongs to another room), so the
