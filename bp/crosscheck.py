@@ -21,7 +21,7 @@ parse is unlikely to repeat in the other:
   cache/cubicasa/runs/m1280/weights/best.pt taken at epoch ~19 of that run) with its own count thresholds
   tuned on dev (train/crosscheck_tune_cc.py). Independence: low (same public training annotations). If that
   model is ever folded into the primary's ensemble, this check stops being independent: pick another one.
-  Tesseract OCR of the room labels (mh, kt, wc) was tried and cannot read the tiny raster text.
+  A quick Tesseract try on the room labels (mh, kt, wc) at native resolution read none of them (not pursued).
 
 Measured on test: runs/crosscheck_test.summary.md (analysis/crosscheck_report.py).
 
