@@ -25,7 +25,7 @@ _(585 characters)_
 
 ## Description (≤ 5000 chars, markdown)
 
-_Character count of the block between the rules below: 4,214 (limit 5,000)._
+_Character count of the block between the rules below: 4,612 (limit 5,000)._
 
 ---
 
@@ -75,6 +75,10 @@ A router sends each question to the cheapest method that answers it **exactly**:
 ### 5. Low inference cost
 
 **$0.013 per 1,000 questions** on the test set: numeric answers make no paid calls. On the example sheets, $0.003 for all 41 questions on vector PDFs, $0.09–0.18 on images (OCR is local; Claude Haiku reads only what OCR cannot).
+
+### Architecture
+
+Two language models, never averaged: Claude Haiku 5.5 (free text, sheet type, text OCR cannot read) and our fine-tuned Qwen3-VL-8B (second opinion and narrow arbiter on scanned plans). A vector PDF, DXF or IFC is read without AI, so its answer costs $0. Models, costs, accuracy, licences: [docs/ARCHITECTURE.md](https://github.com/Zawaer/datum/blob/main/docs/ARCHITECTURE.md).
 
 ### Built to be trusted
 

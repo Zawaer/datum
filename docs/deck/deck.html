@@ -84,6 +84,7 @@
   table.t td { white-space: nowrap; text-align: right; padding: 9px 0 9px 16px; border-top: 1px solid var(--line); color: var(--ink2); }
   table.t td:first-child { color: var(--ink); }
   table.t td.o { color: var(--ink); font-weight: 600; }
+  table.t.hood th:nth-child(2), table.t.hood td:nth-child(2) { text-align: left; padding-left: 48px; }
   table.t tr.tot td { border-top: 2px solid var(--ink); color: var(--ink); font-weight: 600; }
 </style>
 </head>
@@ -300,7 +301,30 @@
   <div class="foot"><span></span><span>12</span></div>
 </section>
 
-<!-- 13 · CREDITS (appendix) -->
+<!-- 13 · UNDER THE HOOD (appendix)
+  Notes: for the judges who asked how it is built. Two language models in the answer path, Claude Haiku 5.5 and our
+  fine-tuned Qwen3-VL-8B; everything else is geometry, classical CV, OCR and our own detector. Nothing is averaged or
+  voted: rules pick one method per question; a second method only halves the confidence on a conflict, or, on scans,
+  replaces the count where a dev-fit rule says the detector is unsure and the VLM sure (85.1 % -> 86.1 %).
+  A vector PDF, DXF or IFC is read without AI: $0. Sources: runs/router_full_test_v8, runs/cubicasa_test_fliptta,
+  runs/cubicasa_test_vlmarb, runs/vlm_r3_cubicasa_test_full, runs/stoa_examples_v9_pdf. Full write-up: docs/ARCHITECTURE.md. -->
+<section class="slide">
+  <h2>Under the hood: two language models, the rest is geometry.</h2>
+  <div style="margin-top:64px">
+    <table class="t hood">
+      <tr><th>Part</th><th>runs on</th><th>API $ / 1,000 q</th><th>measured</th></tr>
+      <tr><td>IfcOpenShell, ezdxf, PyMuPDF</td><td>BIM models, CAD plans, vector PDFs</td><td class="o">$0</td><td>99.95–100 % (8,814 q)</td></tr>
+      <tr><td>YOLO11m detector, trained by us (RTX 4070)</td><td>scanned residential plans</td><td class="o">$0</td><td>85.1 % alone (16,496 q)</td></tr>
+      <tr><td>Qwen3-VL-8B + our LoRA (Verda H100s)</td><td>same scans: second opinion, narrow arbiter</td><td class="o">$0.16</td><td>86.1 % with it</td></tr>
+      <tr><td>Sheet specialists, Tesseract OCR</td><td>uploaded floor, slab, piping sheets</td><td class="o">$0 on PDFs</td><td>40 / 41 as PDFs</td></tr>
+      <tr><td>Claude Haiku 5.5</td><td>free text, sheet type, text OCR cannot read</td><td class="o">~$3</td><td>38.2 % free text (110 q)</td></tr>
+    </table>
+    <p class="s" style="max-width:1500px">Nothing is averaged or voted: rules pick one method per question. Every mark sits on the user’s own drawing. Details: <code>docs/ARCHITECTURE.md</code>.</p>
+  </div>
+  <div class="foot"><span></span><span>13</span></div>
+</section>
+
+<!-- 14 · CREDITS (appendix) -->
 <section class="slide">
   <h2>Credits</h2>
   <div class="cols">
@@ -318,7 +342,7 @@
       <div class="s"><b>Models.</b> Claude Haiku 5.5 for free text only; our own YOLO11m symbol detector and fine-tuned 8B vision model; IfcOpenShell for BIM.</div>
     </div>
   </div>
-  <div class="foot"><span></span><span>13</span></div>
+  <div class="foot"><span></span><span>14</span></div>
 </section>
 
 <script>

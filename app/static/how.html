@@ -29,6 +29,7 @@
   <a href="#checks" data-chap="checks"><span>3</span> <span class="hw-long">Four </span>checks</a>
   <a href="#cost" data-chap="cost"><span>4</span> Cost</a>
   <a href="#sheets" data-chap="sheets"><span>5</span> Sheets</a>
+  <a href="#hood" data-chap="hood"><span>6</span> Under the hood</a>
   <i class="hw-toc-bar" aria-hidden="true"></i>
 </nav>
 
@@ -320,6 +321,48 @@
   </div>
 </section>
 
+<!-- ============================================================ 6 · under the hood (static; the technical detail for judges, docs/ARCHITECTURE.md) -->
+<section class="hw-chap hw-hood" id="hood" aria-labelledby="h-hood">
+  <header class="hw-chead"><span class="hw-num">06</span><h2 id="h-hood">Under the hood</h2></header>
+  <p class="hw-hlede">For readers who want the parts list: what runs, when, what it costs and how often it is right.
+    The full write-up is <a href="https://github.com/Zawaer/datum/blob/main/docs/ARCHITECTURE.md">docs/ARCHITECTURE.md</a>.</p>
+
+  <ol class="hw-flow" aria-label="From upload to answer">
+    <li><b>Upload</b><span>IFC, DXF, PDF, image, scan or phone photo</span></li>
+    <li><b>Prepare</b><span>file kind, vector text or OCR, sheet type</span></li>
+    <li><b>Route</b><span>rules on file kind and question words, no model</span></li>
+    <li><b>Solve</b><span>one method per question</span></li>
+    <li><b>Check</b><span>second method, calibrated confidence, number and text guards</span></li>
+    <li class="hw-flow-out"><b>Answer</b><span>with its marks on your own drawing</span></li>
+  </ol>
+
+  <div class="hw-hwrap">
+  <table class="hw-htab">
+    <caption class="hw-sr">Every model and engine, when it runs, its cost per question and its measured accuracy</caption>
+    <thead><tr><th scope="col">Part</th><th scope="col">Runs on</th><th scope="col" class="hw-r">$ per question</th><th scope="col">Measured</th></tr></thead>
+    <tbody>
+      <tr id="hood-cad"><th scope="row">IfcOpenShell, ezdxf, PyMuPDF<small>exact geometry and vector text</small></th><td>BIM models, CAD plans, vector PDFs</td><td class="hw-r">0</td><td>100&nbsp;% on 600 IFC questions; 99.95&nbsp;% on 8,214 Swiss plan questions</td></tr>
+      <tr id="hood-detector"><th scope="row">YOLO11m detector<small>trained by us on CubiCasa5K, on a local RTX&nbsp;4070</small></th><td>scanned residential plans; doors and windows on small floor-plan images</td><td class="hw-r">0</td><td>85.1&nbsp;% alone on 16,496 scan questions</td></tr>
+      <tr id="hood-vlm"><th scope="row">Qwen3-VL-8B + our LoRA<small>fine-tuned on 2× Verda H100s</small></th><td>the same scans: second opinion on every count; takes over only where a dev-fit rule says the detector is unsure and it is sure</td><td class="hw-r">0.00016</td><td>with it: 86.1&nbsp;%; when both agree, 94.9&nbsp;% right</td></tr>
+      <tr id="hood-sheets"><th scope="row">Sheet specialists, Tesseract OCR<small>plain code, OpenCV, local OCR</small></th><td>floor, slab and piping sheets you upload</td><td class="hw-r">0 on PDFs</td><td>40 of 41 on Stoa’s example sheets as PDFs, 37 as a scan</td></tr>
+      <tr id="hood-haiku"><th scope="row">Claude Haiku 5.5<small>through the API</small></th><td>free-text questions; checking what an upload is; translating a question; reading text OCR cannot</td><td class="hw-r">~0.003</td><td>38.2&nbsp;% on 110 free-text BIM questions, our weak spot</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <dl class="hw-faq">
+    <div><dt>How many language models?</dt><dd>Two: Claude Haiku 5.5 and our fine-tuned Qwen3-VL-8B. Nothing is averaged or voted:
+      each question has one answering method, chosen by rules. A second method can only lower the confidence, or, in
+      one narrow case on scans, replace the count. A PDF is read directly, without any AI, so its answer costs $0;
+      99.6&nbsp;% of test questions make no paid call.</dd></div>
+    <div><dt>Is anything generated?</dt><dd>No. Every mark is drawn on your own drawing, where the value was read or measured. The 3D view
+      raises the drawing’s own walls.</dd></div>
+    <div><dt>Who owns what?</dt><dd>Our code is MIT. The detector is trained on CubiCasa5K (non-commercial); for production it would be retrained
+      on your own drawings with the same pipeline. Qwen3-VL is Apache-2.0 and the adapter is ours. Uploads stay on our server;
+      only a small preview, and crops OCR cannot read, go to Claude Haiku.</dd></div>
+  </dl>
+</section>
+
 <section class="hw-cta" aria-labelledby="h-cta">
   <h2 id="h-cta">Now ask one yourself.</h2>
   <p>Every answer in the demo comes with these checks. The tour shows seven of them in about a minute.</p>
@@ -334,7 +377,7 @@
   <p>Numbers: README and <code>docs/RESULTS.md</code>; ours from <code>runs/router_full_test_v8</code> (all 25,420 test questions, split by
     whole drawing); frontier models on a 400-question stratified sample re-weighted to the test mix, API list price; curve from
     <code>analysis/out/selective_all_curve.csv</code>; second opinion from <code>runs/crosscheck_test.summary.md</code>, <code>runs/crosscheck_vlm_test_v7.summary.md</code>, <code>runs/cubicasa_test_vlmarb.summary.md</code>;
-    provenance from <code>docs/PROVENANCE.md</code>; construction sheets from <code>runs/stoa_examples_v8_*.summary.md</code> (slab plan on the 2,500&nbsp;px PNG and the scan: <code>runs/stoa_examples_v8slab*</code>)
+    provenance from <code>docs/PROVENANCE.md</code>; under the hood from <code>docs/ARCHITECTURE.md</code>; construction sheets from <code>runs/stoa_examples_v8_*.summary.md</code> (slab plan on the 2,500&nbsp;px PNG and the scan: <code>runs/stoa_examples_v8slab*</code>)
     (gold printed on the sheet, or measured by hand with a wider tolerance).</p>
   <p>Drawings: Swiss Dwellings v3.0.0, M. Standfest et al. (Archilyse AG), doi:10.5281/zenodo.7788422, CC BY 4.0. Questions: Junction 2026
     dataset by Stoa (non-commercial, per-file licences); IFC-Bench v2, © 2025 Sylvain Hellin (TUM), CC BY 4.0.</p>

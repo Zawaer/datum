@@ -6,7 +6,7 @@ the live-demo run sheet with fallbacks, and short answers to the questions judge
 
 Every number here is quoted from [README.md](../README.md) (headline and verification), the deck
 ([docs/deck/deck.html](deck/deck.html)) or [docs/UPLOADS.md](UPLOADS.md). If one of those changes, change it
-here too. Deck slide numbers refer to `docs/deck/deck.pdf` (13 slides).
+here too. Deck slide numbers refer to `docs/deck/deck.pdf` (14 slides).
 
 **Two screens, one laptop.** Tab 1: the demo, with the hook drawing already open (run sheet below). Tab 2: the
 deck PDF in full-screen presenter mode. Switch with Ctrl/Cmd+Tab or Alt+Tab. Speaker A talks, speaker B drives.
@@ -273,7 +273,7 @@ Trained by us: the YOLO11m symbol detector (on a local RTX 4070, non-test CubiCa
 Qwen3-VL-8B LoRA second opinion (cloud H100s, dev drawings only; 74.9 % alone, so it never answers alone; it overrides the detector only where a
 rule fit on dev says the detector is unsure and it is sure, which lifts the scans from 85.1 % to 86.1 %).
 Off-the-shelf: ezdxf, Shapely and IfcOpenShell for the geometry, and Claude Haiku 5.5 for free text and for
-rewording unusual questions.
+rewording unusual questions. The full parts list, with cost and accuracy per model, is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 **"What about privacy of uploads?"**
 CAD, IFC and dataset-scan answers are computed on our own server. Uploaded sheets are read on the server too

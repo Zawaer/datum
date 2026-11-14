@@ -946,6 +946,7 @@ function renderAnswer(shownSoFar) {
       ${corrected ? `<div class="mut">How the solver reached its ${fmt(res.answer, t)}, before your correction:</div>` : ''}
       <div class="how ${h.cls}"><b>${h.cls === 'geo' ? '✓ ' : ''}${esc(h.t)}</b><span>${esc(h.how)}</span></div>
       ${rpLinkHTML()}
+      ${hoodLinkHTML(res)}
       ${calibHTML(res)}
       ${crossHTML(res)}
       ${res.rule ? `<div class="rule"><b>Rule</b> ${esc(res.rule)}</div>` : ''}
@@ -2562,6 +2563,15 @@ function rpRun(list, W, H, done) {
   requestAnimationFrame(frame);
 }
 // "Replay" under How it was worked out: the same steps again, from the top
+// a small link into the How it works page's technical chapter, at the row of the method that answered
+function hoodLinkHTML(r) {
+  const m = String((r && r.method) || '');
+  if (!m || m === 'none' || m.endsWith('-error')) return '';
+  const row = m === 'cubicasa-vlm-arbiter' ? 'vlm' : m.startsWith('cubicasa') || m.startsWith('sheets-openings-yolo') ? 'detector'
+    : m.startsWith('sheets') ? 'sheets' : /^(ifctext|ifc-text|generic)/.test(m) ? 'haiku'
+    : /^(swiss|ifc)/.test(m) ? 'cad' : '';
+  return `<div class="rprow"><a class="linkish rplink" href="/how#${row ? 'hood-' + row : 'hood'}" target="_blank" rel="noopener">Under the hood</a> which parts ran, and what they cost</div>`;
+}
 function rpLinkHTML() {
   if (RMOTION.matches || !res || !items.length) return '';
   if (mode !== '3d' && !items.some(e => PLAN_KINDS.has(e.kind))) return '';
