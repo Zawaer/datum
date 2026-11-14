@@ -14,9 +14,15 @@ Pipeline (segment_rooms), all geometry on a copy resampled to WORK_PPM pixels pe
   baseboard = perimeter - widths of the doorways on the room's outline (windows are not deducted: the
               skirting runs under a window sill).
 
+Scans: coloured pen markings (red / green / blue thin strokes) are inpainted away before any of this (mark_mask). Coarse
+sheets read room names off per-room crops with a VLM (crop_labels); where even those are unreadable (a ~2000 px
+screenshot) identify_room() takes a confident layout / furniture pick (a hall must also be the largest compact room).
+Room counts by name are answered here only on coarse sheets with most names read.
+
 Scale (scale_from_bar): the scale bar is found from its printed numbers ("0 ... 10m 20m"), then its drawn bar
 (the long thin line just above the numbers) gives the exact pixel span; falls back to the label centres, then
-to the printed ratio on the paper size in the title block.
+to the printed ratio on the paper size in the title block. Small rasters whose page OCR misses the bar's numbers get
+the area around the word SCALE OCR'd again, upscaled.
 """
 from __future__ import annotations
 

@@ -21,6 +21,15 @@ Fallback (answer() never trusts an implausible swing reading): low-res rasters (
 Schedule: on a vector PDF with a DOOR SCHEDULE page, the schedule marks printed on this sheet are an independent door
          count; agreement raises confidence, disagreement switches the answer to the schedule count (and says so).
 
+Window count convention: every glazed panel between piers is a window, internal vision panels beside doors and glazed
+         screens included (the Stoa example gold, 101 on the school); answers give the total and the split
+         ("102 windows (67 in outside walls + 35 internal glazed panels)"). On the detector path the side panels come
+         from the room segmentation's doorway gaps (rooms._side_panel).
+Main plan: main_plan() keeps the drawings that carry room names (else the square-drawn ones), so a 3D / isometric view,
+         key plan or title block is not counted. Closets: closet_doors() (geometry / labels) plus, on plans with <= 40
+         doors, vision_closets(): Claude reads the printed name / area of the smaller space each numbered door opens
+         (closet, wardrobe, cupboard, < 25 SF: not counted; "not a door": dropped).
+Doors into a named room ("doors into the Multi-Purpose Hall"): the doorway gaps on that room's outline (room_scope).
 Measured (tests/fixtures/openings/eval_gold.json): DfE school level 00, 14000 px: doors 122 found / 122 correct / 128
 by hand (P 1.00, R 0.95), exterior windows 67 / 67 / 68, plus 11 internal glazed panels reported separately.
 2000 px school screenshot via the detector: 120-126 doors (hand 128, P ~0.8), 75 windows. DAF dormitory (double-line
