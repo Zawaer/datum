@@ -811,7 +811,7 @@ def _ev(r, W, H, unit, metric=False):
     bx = [min(x0, x1) - (h if r["axis"] == "v" else 0), min(y0, y1) - (h if r["axis"] == "h" else 0),
           max(x0, x1) + (h if r["axis"] == "v" else 0), max(y0, y1) + (h if r["axis"] == "h" else 0)]
     val = r["length_m"] if unit == "m" else r["length_ft"]
-    return {"kind": "box", "page": 0, "bbox": [bx[0] / W, bx[1] / H, bx[2] / W, bx[3] / H],
+    return {"kind": "polyline", "page": 0, "bbox": [bx[0] / W, bx[1] / H, bx[2] / W, bx[3] / H],
             "points": [[x0 / W, y0 / H], [x1 / W, y1 / H]],
             "label": f'{_sz(r["size_in"], metric)} run {r["length_ft"]:.1f} ft ({r["length_m"]:.2f} m)',
             "value": round(val, 2)}

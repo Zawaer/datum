@@ -1430,6 +1430,11 @@ _RX_SIZE_OF = re.compile(r"\b(what|which)\b.*\b(size|diameter)\b|\bhow (big|larg
 def answer(path, question, meta) -> dict | None:
     meta = meta or {}
     q = question.strip()
+    from bp.sheets import pipe_runs  # pipe lengths ("metres of 8-inch pipe", "length of the 16" suction header")
+    if pipe_runs.is_length_question(q):
+        r = pipe_runs.answer(path, q, meta)
+        if r and r.get("answer") is not None:
+            return r
     sheet = read_sheet(str(path), meta)
     base = _base(meta)
     if not sheet["items"]:
