@@ -403,7 +403,7 @@ class GenericSolver:
 
             if q.get("page") is not None:
                 page = int(q["page"])
-                page_why = f"page {page + 1} (the page you picked)"
+                page_why = q.get("page_why") or f"page {page + 1} (the page you picked)"
             elif region is None:  # no view chosen from the text layer: pick the page
                 page, page_why = S.pick_page(path, q["question"], q.get("sheets"), qtype)
             info = S.page_info(q.get("sheets"), page)

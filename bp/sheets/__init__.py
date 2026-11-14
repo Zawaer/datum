@@ -56,7 +56,15 @@ import os
 log = logging.getLogger(__name__)
 
 MODULES = ["arch", "slab", "piping"]  # bp/sheets/<name>.py; a missing/broken module is skipped
-ANSWER_TIMEOUT_S = float(os.environ.get("BP_SHEET_TIMEOUT_S", "45"))  # then the generic reader answers
+# A question's whole budget, counted from when it arrives (waiting for the upload's warm-up included); then the generic
+# reader answers. The first question on a big sheet may wait this long; later ones find the warm-up's caches filled.
+# Sized for the 4-core demo VM (an upload's warm-up there: piping ~25-40 s, slab ~20-30 s), leaving the generic reader
+# room inside the server's per-question limit (app/server.py UPLOAD_TIMEOUT_S) when the specialist runs out of time.
+ANSWER_TIMEOUT_S = float(os.environ.get("BP_SHEET_TIMEOUT_S", "50"))
+# after an in-flight warm-up finishes, the question itself still gets at least this long (the reading is cached by
+# then; what is left is parsing / matching, a few seconds), up to ANSWER_MAX_S in all
+ANSWER_AFTER_WARM_S = float(os.environ.get("BP_SHEET_AFTER_WARM_S", "12"))
+ANSWER_MAX_S = float(os.environ.get("BP_SHEET_MAX_S", "62"))
 _pool = __import__("concurrent.futures", fromlist=["x"]).ThreadPoolExecutor(8, thread_name_prefix="sheets")
 MIN_DETECT = 0.5  # a module answers only when it claims the sheet at least this strongly
 
@@ -96,21 +104,32 @@ def best(meta):
 
 
 def answer(path, question, meta):
-    """Ask the best module; None when no module claims the sheet or it abstains."""
+    """Ask the best module; None when no module claims the sheet or it abstains. A warm-up of this sheet still
+    running (warm_upload, started at upload) is waited for rather than duplicated: the module reads the sheet once."""
     n, m, s = best(meta)
     if m is None:
         return None
     import concurrent.futures as cf
+    import time
 
+    t0 = time.monotonic()
+    deadline = t0 + ANSWER_TIMEOUT_S
+    wf = warm_job(meta)
+    if wf is not None and not wf.done():
+        try:
+            wf.result(timeout=max(0.0, deadline - time.monotonic()))
+        except cf.TimeoutError:
+            return _timeout_result(n, warming=True)
+        except Exception:  # noqa: BLE001  a failed warm-up: the module reads the sheet itself
+            pass
+        deadline = max(deadline, min(t0 + ANSWER_MAX_S, time.monotonic() + ANSWER_AFTER_WARM_S))
     fut = _pool.submit(m.answer, path, question, meta)
     try:
-        res = fut.result(timeout=ANSWER_TIMEOUT_S)
+        res = fut.result(timeout=max(1.0, deadline - time.monotonic()))
     except cf.TimeoutError:
         # the module keeps running in the background (its OCR / segmentation caches fill for the next question);
         # this question goes on to the generic reader rather than keep a judge waiting
-        return {"answer": None, "confidence": 0.0, "evidence": [], "cost_usd": 0.0, "method": f"sheets-{n}-timeout",
-                "explanation": f"the {n} reader took longer than {ANSWER_TIMEOUT_S:.0f} s on this sheet, so the general "
-                               "reader answers this time"}
+        return _timeout_result(n)
     except Exception as e:  # noqa: BLE001
         log.exception("sheet module %s failed", n)
         return {"answer": None, "confidence": 0.0, "evidence": [], "cost_usd": 0.0,
@@ -120,6 +139,14 @@ def answer(path, question, meta):
         res["sheet_type"] = n
         res["sheet_score"] = round(s, 3)
     return res
+
+
+def _timeout_result(n, warming=False):
+    what = "is still reading this sheet" if warming else "took longer than expected on this sheet"
+    log.warning("sheet module %s timed out after %.0f s (warming=%s)", n, ANSWER_TIMEOUT_S, warming)
+    return {"answer": None, "confidence": 0.0, "evidence": [], "cost_usd": 0.0, "method": f"sheets-{n}-timeout",
+            "explanation": f"the {n} reader {what} (over {ANSWER_TIMEOUT_S:.0f} s), so the general reader answers "
+                           "this time; ask again in a moment for the specialist's answer"}
 
 
 # ------------------------------------------------------------------------------------------- meta (once per upload)
@@ -437,28 +464,87 @@ def _ocr_run(meta, region, scale, psm):
     return uniq
 
 
+# --------------------------------------------------------------------------------------------- upload warm-up
+# One warm-up per sheet page, started at upload (app/server.py: _prepare). answer() waits for it instead of starting
+# the same reading a second time next to it (on a 4-core VM two copies of a piping read take ~2x as long each).
+# At most two sheets warm at once, so a burst of uploads queues instead of starving everything else of CPU.
+_warm_pool = __import__("concurrent.futures", fromlist=["x"]).ThreadPoolExecutor(2, thread_name_prefix="sheets-warm")
+_warm_lock = threading.Lock()
+_warm_jobs: dict = {}
+
+
+def _warm_key(meta):
+    return (os.path.realpath(str(meta.get("path") or meta.get("image") or "")), int(meta.get("page") or 0))
+
+
+def warm_job(meta):
+    """The Future of this sheet's warm-up, or None when none was started (in this process)."""
+    with _warm_lock:
+        return _warm_jobs.get(_warm_key(meta))
+
+
+def _default_warm(name):
+    """Warm-up for a module without its own warm(meta): the reading every answer of it starts with."""
+    if name == "piping":
+        def w(meta):
+            from bp.sheets import piping
+
+            piping.read_sheet(str(meta.get("path")), meta)
+        return w
+    return None
+
+
+def _warm_run(meta):
+    import time
+
+    t0 = time.monotonic()
+    n, m, _ = best(meta)
+    if m is None:
+        return None  # the generic reader answers: nothing of ours to prepare
+    if n == "arch":  # rooms / zones / textqa share the default OCR (ocr_words at this signature)
+        warm(meta, background=False)
+    fn = m.warm if callable(getattr(m, "warm", None)) else _default_warm(n)
+    if fn is not None:
+        fn(meta)
+    log.info("sheet warm-up %s (%s) done in %.1f s", n, os.path.basename(str(meta.get("path"))), time.monotonic() - t0)
+    return n
+
+
 def warm_upload(meta):
-    """At upload, in the background: the shared OCR, then the claiming module's own warm(meta) if it has one (a
-    piping module reading tags with vision, a room segmentation), so the judge's first question finds them ready."""
-    def run():
-        try:
-            n, m, _ = best(meta)
-            if m is not None and callable(getattr(m, "warm", None)):
-                m.warm(meta)
-        except Exception:  # noqa: BLE001
-            log.exception("warm-up failed")
+    """At upload, in the background: the claiming module's own warm(meta), else the reading its answers start with
+    (piping: tesseract + Haiku tile read; arch: the shared OCR), so the first question finds it ready or in flight.
+    Idempotent per sheet page (a failed warm-up may be retried); returns the Future."""
+    key = _warm_key(meta)
+    with _warm_lock:
+        f = _warm_jobs.get(key)
+        if f is not None and not (f.done() and f.exception() is not None):
+            return f
 
-    warm(meta)
-    threading.Thread(target=run, daemon=True).start()
+        def run():
+            try:
+                return _warm_run(meta)
+            except Exception:  # noqa: BLE001
+                log.exception("warm-up failed")
+                raise
+
+        f = _warm_jobs[key] = _warm_pool.submit(run)
+        while len(_warm_jobs) > 256:  # forget finished warm-ups of old uploads
+            old = next((k for k, v in _warm_jobs.items() if v.done()), None)
+            if old is None:
+                break
+            _warm_jobs.pop(old)
+    return f
 
 
-def warm(meta):
-    """Start the default OCR of a raster sheet in the background (called once per upload), so the first question
-    does not wait for it; the specialists share the result through ocr_words' cache."""
+def warm(meta, background=True):
+    """The default OCR of a raster sheet (the signature rooms / zones / arch read), shared through ocr_words' cache."""
     if meta.get("words") or not meta.get("image") or not shutil.which("tesseract"):
         return
     sc = 2.0 if max(meta.get("w", 0), meta.get("h", 0)) < 3000 else 1.0
-    threading.Thread(target=lambda: ocr_words(meta, scale=sc, min_conf=0), daemon=True).start()
+    if background:
+        threading.Thread(target=lambda: ocr_words(meta, scale=sc, min_conf=0), daemon=True).start()
+    else:
+        ocr_words(meta, scale=sc, min_conf=0)
 
 
 def ocr_lines(words: list[dict], ytol: float = 0.5) -> list[dict]:

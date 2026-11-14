@@ -14,8 +14,12 @@ otherwise say "not sure" and why.**
 Each distinct file is prepared once (keyed by its SHA-1), in a worker thread so the server stays responsive.
 It takes 3-15 s, mostly the page check in step 4.
 
-1. **Type.** PDF, PNG, JPG, DXF and IFC are read as they are. WEBP, TIFF, BMP, GIF and SVG are converted
-   (a multi-page TIFF becomes a PDF, so its pages are kept). DWG, RVT, SKP, HEIC, ZIP, DOCX and XLSX get a
+1. **Type.** PDF, PNG, JPG, DXF and IFC are read as they are. WEBP, TIFF, BMP, GIF, SVG and HEIC/HEIF (iPhone
+   photos, via `pillow-heif`, saved as JPG) are converted (a multi-page TIFF becomes a PDF, so its pages are kept).
+   A multi-page PDF (a whole drawing set) gets a page index from its text layer (`bp/generic/sheetindex.py`, ~15 ms
+   a page, nothing rendered): each page's sheet id and title from its title block, shown in the page picker; a
+   question that names a sheet ("check valves on M-101A?") is answered on that page, whose sheet type is then
+   classified on first use. DWG, RVT, SKP, ZIP, DOCX and XLSX get a
    clear 415 that says what to export instead (e.g. "DWG is a closed AutoCAD format: export the sheet to PDF or DXF").
 2. **Validation.** Damaged files get a 422 that says what is wrong, not a stack trace. The checks: images are
    fully decoded, a PDF must open, have pages, not need a password, and render its first page. A DXF is read with
@@ -123,5 +127,5 @@ answer: 34 s (before the parallel tiles change: 64 s).
   photos or other drawing styles. We have 30 hand-checked files, not a measured accuracy.
 * No OCR on scans: scanned PDFs are read by the vision model only (fine for titles, schedules and labels;
   weaker for long tables).
-* HEIC (iPhone) files are refused with advice to share as JPG. Browsers on iPhone usually convert to JPEG on
-  upload anyway.
+* HEIC (iPhone) files are converted to JPG on upload (`pillow-heif`; refused with advice to share as JPG only
+  if that package is missing).

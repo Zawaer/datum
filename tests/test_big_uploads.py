@@ -199,9 +199,27 @@ def test_multipage_tiff_becomes_pdf(up):
     assert r.json()["path"].endswith(".pdf") and r.json()["pages"] == 3
 
 
-def test_heic_refused_with_reason(up):
-    r = _post(up, "photo.heic", b"\0\0\0\x18ftypheic")
-    assert r.status_code == 415 and "JPG" in r.json()["detail"]
+def test_heic_converted_like_a_jpg(up):
+    """An iPhone photo (HEIC) is read like a JPG: converted, with the orientation libheif applies on decode."""
+    pillow_heif = pytest.importorskip("pillow_heif")
+    if not pillow_heif.libheif_info().get("encoders"):
+        pytest.skip("this libheif build cannot write HEIC")
+    b = io.BytesIO()
+    pillow_heif.from_pillow(_sheet(640, 480, "RGB")).save(b, quality=90)
+    r = _post(up, "IMG_0001.HEIC", b.getvalue())
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["path"].endswith(".jpg") and j["kind"] == "raster"
+    assert any("HEIC" in n for n in j["notes"])
+    p = S.UPLOADS / j["path"].split("/", 1)[1]
+    with Image.open(p) as im:
+        assert im.format == "JPEG" and im.size == (640, 480)
+
+
+def test_damaged_heic_gets_a_reason(up):
+    pytest.importorskip("pillow_heif")
+    r = _post(up, "photo.heic", b"\0\0\0\x18ftypheic" + b"\0" * 64)
+    assert r.status_code == 422 and "HEIC" in r.json()["detail"]
 
 
 # ---------------------------------------------------------------- PDFs: rotation in display and crops

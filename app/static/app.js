@@ -480,7 +480,7 @@ function showImage(view, page = 0) {
 }
 
 // ------------------------------------------------------------ upload
-$('#file').accept = '.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.bmp,.gif,.svg,.dxf,.ifc';
+$('#file').accept = '.pdf,.png,.jpg,.jpeg,.heic,.heif,.webp,.tif,.tiff,.bmp,.gif,.svg,.dxf,.ifc';
 // what the server did to an upload (rectified photo, turned scan, ...), a not-a-drawing warning, and a page picker
 function uploadPanel(info) {
   let box = $('#upnote');
@@ -505,7 +505,8 @@ function uploadPanel(info) {
   bar.hidden = !(cur.path.startsWith('uploads/') && n > 1 && info.view);
   if (!bar.hidden) {
     $('#pgsel').innerHTML = '<option value="auto">Any page: find the right one</option>' +
-      Array.from({length: n}, (_, i) => `<option value="${i}">Page ${i + 1} of ${n}${titles[i] ? ' · ' + esc(titles[i]).slice(0, 60) : ''}</option>`).join('');
+      // a drawing set: "M-101A · PIPING PLAN (p. 96)", by the sheet id printed in each title block
+      Array.from({length: n}, (_, i) => `<option value="${i}">${(info.sheet_ids || {})[i] ? esc(titles[i]).slice(0, 70) + ` (p. ${i + 1})` : `Page ${i + 1} of ${n}${titles[i] ? ' · ' + esc(titles[i]).slice(0, 60) : ''}`}</option>`).join('');
   }
   syncPageBar();
 }
@@ -602,7 +603,7 @@ function setupEvidence() {
   const evFile = Object.keys(files).sort((x, y) => files[y] - files[x])[0];
   const pages = {}; for (const e of flat) if (!e.file || !evFile || e.file === evFile) pages[e.page || 0] = (pages[e.page || 0] || 0) + 1;
   const top = Object.keys(pages).sort((x, y) => pages[y] - pages[x])[0];
-  const evPage = top != null ? +top : (cur.pin ?? res.page ?? cur.page ?? 0);
+  const evPage = top != null ? +top : (res.page ?? cur.pin ?? cur.page ?? 0);  // the page read (a sheet id in the question can move it)
   const two = ev.filter(e => PLAN_KINDS.has(e.kind) && (e.page || 0) === evPage);
   const txt = ev.filter(e => e.kind === 'text' && (e.page || 0) === evPage);
   const three = ev.filter(e => e.kind === 'ifc');

@@ -4,6 +4,11 @@ FROM python:3.11-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 libgomp1 tesseract-ocr tesseract-ocr-eng curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+# tesseract with one OpenMP thread per process (callers run tiles / variants side by side instead). Its default spins
+# one thread per core; with several tesseracts at once on the 4-core VM a 4000 px tile took 43 s instead of 4 s.
+# Only tesseract: the Python process keeps its OpenMP threads for torch.
+RUN printf '#!/bin/sh\nOMP_THREAD_LIMIT=1 exec /usr/bin/tesseract "$@"\n' > /usr/local/bin/tesseract \
+    && chmod 755 /usr/local/bin/tesseract
 
 # Claude Code CLI (the frontier-model fallback calls it one-shot, no tools); wrapped by claude-capped below
 COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node

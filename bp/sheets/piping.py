@@ -309,7 +309,7 @@ def _vision_items(image_path: str) -> tuple[list[dict], float]:
                 break
         return got, spent
 
-    with ThreadPoolExecutor(6) as ex:
+    with ThreadPoolExecutor(min(16, len(tiles))) as ex:  # one wave: each call is ~7 s of waiting on the API
         res = list(ex.map(one, tiles))
     return [it for g, _ in res for it in g], sum(c for _, c in res)
 
@@ -477,12 +477,16 @@ def read_sheet(path: str, meta: dict | None = None, vision: bool | None = None) 
     if not items:
         img = _image_of(path, meta)
         if img:
-            t = _tess_items(img)
+            # the Haiku tile read waits on the network, tesseract on the CPU: run them side by side (on a 4-core VM
+            # one after the other took ~80 s, too long for a first question)
+            with ThreadPoolExecutor(1) as ex:
+                vf = ex.submit(_vision_items, img) if (VISION if vision is None else vision) else None
+                t = _tess_items(img)
+                v, c = vf.result() if vf is not None else ([], 0.0)
             if t:
                 readers.append("tesseract (3 variants)")
             items += t
-            if VISION if vision is None else vision:
-                v, c = _vision_items(img)
+            if vf is not None:
                 cost += c
                 if v:
                     readers.append(f"Claude Haiku tile transcription (${c:.3f})")

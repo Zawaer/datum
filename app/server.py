@@ -694,13 +694,11 @@ def raw_file(path: str):
 
 UPLOAD_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".dxf", ".ifc"}
 # converted on upload (to PNG; multi-page TIFF and SVG to PDF), so every solver sees one of UPLOAD_EXT
-CONVERT_EXT = {".webp", ".tif", ".tiff", ".bmp", ".gif", ".svg"}
+CONVERT_EXT = {".webp", ".tif", ".tiff", ".bmp", ".gif", ".svg", ".heic", ".heif"}
 REFUSE_EXT = {
     ".dwg": "DWG is a closed AutoCAD format: export the sheet to PDF or DXF (File > Export / Plot to PDF) and upload that",
     ".rvt": "Revit models can't be read directly: export to IFC (File > Export > IFC) or print the sheets to PDF",
     ".skp": "SketchUp models can't be read directly: export to IFC or a PDF of the plan",
-    ".heic": "HEIC photos can't be read here yet: share or save the photo as JPG and upload that",
-    ".heif": "HEIF photos can't be read here yet: share or save the photo as JPG and upload that",
     ".zip": "please upload one drawing file (PDF, image, DXF or IFC), not an archive",
     ".docx": "this looks like a text document, not a drawing: upload the drawing as PDF or an image",
     ".xlsx": "this looks like a spreadsheet, not a drawing: upload the drawing as PDF or an image",
@@ -729,11 +727,19 @@ def _pil_limits():
     Image.MAX_IMAGE_PIXELS = REFUSE_PIXELS // 2
     # between half the limit and the limit PIL only warns; uploads are checked against REFUSE_PIXELS explicitly
     warnings.simplefilter("ignore", Image.DecompressionBombWarning)
+    try:  # iPhone photos (HEIC / HEIF) open like any other image; libheif applies their rotation on decode
+        from pillow_heif import register_heif_opener
+
+        register_heif_opener()
+    except ImportError:
+        CONVERT_EXT.difference_update({".heic", ".heif"})
+        REFUSE_EXT.update({e: "HEIC photos can't be read on this server: share or save the photo as JPG and upload "
+                              "that" for e in (".heic", ".heif")})
 
 
 _pil_limits()
 SHEET_TYPES = os.environ.get("BP_SHEETS", "1") == "1"  # sheet-type specialists for uploads (bp/sheets)
-PREP_VERSION = 5             # bump to re-run the upload preparation on files already in cache/uploads
+PREP_VERSION = 6             # bump to re-run the upload preparation on files already in cache/uploads
 SHEET_CHECK = os.environ.get("BP_SHEET_CHECK", "1") == "1"
 
 
@@ -784,7 +790,7 @@ def _classify(p: Path) -> str:
 
     with pymupdf.open(p) as doc:  # vector if any of the first pages carries linework or text (a set's cover may not)
         for pg in list(doc)[:8]:
-            if len(pg.get_drawings()) > 200 or len(pg.get_text("words")) > 30:
+            if len(pg.get_text("words")) > 30 or len(pg.get_drawings()) > 200:  # text first: ~10x cheaper
                 return "pdf-vector"
     return "pdf-raster"
 
@@ -868,6 +874,10 @@ def _convert(p: Path) -> Path:
     if len(frames) > 1 and ext in (".tif", ".tiff"):  # a multi-page scan: keep its pages
         out = p.with_suffix(".pdf")
         frames[0].save(out, save_all=True, append_images=frames[1:], resolution=200)
+        return out
+    if ext in (".heic", ".heif"):  # a phone photo: a JPEG like the camera would have saved (orientation applied)
+        out = p.with_suffix(".jpg")
+        frames[0].save(out, "JPEG", quality=92)
         return out
     out = p.with_suffix(".png")
     frames[0].save(out, compress_level=1 if frames[0].width * frames[0].height > GRAY_ABOVE_PIXELS else 6)
@@ -1031,6 +1041,13 @@ def _prep_pdf(p: Path, m: dict):
         m["n_pages"] = doc.page_count
         if doc.is_repaired:
             m["notes"].append("the PDF was damaged and has been repaired; some content may be missing")
+    if m["n_pages"] > 1:  # a drawing set: each page's sheet id and title from its text layer (~15 ms a page, no render)
+        try:
+            from bp.generic import sheetindex
+
+            m["page_index"] = sheetindex.index(str(p))
+        except Exception as e:  # noqa: BLE001
+            print(f"sheet index failed for {p}: {e!r}", flush=True)
 
 
 def _prep_dxf(p: Path, m: dict):
@@ -1146,7 +1163,9 @@ def _prepare(d: Path, p: Path, m: dict) -> tuple[Path, str]:
     if SHEET_CHECK and kind != "ifc" and check_file.exists() and not (DAILY_CAP and spent_today() >= DAILY_CAP):
         from bp.generic import sheets
 
-        sh = sheets.check(str(check_file.resolve()))
+        # a drawing set whose title blocks name every sheet: those are drawings, and their titles are read already
+        # (no 16-page contact sheet for a model to look at: ~11 s and a model call saved on a 150-page set)
+        sh = _set_sheets(m) if kind == "pdf-vector" and _is_set(m) else sheets.check(str(check_file.resolve()))
         m["sheets"] = sh
         m["sheet_cost_usd"] = sh.get("cost_usd", 0.0)
         if kind != "dxf":
@@ -1155,7 +1174,9 @@ def _prepare(d: Path, p: Path, m: dict) -> tuple[Path, str]:
             m["not_drawing"] = sheets.not_a_drawing(sh)
     if kind == "raster":
         _raster_copies(p, m)
-    if SHEET_TYPES and kind in ("raster", "pdf-vector", "pdf-raster") and not m.get("not_drawing") \
+    if _is_set(m):  # each sheet of a set is classified when a question first lands on it (_page_sheet_kind)
+        m["sheet_kind"] = None
+    elif SHEET_TYPES and kind in ("raster", "pdf-vector", "pdf-raster") and not m.get("not_drawing") \
             and not (DAILY_CAP and spent_today() >= DAILY_CAP):
         # what kind of sheet page 0 is (architectural / slab / piping plan: bp/sheets), one cheap Haiku call; the
         # router offers questions on it to that specialist first
@@ -1179,6 +1200,32 @@ def _prepare(d: Path, p: Path, m: dict) -> tuple[Path, str]:
     else:
         m["original"] = "original" + ext
     return p, kind
+
+
+def _is_set(m: dict) -> bool:
+    """A drawing set: 3+ pages, most with a sheet id in their title block (bp/generic/sheetindex.py)."""
+    idx = m.get("page_index") or []
+    return len(idx) >= 3 and sum(bool(x.get("sheet_id")) for x in idx) >= 0.6 * len(idx)
+
+
+def _set_sheets(m: dict) -> dict:
+    """The page check's answer for a drawing set, from its title blocks: every page a drawing, upright, titled."""
+    from bp.generic import sheetindex
+
+    return {"n_pages": m.get("n_pages") or len(m["page_index"]), "cost_usd": 0.0, "source": "title blocks",
+            "pages": [{"page": x["page"], "kind": "", "drawing": True, "turn": 0, "title": sheetindex.label(x),
+                       "residential_plan": False} for x in m["page_index"]]}
+
+
+def _set_suggestions(idx: list[dict]) -> list[str]:
+    """Example questions on a drawing set, each naming a sheet of the kind its specialist reads best."""
+    out = []
+    for pat, q in ((r"\bPIPING PLAN\b", "How many check valves on {}?"), (r"\bSLAB PLAN\b", "Slab area by type on {}?"),
+                   (r"\bFLOOR PLAN\b", "How many doors on {}?")):
+        x = next((x for x in idx if x.get("sheet_id") and re.search(pat, x.get("title") or "", re.I)), None)
+        if x:
+            out.append(q.format(x["sheet_id"]))
+    return out
 
 
 def _render_dxf(src: Path, out: Path):
@@ -1233,7 +1280,7 @@ async def upload(request: Request, name: str):
         raise HTTPException(415, REFUSE_EXT[ext])
     if ext not in UPLOAD_EXT | CONVERT_EXT:
         raise HTTPException(415, f"unsupported file type {ext or '?'}: use PDF, PNG, JPG, DXF or IFC "
-                                 "(WEBP, TIFF, BMP, GIF and SVG are converted)")
+                                 "(WEBP, TIFF, BMP, GIF, SVG and HEIC are converted)")
     try:
         if int(request.headers.get("content-length") or 0) > MAX_UPLOAD:
             raise HTTPException(413, "file too large (max 200 MB)")
@@ -1299,13 +1346,21 @@ async def upload(request: Request, name: str):
 def _upload_info(m: dict, key: str) -> dict:
     """What the UI shows about an upload: notes, pages (with what each one is), not-a-drawing warning."""
     sh = m.get("sheets") or {}
-    return {"notes": m.get("notes") or [], "pages": m.get("n_pages") or sh.get("n_pages") or 1,
-            "page_titles": {str(x["page"]): f"{x.get('kind', '')}: {x.get('title', '')}".strip(": ")
-                            for x in sh.get("pages") or []},
-            "drawing_pages": [x["page"] for x in sh.get("pages") or [] if x.get("drawing")],
-            "not_drawing": m.get("not_drawing"),
-            "original": f"uploads/{key}/{m['original']}" if m.get("original") else None,
-            **_sheet_info(m, key)}
+    titles = {str(x["page"]): f"{x.get('kind', '')}: {x.get('title', '')}".strip(": ") for x in sh.get("pages") or []}
+    idx = m.get("page_index") or []
+    for x in idx:  # a drawing set: the sheet id and title printed in each page's title block
+        if x.get("sheet_id"):
+            titles[str(x["page"])] = " · ".join(s for s in (x["sheet_id"], x.get("title")) if s)
+    out = {"notes": m.get("notes") or [], "pages": m.get("n_pages") or sh.get("n_pages") or 1,
+           "page_titles": titles,
+           "sheet_ids": {str(x["page"]): x["sheet_id"] for x in idx if x.get("sheet_id")},
+           "drawing_pages": [x["page"] for x in sh.get("pages") or [] if x.get("drawing")],
+           "not_drawing": m.get("not_drawing"),
+           "original": f"uploads/{key}/{m['original']}" if m.get("original") else None,
+           **_sheet_info(m, key)}
+    if _is_set(m) and not out["suggested"] and not m.get("not_drawing"):
+        out["suggested"] = _set_suggestions(idx)
+    return out
 
 
 SHEET_LABEL = {"arch": "Architectural plan", "slab": "Slab plan", "piping": "Piping plan"}
@@ -1338,7 +1393,9 @@ class Ask(BaseModel):
     page: int | None = None  # uploads: the page the user picked (0-based); None = let the reader pick
 
 
-UPLOAD_TIMEOUT_S = 75
+# a sheet specialist's first question may take up to ~62 s (bp/sheets ANSWER_MAX_S; it waits for the upload's
+# warm-up) and the generic reader then still needs its own ~30 s when the specialist abstains
+UPLOAD_TIMEOUT_S = float(os.environ.get("BP_UPLOAD_TIMEOUT_S", "100"))
 # words of typical questions: a typed "how mnay windws" is read as "how many windows" (shown as "read as: ...")
 _VOCAB = set("""how many much what which where who is are the this that there on in of shown drawn plan floor
 drawing sheet page number total area height width length ceiling dimensions scale architect title date revision
@@ -1377,9 +1434,20 @@ def _upload_question(req: Ask) -> dict:
     sh = meta.get("sheets") or {}
     n_pages = meta.get("n_pages") or sh.get("n_pages") or 1
     page = req.page if req.page is not None and 0 <= req.page < n_pages else None
+    page_why = None
+    if n_pages > 1 and meta.get("page_index"):  # a drawing set: a sheet id in the question picks its page
+        from bp.generic import sheetindex
+
+        named = sheetindex.find(question, meta["page_index"])
+        if named is not None and named < n_pages:
+            sid = meta["page_index"][named]["sheet_id"]
+            page, page_why = named, f"sheet {sid}, page {named + 1} of {n_pages} (named in the question)"
     from bp.generic.sheets import page_info
 
     info = page_info(sh, page or 0) or {}
+    # a page of a set (or one the user is viewing): its own sheet type, classified on first use
+    page_kind = _page_sheet_kind(p, meta, page) if n_pages > 1 and page is not None and \
+        (page or not meta.get("sheet_kind")) else None
     if SHEET_TYPES and "sheet_kind" not in meta and meta.get("kind") in ("raster", "pdf-vector", "pdf-raster") \
             and not meta.get("not_drawing") and not (DAILY_CAP and spent_today() >= DAILY_CAP):
         try:  # an upload prepared before sheet types existed (or with BP_SHEETS=0): classify it now, once
@@ -1397,8 +1465,35 @@ def _upload_question(req: Ask) -> dict:
             "split": "upload", "answer": None, "view": str(resolve(view)) if view else "",
             "dxf_extents": meta.get("dxf_extents"), "page": page, "sheets": sh, "n_pages": n_pages,
             "residential_plan": bool(info.get("residential_plan")) and n_pages == 1,
-            "sheet_kind": meta.get("sheet_kind") if (n_pages == 1 or page == 0) else None,
-            "typo_fixed": question if question != req.question else None}
+            "sheet_kind": meta.get("sheet_kind") if (n_pages == 1 or (page == 0 and not page_kind)) else page_kind,
+            "page_why": page_why, "typo_fixed": question if question != req.question else None}
+
+
+def _page_sheet_kind(p: Path, meta: dict, page: int) -> str | None:
+    """Sheet type of one page of a drawing set (bp/sheets), classified the first time a question is asked on it:
+    that page alone is rendered (the specialist reads the same render), and the kind is kept in meta.json."""
+    known = (meta.get("page_kinds") or {}).get(str(page))
+    if known is not None or not SHEET_TYPES or meta.get("kind") not in ("pdf-vector", "pdf-raster") \
+            or meta.get("not_drawing") or (DAILY_CAP and spent_today() >= DAILY_CAP):
+        return known or None
+    try:
+        from bp import sheets as sheet_types
+
+        sm = sheet_types.build_meta(str(p.resolve()), page, cache_dir=p.parent)
+        kind = sm.get("kind") or ""
+        mf = p.parent / "meta.json"
+        with _meta_write_lock:
+            cur = json.loads(mf.read_text()) if mf.exists() else {}
+            cur.setdefault("page_kinds", {})[str(page)] = kind
+            mf.write_text(json.dumps(cur))
+        meta.setdefault("page_kinds", {})[str(page)] = kind
+        return kind or None
+    except Exception as e:  # noqa: BLE001
+        print(f"sheet type check failed for {p} page {page}: {e!r}", flush=True)
+        return None
+
+
+_meta_write_lock = threading.Lock()
 
 
 # sources whose specialist answers exactly from a CAD/BIM twin: a typed question it cannot read is never handed

@@ -25,7 +25,9 @@ class SheetsSolver:
                     "explanation": f"no {meta.get('kind') or 'sheet'} specialist answer for this question"}
         for e in res.get("evidence") or []:
             e.setdefault("file", path)
-            e.setdefault("page", page)
+            if not e.get("page"):  # modules read one page (meta["page"]) and mostly mark their evidence page 0
+                e["page"] = page
+        res["page"] = page
         res.setdefault("cost_usd", 0.0)
         res.setdefault("evidence", [])
         return res
