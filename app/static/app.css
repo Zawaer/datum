@@ -127,6 +127,8 @@ main { flex: 1; display: grid; grid-template-columns: 264px 1fr 424px; min-heigh
 /* ------------------------------------------------------------ side panel (right): ask, answer, measurement list */
 #side { border-left: 1px solid var(--line2); overflow: auto; background: var(--panel); padding: 16px; display: flex; flex-direction: column; gap: 16px; }
 .ask { display: flex; gap: 8px; order: 0; position: sticky; top: -16px; z-index: 3; background: var(--panel); margin: -16px -16px 0; padding: 16px 16px 12px; border-bottom: 1px solid var(--line); }
+/* content scrolling under the sticky question box must not peek out between it and the answer card */
+.ask::after { content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 15px; background: var(--panel); pointer-events: none; }
 .qs { order: 1; } #intro { order: 2; } #answer { order: 3; } #evwrap { order: 4; }
 .ask input { flex: 1; min-width: 0; background: var(--panel); border: 1px solid var(--faint); color: var(--text); border-radius: var(--r1); padding: 9px 10px; font-size: 15px; }
 .ask input:focus { outline: none; border-color: var(--ev); box-shadow: 0 0 0 1px var(--ev); }
@@ -189,7 +191,7 @@ h3 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing
 .xcheck.conflict { border-color: var(--bad); border-style: solid solid solid double; border-left-width: 4px; background: var(--bad-tint); } .xcheck.conflict b { color: var(--bad-ink); }
 .expl { color: var(--mut); margin-top: 8px; font-size: 13px; }
 .row { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-#answer > .row { margin-top: 12px !important; }
+#answer > .row { margin-top: 12px; }
 #answer > .row:empty { display: none; }
 .pill { font-size: 12px; border-radius: 3px; padding: 1px 6px; background: var(--panel2); border: 1px solid var(--line); color: var(--mut); }
 .pill.ok { background: var(--ok-tint); border-color: #b3dfd1; color: var(--ok-ink); }
@@ -309,6 +311,7 @@ svg .appear { animation: pop .25s ease-out; transform-box: fill-box; transform-o
   #viewer { height: 50vh; height: 50svh; min-height: 280px; flex: none; border-bottom: 1px solid var(--line2); }
   #side { border-left: 0; overflow: visible; padding: 12px; gap: 12px; }
   .ask { position: static; margin: 0; padding: 0; border: 0; }
+  .ask::after { display: none; }
   .ask button { padding: 0 18px; }
   #intro { order: 1; } #answer { order: 1; } #evwrap { order: 2; } .qs { order: 3; }
   .intro .keys { display: none; }

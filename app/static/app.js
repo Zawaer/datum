@@ -327,7 +327,7 @@ async function ask() {
   renderEvidence();
   if (!PHONE.matches && seq === askSeq) {  // bring the answer card up under the question box (desktop side panel)
     const side = $('#side');
-    side.scrollTo({top: Math.max(0, a.getBoundingClientRect().top - side.getBoundingClientRect().top + side.scrollTop - $('.ask').offsetHeight - 26), behavior: 'smooth'});
+    side.scrollTo({top: Math.max(0, a.getBoundingClientRect().top - side.getBoundingClientRect().top + side.scrollTop - $('.ask').offsetHeight - 16), behavior: 'smooth'});
   }
 }
 $('#go').onclick = ask; $('#q').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) ask(); });
@@ -485,12 +485,12 @@ function renderAnswer(shownSoFar) {
     <div class="qecho">${esc(res.question)}</div>
     <div class="big ${abst ? 'abstain' : ''} ${counting ? 'counting' : ''}">${abst ? 'Not sure, so no guess' : num ? fmt(val, t) : ''} <small>${abst ? '' : unitOf(t)}</small></div>
     ${typeof res.answer === 'string' ? `<div class="textans">${esc(res.answer)}</div>` : ''}
-    ${(() => { const h = howOf(res); return `<div class="how ${h.cls}"><b>${h.cls === 'geo' ? '✓' : h.cls === 'vis' ? '◎' : h.cls === 'llm' ? '✦' : '–'} ${esc(h.t)}</b><span>${esc(h.how)}</span></div>`; })()}
+    ${(() => { const h = howOf(res); return `<div class="how ${h.cls}"><b>${h.cls === 'geo' ? '✓ ' : ''}${esc(h.t)}</b><span>${esc(h.how)}</span></div>`; })()}
     ${res.rule ? `<div class="rule"><b>Rule</b> ${esc(res.rule)}</div>` : ''}
     ${crossHTML(res)}
     ${calibHTML(res)}
     ${abst || !res.trace ? `<div class="expl">${esc(res.explanation || '')}</div>` : ''}
-    <div class="row" style="margin-top:10px">${abst || res.calibration ? '' : `<span class="pill ${confCls}">confidence ${(conf * 100).toFixed(0)}%</span>`}
+    <div class="row">${abst || res.calibration ? '' : `<span class="pill ${confCls}">confidence ${(conf * 100).toFixed(0)}%</span>`}
       ${route}${gold}</div>
     <div class="corr" id="corr"></div>
     ${hasVs ? frontierHTML(res, oursOk) : ''}
@@ -604,12 +604,15 @@ function updateMeter() {
 
 // ------------------------------------------------------------ evidence overlay
 const PHONE = matchMedia('(max-width: 860px)');
+const pgLabelY = (cy, by, fs) => Math.max(cy + fs * 2.4, by - fs * 0.9);
 function labelSize() { return (PHONE.matches ? 11 : 14) / view.s; }
 function rescaleLabels() {
   const fs = labelSize();
   ov.querySelectorAll('circle.badgebg').forEach(c => c.setAttribute('r', fs * 0.78));
   ov.querySelectorAll('text.badge').forEach(t => t.style.fontSize = (t.textContent.length > 2 ? fs * 0.62 : fs * 0.82) + 'px');
-  ov.querySelectorAll('text.pglabel').forEach(t => { t.style.fontSize = fs + 'px'; t.setAttribute('y', +t.dataset.y + fs * 1.5); });
+  ov.querySelectorAll('text.pglabel').forEach(t => { t.style.fontSize = fs + 'px'; t.setAttribute('y', pgLabelY(+t.dataset.y, +t.dataset.by, fs)); });
+  ov.querySelectorAll('rect.badgebg').forEach(c => { const cx = +c.dataset.cx, cy = +c.dataset.cy, h = fs * 0.72;
+    c.setAttribute('x', cx - h); c.setAttribute('y', cy - h); c.setAttribute('width', 2 * h); c.setAttribute('height', 2 * h); });
 }
 function draw(animate) {
   ov.innerHTML = '';
@@ -635,7 +638,7 @@ function shapeFor(e, i, W, H) {
     shape.setAttribute('points', e.points.map(p => (p[0] * W) + ',' + (p[1] * H)).join(' '));
     shape.setAttribute('class', 'pg appear' + (e.on ? '' : ' off'));
     const xs = e.points.map(p => p[0] * W), ys = e.points.map(p => p[1] * H);
-    lx = (Math.min(...xs) + Math.max(...xs)) / 2; ly = (Math.min(...ys) + Math.max(...ys)) / 2;
+    lx = (Math.min(...xs) + Math.max(...xs)) / 2; ly = (Math.min(...ys) + Math.max(...ys)) / 2; var by = Math.max(...ys);
   } else {
     const [x0, y0, x1, y1] = e.bbox;
     shape = document.createElementNS(NS, 'rect');
@@ -659,8 +662,12 @@ function shapeFor(e, i, W, H) {
   }
   if (i >= 0 && numbered(e) && e.on) {
     const n = items.slice(0, i + 1).filter(x => x.on && numbered(x)).length;
-    const c = document.createElementNS(NS, 'circle');
-    c.setAttribute('cx', lx); c.setAttribute('cy', ly); c.setAttribute('r', fs * 0.78);
+    // shape carries the meaning without colour: circle = measured from CAD / IFC geometry, square = found by a model
+    let c;
+    if (modelRead(e)) {
+      const h = fs * 0.72; c = document.createElementNS(NS, 'rect'); c.dataset.cx = lx; c.dataset.cy = ly;
+      c.setAttribute('x', lx - h); c.setAttribute('y', ly - h); c.setAttribute('width', 2 * h); c.setAttribute('height', 2 * h); c.setAttribute('rx', h * 0.15);
+    } else { c = document.createElementNS(NS, 'circle'); c.setAttribute('cx', lx); c.setAttribute('cy', ly); c.setAttribute('r', fs * 0.78); }
     c.setAttribute('class', 'badgebg' + (e.added ? ' added' : '') + (modelRead(e) ? ' model' : '')); g.appendChild(c);
     const t = document.createElementNS(NS, 'text');
     t.setAttribute('x', lx); t.setAttribute('y', ly); t.setAttribute('text-anchor', 'middle');
@@ -668,7 +675,8 @@ function shapeFor(e, i, W, H) {
     t.textContent = n; t.style.fontSize = (String(n).length > 2 ? fs * 0.62 : fs * 0.82) + 'px'; g.appendChild(t);
   } else if (i >= 0 && e.kind === 'polygon' && e.on && e.value != null && res.type !== 'count') {
     const t = document.createElementNS(NS, 'text');
-    t.setAttribute('x', lx); t.dataset.y = ly; t.setAttribute('y', ly + fs * 1.5); t.setAttribute('text-anchor', 'middle');
+    // the printed room name and number sit at the centre: put the m² near the bottom edge, inside the room
+    t.setAttribute('x', lx); t.dataset.y = ly; t.dataset.by = by; t.setAttribute('y', pgLabelY(ly, by, fs)); t.setAttribute('text-anchor', 'middle');
     t.setAttribute('class', 'pglabel'); t.style.fontSize = fs + 'px';
     t.textContent = (+e.value).toFixed(2) + ' m²'; g.appendChild(t);
   }
@@ -841,7 +849,11 @@ async function doAction(act) {
   else if (k === 'trace') {
     traceOpen = arg !== 'close'; const d = $('#answer details.trace'); if (!d) return;
     d.open = traceOpen;
-    if (!PHONE.matches) { const side = $('#side'); side.scrollTo({top: Math.max(0, d.getBoundingClientRect().top - side.getBoundingClientRect().top + side.scrollTop - 120), behavior: 'smooth'}); }
+    if (!PHONE.matches) {  // bring the trace up, but never past the top of the answer card (the big number stays visible)
+      const side = $('#side'), a = $('#answer'), top = el => el.getBoundingClientRect().top - side.getBoundingClientRect().top + side.scrollTop;
+      const card = top(a) - $('.ask').offsetHeight - 16, want = top(d) + d.offsetHeight - side.clientHeight + 16;
+      side.scrollTo({top: Math.max(0, Math.min(card, Math.max(side.scrollTop, want))), behavior: 'smooth'});
+    }
     await sleep(900);
   }
   else if (k === 'hover') { const i = +arg; hotItem(i, true); rowHot(i, true, true); await sleep(1400); hotItem(i, false); rowHot(i, false); }
