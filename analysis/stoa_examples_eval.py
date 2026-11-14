@@ -126,10 +126,10 @@ def summary(rows, name):
         a = res.get("answer")
         shown = a if a is not None else f"(abstain; guess {res.get('tentative_answer')})" if res.get(
             "tentative_answer") is not None else "(abstain)"
-        lines.append(f"| {r['id']} | {r['sheet'].split('_')[0]} | {r['question']} | {r['gold']}{' ~' if r.get('conf') == 'approx' else ''} "
+        lines.append(f"| {r['id']} | {Path(r['sheet']).name.split('_')[0][:12]} | {r['question']} | {r['gold']}{' ~' if r.get('conf') == 'approx' else ''} "
                      f"| {str(shown)[:60]} | {res.get('confidence')} | {'Y' if r['ok'] else '-'} | "
                      f"{res.get('route')} / {res.get('method')} | {res.get('cost_usd', 0) or 0:.4f} | {res.get('latency_s')} |")
-        b = by.setdefault(r["sheet"].split("_")[0], [0, 0])
+        b = by.setdefault(("held-out " if r.get("split") == "heldout" else "") + Path(r["sheet"]).name.split("_")[0], [0, 0])
         b[0] += r["ok"]
         b[1] += 1
     tot = sum(r["ok"] for r in rows)
@@ -144,6 +144,7 @@ def main():
     ap.add_argument("--server", default="http://127.0.0.1:3160")
     ap.add_argument("--name", default="run")
     ap.add_argument("--only", default="", help="comma list of ids or sheet prefixes")
+    ap.add_argument("--split", default="", help="'examples' (the 4 sheets) or 'heldout' (sibling sheets); default both")
     ap.add_argument("--jobs", type=int, default=3)
     ap.add_argument("--rescore", default="")
     ap.add_argument("--no-png", action="store_true")
@@ -163,6 +164,8 @@ def main():
         Path(a.rescore).with_suffix(".summary.md").write_text(summary(rows, name))
         print(summary(rows, name))
         return
+    if a.split:
+        qs = [q for q in qs if (q.get("split") or "examples") == a.split]
     if a.only:
         keep = a.only.split(",")
         qs = [q for q in qs if q["id"] in keep or any(q["sheet"].startswith(k) for k in keep)]
