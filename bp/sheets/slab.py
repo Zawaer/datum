@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import re
 from pathlib import Path
 
@@ -216,6 +217,18 @@ def _diag_strokes(dark, S):
     return cv2.morphologyEx(dark, cv2.MORPH_OPEN, k1) | cv2.morphologyEx(dark, cv2.MORPH_OPEN, np.fliplr(k1).copy())
 
 
+def _bbox(m):
+    import numpy as np
+
+    ys, xs = np.nonzero(m)
+    return (int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())) if len(xs) else (0, 0, 0, 0)
+
+
+def _min_side(m):
+    x0, y0, x1, y1 = _bbox(m)
+    return min(x1 - x0, y1 - y0)
+
+
 def _zones(g):
     """Slab zones: list of {"mask"}. Enclosed white areas (hatch strokes ignored); thin strips (wall bands between
     their outlines) dropped; areas separated only by a thin line (control joint, dimension line) merged."""
@@ -281,7 +294,20 @@ def _zones(g):
             continue
         m = cv2.morphologyEx(np.isin(lab, idx).astype(np.uint8), cv2.MORPH_CLOSE, kc)
         cands.append((m, _ring_walled(g, m)))
-    zones = [m for m, wl in cands if wl >= 0.75]
+    zones = [m for m, wl in cands if wl >= 0.75 and _min_side(m) >= 0.05 * S]
+    if zones:  # slab zones form one building: keep the cluster around the largest zone (drops title-block cells)
+        boxes = [_bbox(m) for m in zones]
+        big = max(range(len(zones)), key=lambda i: zones[i].sum())
+        near, grow = {big}, True
+        gap = 0.04 * S
+        while grow:
+            grow = False
+            for i, b in enumerate(boxes):
+                if i not in near and any(b[0] - gap < boxes[j][2] and boxes[j][0] - gap < b[2] and
+                                         b[1] - gap < boxes[j][3] and boxes[j][1] - gap < b[3] for j in near):
+                    near.add(i)
+                    grow = True
+        zones = [zones[i] for i in sorted(near)]
     # outside = the paper around the building: open areas not walled in (between dimension chains, sheet margin)
     outside = np.zeros((H, W), np.uint8)
     for m, wl in cands:
@@ -319,7 +345,7 @@ def _zones(g):
         cv2.drawContours(f, [c], -1, 1, -1)
         res.append({"mask": f, "walled": dict((id(mm), wl) for mm, wl in cands).get(id(m), 1.0)})
     zones = res
-    return zones, d
+    return zones, outside
 
 
 def _ring_walled(g, m) -> float:
@@ -397,54 +423,48 @@ def _rect_poly(m, eps):
     return pts
 
 
-def _outward_offsets(g, zmask, pts, others, d):
+def _outward_offsets(g, zmask, pts, others, outside):
     """Per polygon edge, distance (px) from the inner face to the outer face of the edge beam: scan outward along
-    samples of the edge, last mark before a long blank run. Shared walls (another zone beyond) count half."""
+    samples of the edge until the open paper outside the building (or, for a shared wall, the neighbouring zone:
+    half the wall each). Samples that reach neither take the median of the edges that did."""
     import numpy as np
 
     H, W = g.shape
     S = max(H, W)
-    dark = g < 200
-    maxd = max(20, round(S * 0.02))
-    blank = max(6, round(S * 0.004))
+    maxd = max(20, round(S * 0.025))
     offs = []
     n = len(pts)
-    area2 = sum(pts[i][0] * pts[(i + 1) % n][1] - pts[(i + 1) % n][0] * pts[i][1] for i in range(n))
     for i in range(n):
         (x0, y0), (x1, y1) = pts[i], pts[(i + 1) % n]
         dx, dy = x1 - x0, y1 - y0
         L = math.hypot(dx, dy) or 1
-        # outward normal: for a CCW polygon in image coords (y down), area2 < 0 ... pick by testing the mask
         nx, ny = dy / L, -dx / L
         mx, my = (x0 + x1) / 2, (y0 + y1) / 2
         tx, ty = int(round(mx + nx * 4)), int(round(my + ny * 4))
         if 0 <= tx < W and 0 <= ty < H and zmask[ty, tx]:
             nx, ny = -nx, -ny
         vals, shared = [], 0
-        for t in np.linspace(0.1, 0.9, 15):
+        for t in np.linspace(0.08, 0.92, 21):
             sx, sy = x0 + dx * t, y0 + dy * t
-            last, run, hit_other = 0, 0, False
             for s in range(1, maxd):
                 px, py = int(round(sx + nx * s)), int(round(sy + ny * s))
                 if not (0 <= px < W and 0 <= py < H):
                     break
                 if others[py, px]:
-                    hit_other = True
+                    shared += 1
+                    vals.append(s / 2)
                     break
-                if dark[py, px]:
-                    last, run = s, 0
-                else:
-                    run += 1
-                    if run >= blank and last > 0:
-                        break
-            if hit_other:
-                shared += 1
-                vals.append(s / 2)
-            else:
-                vals.append(last)
-        v = float(np.median(vals)) if vals else 0.0
-        offs.append((v, shared > len(vals) / 2, (nx, ny)))
-    return offs
+                if outside[py, px]:
+                    vals.append(s - 1.5)  # the outer face line was dilated by 1 px when the paper was found
+                    break
+        v = float(np.median(vals)) if len(vals) >= 5 else None
+        offs.append([v, shared > len(vals) / 2, (nx, ny)])
+    known = [o[0] for o in offs if o[0] is not None and not o[1]]
+    fill = float(np.median(known)) if known else 0.0
+    for o in offs:
+        if o[0] is None:
+            o[0] = fill
+    return [tuple(o) for o in offs]
 
 
 def _offset_poly(pts, offs):
@@ -542,49 +562,105 @@ def _hatch(g, union_mask):
 
 
 # ----------------------------------------------------------------------------------------------- scale
-def _scale_from_dims(hor, ver, W, H):
-    """mm per px (median of consecutive-pair estimates within dimension chains) and the dimension list."""
+def _tick_span(g, cx, cy, x0, x1, th):
+    """For a horizontal dimension text centred at (cx, cy) with x-extent x0..x1 and height th (px): find its dimension
+    line just below (or through) the text, then the extension lines (thin strokes crossing the dimension line well
+    above and below it, past any arrowhead / tick blob) left and right of the text. Returns (left_x, right_x, row)."""
+    H, W = g.shape
+    line = g < 245
+    probe = max(4, int(th * 2))
+    row = None
+    for dy in list(range(int(th * 0.5), int(th * 2.4) + 1)) + list(range(-int(th * 0.4), int(th * 0.4) + 1)):
+        y = int(round(cy + dy))
+        if not (2 <= y < H - 2):
+            continue
+        lx, rx = max(0, int(x0) - probe), min(W, int(x1) + probe)
+        a = line[y - 1:y + 2, lx:int(x0)].any(0).mean() if int(x0) > lx else 0
+        b = line[y - 1:y + 2, int(x1):rx].any(0).mean() if rx > int(x1) else 0
+        if a > 0.8 and b > 0.8:
+            row = y
+            break
+    if row is None:
+        return None
+    ext = g < 235
+    up_rows = [row - d for d in range(3, 8) if row - d >= 0]
+    dn_rows = [row + d for d in range(3, 8) if row + d < H]
+
+    def is_tick(x):
+        def hits(rs):
+            return sum(ext[r, max(0, x - 1):x + 2].any() and not ext[r, max(0, x - 4)] and not ext[r, min(W - 1, x + 4)]
+                       for r in rs)
+        return hits(up_rows) >= 4 or hits(dn_rows) >= 4
+
+    def walk(x, step):
+        gap = 0
+        while 1 < x < W - 2:
+            if line[row - 1:row + 2, x].any():
+                gap = 0
+            else:
+                gap += 1
+                if gap > 3:
+                    return None
+            if is_tick(x):
+                return x
+            x += step
+        return None
+
+    L = walk(int(x0) - 1, -1)
+    R = walk(int(x1) + 1, 1)
+    if L is None or R is None or R - L < (x1 - x0):
+        return None
+    return L, R, row
+
+
+def _scale_from_dims(hor, ver, W, H, g=None):
+    """mm per px: each dimension number over the span between the ticks of its own dimension line (median)."""
     import numpy as np
 
     dims = []
     for ws, vertical in ((hor, False), (ver, True)):
         for w in ws:
             v = _num(w["text"])
-            if v is None or v < 50 or v > 200000 or w.get("conf", 99) < 50:
+            if v is None or v < 100 or v > 200000 or w.get("conf", 99) < 50:
                 continue
             x0, y0, x1, y1 = w["bbox"]
-            dims.append({"v": v, "vertical": vertical, "cx": (x0 + x1) / 2 * W, "cy": (y0 + y1) / 2 * H,
-                         "bbox": w["bbox"]})
+            dims.append({"v": v, "vertical": vertical, "bbox": w["bbox"],
+                         "px": [x0 * W, y0 * H, x1 * W, y1 * H]})
+    if g is None:
+        return None, dims, 0
+    gT = np.ascontiguousarray(g.T)
     est = []
-    for vertical in (False, True):
-        ds = [d for d in dims if d["vertical"] == vertical]
-        a_key, c_key = ("cx", "cy") if vertical else ("cy", "cx")
-        a_key, c_key = ("cx", "cy") if vertical else ("cy", "cx")
-        # chains: same cross coordinate (+-4 px)
-        ds.sort(key=lambda d: d[a_key])
-        chains, cur = [], []
-        for d in ds:
-            if cur and abs(d[a_key] - cur[-1][a_key]) > 5:
-                chains.append(cur)
-                cur = []
-            cur.append(d)
-        if cur:
-            chains.append(cur)
-        for ch in chains:
-            ch.sort(key=lambda d: d[c_key])
-            for a, b in zip(ch, ch[1:]):
-                gap = b[c_key] - a[c_key]
-                if gap > 5:
-                    est.append((a["v"] + b["v"]) / 2 / gap)
+    for d in dims:
+        x0, y0, x1, y1 = d["px"]
+        if not d["vertical"]:
+            sp = _tick_span(g, (x0 + x1) / 2, (y0 + y1) / 2, x0, x1, y1 - y0)
+            if sp:
+                d["span"] = [sp[0], sp[2], sp[1], sp[2]]
+        else:  # vertical text reads bottom-to-top; its line runs to the right of it in the transposed image
+            sp = _tick_span(gT, (y0 + y1) / 2, (x0 + x1) / 2, y0, y1, x1 - x0)
+            if sp:
+                d["span"] = [sp[2], sp[0], sp[2], sp[1]]
+        if sp:
+            d["k"] = d["v"] / (sp[1] - sp[0])
+            est.append(d["k"])
     if len(est) < 3:
         return None, dims, 0
     e = np.array(est)
     med = float(np.median(e))
-    good = e[np.abs(e / med - 1) < 0.03]
-    return (float(np.median(good)) if len(good) else med), dims, int(len(good))
+    good = [d for d in dims if "k" in d and abs(d["k"] / med - 1) < 0.04]
+    for d in dims:
+        d["inlier"] = d in good
+    # long dimensions dominate (a 1 px tick error matters less on 12,000 mm than on 600 mm)
+    k = sum(d["v"] ** 2 * d["k"] for d in good) / sum(d["v"] ** 2 for d in good)
+    return k, dims, len(good)
 
 
-def _snap(L_mm, dims, tol=0.02):
+def _snap_to(v, ticks, tol):
+    best = min(ticks, key=lambda t: abs(t - v), default=None)
+    return float(best) if best is not None and abs(best - v) <= tol else v
+
+
+def _snap(L_mm, dims, tol=0.006):
     """A printed dimension close to a measured length (prefers larger, i.e. overall, dimensions)."""
     best = None
     for d in dims:
@@ -616,6 +692,108 @@ def _vision_text(meta) -> dict:
     return d
 
 
+_NOTE_KW = re.compile(r"SLAB|SUMP|TRENCH|NOTES?\b|SHADED|HATCH|REINF", re.I)
+
+
+def _merge_boxes(boxes):
+    boxes = [list(b) for b in boxes]
+    changed = True
+    while changed:
+        changed = False
+        for i in range(len(boxes)):
+            for j in range(i + 1, len(boxes)):
+                a, b = boxes[i], boxes[j]
+                if a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]:
+                    boxes[i] = [min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])]
+                    boxes.pop(j)
+                    changed = True
+                    break
+            if changed:
+                break
+    return boxes
+
+
+def _reread_notes(meta, blocks):
+    """Tesseract garbles small note text ("W/ D22" -> "022"). Re-read every note that matters (slab types, sumps,
+    trenches, the general notes) with one small Haiku call per note crop (~$0.0005 each). Returns (blocks, cost)."""
+    from PIL import Image
+
+    from bp.generic import llm
+
+    if os.environ.get("BP_SLAB_REREAD", "1") != "1":
+        return blocks, 0.0
+    Image.MAX_IMAGE_PIXELS = None
+    im = Image.open(meta["image"]).convert("L")
+    W, H = im.size
+    keyb = [b for b in blocks if _NOTE_KW.search(b["text"])]
+    if not keyb or len(keyb) > 25:
+        return blocks, 0.0
+    boxes = []
+    for b in keyb:
+        x0, y0, x1, y1 = b["bbox"]
+        lh = max(0.004, (y1 - y0) / max(1, len(b["lines"])))
+        if re.match(r"\s*NOTES?\b", b["text"], re.I) or "TRENCH LENGTH" in b["text"].upper():
+            boxes.append([x0 - 0.005, y0 - lh, min(1, x0 + 0.5), y0 + 0.075])  # the whole general-notes column
+        else:
+            boxes.append([x0 - 3 * lh, y0 - 2.5 * lh, x1 + 3 * lh, y1 + 2.5 * lh])
+    boxes = _merge_boxes([[max(0, a), max(0, b), min(1, c), min(1, d)] for a, b, c, d in boxes])
+    cache = meta.setdefault("_slab_reads", {})
+    cost = 0.0
+
+    def read(bx):
+        crop = im.crop((round(bx[0] * W), round(bx[1] * H), round(bx[2] * W), round(bx[3] * H)))
+        f = min(4.0, 1400 / max(crop.width, crop.height))
+        if f > 1:
+            crop = crop.resize((round(crop.width * f), round(crop.height * f)), Image.LANCZOS)
+        r = llm.ask("Crop of a construction drawing. Transcribe every text note in it exactly as printed (keep "
+                    "bar marks like D16, @ spacings, EL. values, numbers). One note per list item, lines of one "
+                    "note joined with spaces; numbered notes stay separate items. JSON only: "
+                    '{"notes": ["..."]}', [crop.convert("RGB")], model="haiku", tag="sheets-slab-note", timeout=90)
+        d = llm.parse_json(r["text"]) or {}
+        notes = d.get("notes") if isinstance(d, dict) else None
+        return float(r.get("cost_usd") or 0.0), ([str(n) for n in notes] if isinstance(notes, list) else None)
+
+    todo = [bx for bx in boxes if ",".join(f"{v:.4f}" for v in bx) not in cache]
+    if todo:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            for bx, (c, notes) in zip(todo, ex.map(read, todo)):
+                cost += c
+                cache[",".join(f"{v:.4f}" for v in bx)] = notes
+    # numbers in each crop re-OCRed at a higher zoom: a vision-read number with no OCR twin but a one-digit-off OCR
+    # number is replaced by the OCR one (Haiku sometimes "reads" 1825 as 1625 on a small raster)
+    from bp.sheets import ocr_words
+
+    crop_nums = {}
+    for bx in boxes:
+        ws = ocr_words(meta, region=tuple(round(v, 4) for v in bx), scale=4.0, psm=6, min_conf=40)
+        crop_nums[tuple(bx)] = {t for w in ws for t in re.findall(r"\d{3,6}", w["text"])}
+
+    def fix(note, bx):
+        def sub(m):
+            t = m.group(0)
+            near = crop_nums.get(tuple(bx), set())
+            if not near or t in near:
+                return t
+            alt = [o for o in near if len(o) == len(t) and sum(a != b for a, b in zip(o, t)) == 1]
+            return alt[0] if len(alt) == 1 else t
+        return re.sub(r"(?<![\dA-Z])\d{4,6}(?!\d)", sub, note)
+
+    out = []
+    for bx in boxes:
+        for n in cache.get(",".join(f"{v:.4f}" for v in bx)) or []:
+            out.append({"text": fix(n, bx), "bbox": bx, "lines": [], "read": "haiku+ocr"})
+    if not out:
+        return blocks, cost
+    # keep OCR blocks that the re-read crops do not cover; the crops' notes replace the rest
+    def inside(b):
+        cx, cy = (b["bbox"][0] + b["bbox"][2]) / 2, (b["bbox"][1] + b["bbox"][3]) / 2
+        return any(x0 <= cx <= x1 and y0 <= cy <= y1 for x0, y0, x1, y1 in boxes if cache.get(
+            ",".join(f"{v:.4f}" for v in (x0, y0, x1, y1))))
+    return [b for b in blocks if not inside(b)] + out, cost
+
+
 def analyse(meta) -> dict:
     if isinstance(meta.get("slab"), dict) and meta["slab"].get("v") == 1:
         return meta["slab"]
@@ -642,6 +820,9 @@ def analyse(meta) -> dict:
             blocks.append({"text": n.get("text", ""), "bbox": [x - 0.03, y - 0.015, x + 0.03, y + 0.015], "lines": []})
         gn = vis.get("general_notes") or ""
         blocks.append({"text": gn, "bbox": [0, 0, 0, 0], "lines": []})
+    if src == "tesseract":
+        blocks, c = _reread_notes(meta, blocks)
+        cost += c
     full_text = "\n".join(b["text"] for b in blocks)
 
     # slab types
@@ -653,11 +834,11 @@ def analyse(meta) -> dict:
             types.append(ty)
 
     # scale
-    k, dims, n_scale = _scale_from_dims(hor, ver, W, H)
+    k, dims, n_scale = _scale_from_dims(hor, ver, W, H, g)
     scale_src = f"{n_scale} dimension-string pairs" if k else None
 
     # zones
-    zones, _d = _zones(g)
+    zones, _outside = _zones(g)
     S = max(H, W)
     good = []
     for z in zones:
@@ -676,6 +857,8 @@ def analyse(meta) -> dict:
             scale_src = "overall dimension read by vision (rough)"
 
     eps = max(2.0, S * 0.0015)
+    xt = sorted({round(c, 1) for d in dims if d.get("inlier") and not d["vertical"] for c in (d["span"][0], d["span"][2])})
+    yt = sorted({round(c, 1) for d in dims if d.get("inlier") and d["vertical"] for c in (d["span"][1], d["span"][3])})
     out_zones = []
     for i, z in enumerate(zones):
         others = np.zeros_like(g, dtype=bool)
@@ -685,8 +868,11 @@ def analyse(meta) -> dict:
         pts = _rect_poly(z["mask"], eps)
         if len(pts) < 4:
             continue
-        offs = _outward_offsets(g, z["mask"], pts, others, _d)
+        offs = _outward_offsets(g, z["mask"], pts, others, _outside)
         gross = _offset_poly(pts, offs)
+        # snap the outer faces to the dimension-line ticks (extension lines) when one is close
+        tol = 0.012 * S
+        gross = [(_snap_to(x, xt, tol), _snap_to(y, yt, tol)) for x, y in gross]
         n_pan, cuts = _cj_panels(g, z["mask"])
         out_zones.append({"inner": pts, "gross": gross, "inner_px": _poly_area(pts), "gross_px": _poly_area(gross),
                           "panels": n_pan, "cuts": cuts, "walled": round(z["walled"], 3),
