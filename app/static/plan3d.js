@@ -702,24 +702,38 @@ function uploadPlan(w) {
   return {upload: true, raster: true, walls, symbols: [], rooms: [], wallH: UP_WALL_H, openings: {doors: op('doors'), windows: op('windows')},
     to_page: [1 / Wm, 0, -1 / Hm, 1], bounds: R(w.bounds), scale: w.scale, style: w.wall_style};
 }
+// /api/walls, asked again with a growing wait while the server is busy (rate limit, memory gate, a timeout): a busy
+// moment must not turn into a worse 3D. {w} the walls, {failed} the server can't build them, {busy} it stayed busy
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function fetchWalls(url) {
+  const waits = [1500, 3000, 6000, 12000, 20000];
+  for (let t = 0; ; t++) {
+    let r = null;
+    const ac = new AbortController(), to = setTimeout(() => ac.abort(), 120000);
+    try { r = await fetch(url, {signal: ac.signal}); } catch (e) { r = null; } finally { clearTimeout(to); }
+    if (r && r.ok) { try { return {w: await r.json()}; } catch (e) { r = null; } }
+    if (r && ![408, 429, 500, 502, 503, 504].includes(r.status)) return {failed: true};
+    if (t >= waits.length) return {busy: true};
+    await sleep(waits[t]);
+  }
+}
 async function loadUpload(c) {
   const page = c.page || 0, view = c.shown || c.path;
   const vq = `path=${encodeURIComponent(view)}` + (page ? `&page=${page}` : '');
-  let d = null, failed = false;
-  try {
-    const r = await fetch(`/api/walls?path=${encodeURIComponent(c.path)}&page=${page}`);
-    if (!r.ok) failed = true;
-    else {
-      const w = await r.json();
-      if (!w.plausible || !w.walls || !w.walls.length || !w.page_m) return null;
-      d = uploadPlan(w);
-    }
-  } catch (e) { failed = true; }
+  let d = null;
+  const got = await fetchWalls(`/api/walls?path=${encodeURIComponent(c.path)}&page=${page}`);
+  if (got.busy) return {busy: true};
+  if (got.w) {
+    const w = got.w;
+    if (!w.plausible || !w.walls || !w.walls.length || !w.page_m) return null;
+    d = uploadPlan(w);
+  }
   const img = await loadImg('/api/render?dpi=220&' + vq);
-  if (!d) {  // the endpoint failed: the browser's own reading, if it finds a building's worth of walls
-    if (!failed || !img) return null;
+  if (!d) {  // the server can't read walls from this page: the browser's own reading, only if it is a building too
+    if (!img) return null;
     const r = rasterPlan(img);
-    if (r.nRects < 60) return null;
+    // as plausible as the server asks: rooms enclosed and walls inside the outline, never an outer shell alone
+    if (r.nRects < 60 || r.nRooms < 4 || r.nInner < 8) return null;
     r.img = img; return r;
   }
   d.img = img;
@@ -736,6 +750,7 @@ async function load(p, c) {
   if (dataPath === p && data) return data;
   if (c && isUpload(c)) {
     const d = await loadUpload(c);
+    if (d && d.busy) throw new Error('busy');  // asked again later (sync), the 3D toggle stays at "Building 3D…"
     upOK.set(p, !!d);
     if (!d) throw new Error('no plausible walls on this drawing');
     return d;
@@ -824,7 +839,7 @@ function rasterPlan(im) {
   const walls = rects.filter(q => (q.x1 - q.x0) * (q.y1 - q.y0) >= 3).map(q => ({outer: rr(q.x0, q.y0, q.x1, q.y1), holes: []}));
   // openings: runs of floor between two wall pixels on one row (or column), 0.55 to 2.6 m long, grouped into connected
   // regions; a region as thick as a wall (not a corridor) is an opening in that wall
-  const symbols = [];
+  const symbols = [], gaps = [];
   const darkIn = (x0, y0, x1, y1) => { let n = 0, d = 0; for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { n++; if (lum[y * W + x] < 170) d++; } return n ? d / n : 0; };
   const lo = Math.round(0.55 * ppm), hi = Math.round(3.6 * ppm);
   for (const horiz of [true, false]) {
@@ -851,6 +866,7 @@ function rasterPlan(im) {
       const dk = darkIn(x0, y0, x1, y1), pts = rr(x0, y0, x1, y1);
       const m = horiz ? (y0 + y1) / 2 : (x0 + x1) / 2;
       const band = t => horiz ? rr(x0, m - t, x1, m + t) : rr(m - t, y0, m + t, y1);
+      gaps.push([x0, y0, x1, y1]);
       if (dk > 0.14) symbols.push({kind: 'window', pts, pane: band(Math.max(0.5, T * PANE / 0.4))});  // glazing lines inside: a window
       else if (len <= 1.3 * ppm) symbols.push({kind: 'door', pts, leaf: band(Math.max(1, T * 0.18))});
     }
@@ -879,7 +895,31 @@ function rasterPlan(im) {
     for (const k2 of corners) { const x = Math.floor(k2 / 65536), y = k2 % 65536; push(x, y, 0); push(x, y, top); }
     return new Float32Array(out);
   };
-  return {raster: true, T, nRects: big.length, walls, symbols, rooms: [], wallEdges, to_page: [1 / Wm, 0, -1 / Hm, 1], bounds: [0, 0, Wm, Hm]};
+  // how much of a building this is (the upload fallback asks): rooms enclosed once the openings are closed, and wall
+  // blocks inside the outline (an outer shell alone has none)
+  const nRooms = (() => {
+    const F = Uint8Array.from(M);
+    for (const [x0, y0, x1, y1] of gaps) for (let y = y0; y < y1; y++) F.fill(1, y * W + x0, y * W + x1);
+    const minA = 1.5 * ppm * ppm, st = [];
+    let n = 0;
+    for (let i = 0; i < N; i++) {
+      if (F[i]) continue;
+      let area = 0, edge = false; F[i] = 2; st.push(i);
+      while (st.length) {
+        const j = st.pop(), x = j % W, y = (j - x) / W; area++;
+        if (x === 0 || y === 0 || x === W - 1 || y === H - 1) edge = true;
+        if (x > 0 && !F[j - 1]) { F[j - 1] = 2; st.push(j - 1); } if (x < W - 1 && !F[j + 1]) { F[j + 1] = 2; st.push(j + 1); }
+        if (y > 0 && !F[j - W]) { F[j - W] = 2; st.push(j - W); } if (y < H - 1 && !F[j + W]) { F[j + W] = 2; st.push(j + W); }
+      }
+      if (!edge && area >= minA) n++;
+    }
+    return n;
+  })();
+  let bx0 = W, by0 = H, bx1 = 0, by1 = 0;
+  for (const q of big) { bx0 = Math.min(bx0, q.x0); by0 = Math.min(by0, q.y0); bx1 = Math.max(bx1, q.x1); by1 = Math.max(by1, q.y1); }
+  const mx = (bx1 - bx0) * 0.06, my = (by1 - by0) * 0.06;
+  const nInner = big.filter(q => q.x0 > bx0 + mx && q.x1 < bx1 - mx && q.y0 > by0 + my && q.y1 < by1 - my).length;
+  return {raster: true, T, nRects: big.length, nRooms, nInner, walls, symbols, rooms: [], wallEdges, to_page: [1 / Wm, 0, -1 / Hm, 1], bounds: [0, 0, Wm, Hm]};
 }
 
 async function open() {
@@ -929,17 +969,26 @@ function hintMsg(msg) {
   h.hidden = false; h.textContent = msg; setTimeout(() => { if (h.textContent === msg) h.hidden = true; }, 2500);
 }
 
-const upPending = new Set();
+const upPending = new Set(), upBusy = new Map(), upWait = new Map();
 function sync() {
   const c = app.cur(), k = keyOf(c);
-  if (isUpload(c) && !upOK.has(k) && !upPending.has(k)) {  // an upload: read its walls now; the toggle shows if they're plausible
+  if (isUpload(c) && !upOK.has(k) && !upPending.has(k) && !((upWait.get(k) || 0) > Date.now())) {  // an upload: read its walls now; the toggle shows if they're plausible
     upPending.add(k);
     load(k, c).then(d => { if (keyOf(app.cur()) === k && !opened) { data = d; dataPath = k; if (renderer) build(d); } })
-      .catch(() => {}).finally(() => { upPending.delete(k); if (!upOK.has(k)) upOK.set(k, false); q(); });
+      .catch(e => { if (e && e.message === 'busy') upBusy.set(k, (upBusy.get(k) || 0) + 1); })
+      .finally(() => {
+        upPending.delete(k);
+        const tries = upBusy.get(k) || 0;
+        if (!upOK.has(k) && tries && tries < 4) { upWait.set(k, Date.now() + 15000 * tries); setTimeout(q, 15000 * tries + 50); }  // still busy: try again in a while
+        else if (!upOK.has(k)) upOK.set(k, false);
+        q();
+      });
   }
-  const swiss = has3D(c);
+  const swiss = has3D(c), building = isUpload(c) && !upOK.has(k);
   const modes = $('#modes'), ifc3d = modes && modes.classList.contains('show');
-  tog.classList.toggle('show', swiss && !ifc3d);
+  tog.classList.toggle('show', (swiss || building) && !ifc3d);
+  const go = tog.querySelector('#p3go');
+  if (go.disabled !== building) { go.disabled = building; go.textContent = building ? 'Building 3D…' : '3D'; }
   if (opened && (!c || k !== path || !swiss)) close();
   if (swiss && k !== dataPath && !upPending.has(k)) {  // fetch the geometry ahead of the click, so the rise starts at once
     load(k, c).then(d => { if (keyOf(app.cur()) === k && !opened) { data = d; dataPath = k; if (renderer) build(d); } }).catch(() => {});

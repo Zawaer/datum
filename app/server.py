@@ -683,17 +683,75 @@ def plan3d(request: Request, path: str):
 
 # ---- /api/walls: an uploaded plan's walls for the 3D view (bp/sheets/walls3d.py: rooms.py's wall mask, simplified to
 # <= ~4,000 polygon edges, in page-normalised coordinates, with the scale and the doors / windows in the wall lines).
-# Cached in memory and beside the prepared image (walls_p<page>.json); a result on a provisional scale (the upload's
-# OCR still running) is served but not cached, so the next open gets the real one.
+# Cached in memory and beside the prepared image (walls_p<page>.json). A result on a provisional scale (the upload's
+# OCR still running) is cached too, marked final=False, and read again in the background once the OCR has had time,
+# so a 3D view never waits on it twice. Cheap (~3 s) and not a paid call: a cached answer costs nothing, and a fresh
+# extraction has its own per-visitor bucket (viewer crops and renders don't use it up) and goes to the front of the
+# memory gate's line, ahead of queued warm-ups.
 _WALLS: collections.OrderedDict = collections.OrderedDict()
 _walls_locks: dict = {}
+_walls_hits: dict[str, collections.deque] = collections.defaultdict(collections.deque)
+_walls_refresh: set = set()
+WALLS_REFRESH_S = (20, 60, 180)  # when a provisional result is read again
+
+
+def _walls_extract(p: Path, page: int) -> tuple[dict, bool]:
+    from bp.sheets import walls3d
+
+    with memgate.hold(memgate.cost(_pixels_of(p, page), "walls"), tag=memgate.tag_for(p), label=f"walls {p.name}",
+                      front=True):
+        if not _heavy_sem.acquire(timeout=HEAVY_WAIT_S):
+            raise HTTPException(503, "the server is busy; please try again in a minute")
+        try:
+            return walls3d.for_upload(str(p.resolve()), page)
+        finally:
+            _heavy_sem.release()
+
+
+def _walls_store(key, cf_: Path, out: dict, final: bool, st):
+    out["src"] = [st.st_mtime_ns, st.st_size]
+    out["final"] = bool(final)
+    try:
+        cf_.write_text(json.dumps(out))
+    except OSError:
+        pass
+    _WALLS[key] = out
+    while len(_WALLS) > 32:
+        _WALLS.popitem(last=False)
+
+
+def _walls_later(key, p: Path, page: int, cf_: Path):
+    """Read a provisional result again once the upload's OCR has had time (a few tries), and keep the final one."""
+    if key in _walls_refresh:
+        return
+    _walls_refresh.add(key)
+
+    def run():
+        try:
+            for wait in WALLS_REFRESH_S:
+                time.sleep(wait)
+                try:
+                    st = p.stat()
+                    if (str(p), page, st.st_mtime_ns, st.st_size) != key:
+                        return
+                    out, final = _walls_extract(p, page)
+                except Exception as e:  # noqa: BLE001
+                    print(f"walls refresh failed for {p.name} page {page}: {e!r}", flush=True)
+                    continue
+                with _hits_lock:
+                    _walls_store(key, cf_, out, final, st)
+                if final:
+                    return
+        finally:
+            _walls_refresh.discard(key)
+
+    threading.Thread(target=run, daemon=True, name=f"walls-refresh-{p.name}").start()
 
 
 @app.get("/api/walls")
 def walls(request: Request, path: str, page: int = 0):
     from bp.sheets import walls3d
 
-    _heavy_limit(request)
     _known_drawing(path)
     if not path.startswith("uploads/") or not 0 <= page < 10_000:
         raise HTTPException(404, "3D walls are read from uploaded plans")
@@ -719,29 +777,20 @@ def walls(request: Request, path: str, page: int = 0):
             except (OSError, ValueError):
                 out = None
         if out is None:
-            with memgate.hold(memgate.cost(_pixels_of(p, page), "walls"), tag=memgate.tag_for(p),
-                              label=f"walls {p.name}"):
-                if not _heavy_sem.acquire(timeout=HEAVY_WAIT_S):
-                    raise HTTPException(503, "the server is busy; please try again in a minute")
-                try:
-                    out, final = walls3d.for_upload(str(p.resolve()), page)
-                except HTTPException:
-                    raise
-                except Exception as e:  # noqa: BLE001
-                    print(f"walls failed for {path!r} page {page}: {e!r}", flush=True)
-                    raise HTTPException(422, "could not read walls from this page") from e
-                finally:
-                    _heavy_sem.release()
-            out["src"] = [st.st_mtime_ns, st.st_size]
-            if not final:
-                return out
+            if RATE_N:
+                _bucket(_walls_hits, request, HEAVY_N, RATE_S, "too many 3D requests from this visitor; please wait a minute")
             try:
-                cf_.write_text(json.dumps(out))
-            except OSError:
-                pass
-        _WALLS[key] = out
-        while len(_WALLS) > 32:
-            _WALLS.popitem(last=False)
+                out, final = _walls_extract(p, page)
+            except HTTPException:
+                raise
+            except Exception as e:  # noqa: BLE001
+                print(f"walls failed for {path!r} page {page}: {e!r}", flush=True)
+                raise HTTPException(422, "could not read walls from this page") from e
+            _walls_store(key, cf_, out, final, st)
+        else:
+            _WALLS[key] = out
+        if out.get("final") is False:
+            _walls_later(key, p, page, cf_)
         _walls_locks.pop(key, None)
     return out
 

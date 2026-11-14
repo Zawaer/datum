@@ -78,9 +78,11 @@ def _trim():
 
 
 @contextlib.contextmanager
-def hold(nbytes: int, tag: str = "", label: str = "", timeout: float | None = None):
+def hold(nbytes: int, tag: str = "", label: str = "", timeout: float | None = None, front: bool = False):
     """Take `nbytes` of the budget for the duration of the block, waiting in line (FIFO) while it is full.
-    Raises TimeoutError after `timeout` seconds in line (None: wait as long as it takes)."""
+    front=True joins the line ahead of every ordinary job (behind other front ones): short interactive work such as
+    /api/walls must not wait behind background warm-ups. Raises TimeoutError after `timeout` seconds in line (None:
+    wait as long as it takes)."""
     global _used
     if getattr(_local, "depth", 0):  # this thread already holds its share
         _local.depth += 1
@@ -90,10 +92,13 @@ def hold(nbytes: int, tag: str = "", label: str = "", timeout: float | None = No
             _local.depth -= 1
         return
     nbytes = int(min(BUDGET, max(1, nbytes)))
-    me = {"tag": tag, "cost": nbytes, "label": label, "t": time.time()}
+    me = {"tag": tag, "cost": nbytes, "label": label, "t": time.time(), "front": front}
     end = None if timeout is None else time.monotonic() + timeout
     with _cond:
-        _waiting.append(me)
+        if front:
+            _waiting.insert(next((i for i, w in enumerate(_waiting) if not w.get("front")), len(_waiting)), me)
+        else:
+            _waiting.append(me)
         try:
             # first in line, and it fits (or nothing else runs: a job bigger than the budget runs alone)
             while not (_waiting[0] is me and (_used + nbytes <= BUDGET or _used == 0)):
