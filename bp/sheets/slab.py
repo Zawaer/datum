@@ -1324,6 +1324,31 @@ def _snap(L_mm, dims, tol=0.006):
 
 
 # ----------------------------------------------------------------------------------------------- analyse
+def _vision_pad_labels(meta, word: str) -> tuple[list[str], float]:
+    """'<WORD> PAD #n' labels listed by Haiku from the whole sheet (one call, ~$0.0005, kept with the upload)."""
+    from PIL import Image
+
+    from bp.generic import llm
+
+    cache = meta.setdefault("_slab_reads", {})
+    key = f"padlabels:{word}"
+    if isinstance(cache.get(key), list):
+        return cache[key], 0.0
+    Image.MAX_IMAGE_PIXELS = None
+    with Image.open(meta["image"]) as im:
+        im = im.convert("RGB")
+        im.thumbnail((1568, 1568))
+    r = llm.ask(f'Construction drawing. List every label of the form "{word} PAD #<n>" (equipment pads; they may be '
+                f'printed vertically). JSON only: {{"labels": ["{word} PAD #1", ...]}}', [im], model="haiku",
+                tag="sheets-slab-pads", timeout=90)
+    d = llm.parse_json(r.get("text") or "") or {}
+    labels = [str(x) for x in (d.get("labels") or [])] if isinstance(d, dict) else []
+    if r.get("text"):
+        cache[key] = labels
+        _save_reads(meta)
+    return labels, float(r.get("cost_usd") or 0.0)
+
+
 def _reads_file(meta) -> Path | None:
     img = meta.get("image")
     if not img:
@@ -2056,12 +2081,21 @@ def answer(path, question, meta) -> dict | None:
     if em:
         word = em.group(1).upper()
         txt = "\n".join([A.get("labels_text") or "", A.get("text") or "", meta.get("text") or ""])
-        nums = sorted({int(n) for n in re.findall(rf"{word}\s*PAD\s*(?:NO\.?|#)?\s*(\d{{1,2}})\b", txt, re.I)})
+        rx = rf"{word}\s*PAD\s*(?:NO\.?|#)?\s*(\d{{1,2}})\b"
+        nums = sorted({int(n) for n in re.findall(rx, txt, re.I)})
+        how = "read on the plan"
+        if A.get("src") != "pdf-text":
+            # the labels run vertically and the rotated OCR misses some (#1..#4 of 5 is a complete run too): one
+            # look by the vision model at the sheet, its labels added
+            vis, c = _vision_pad_labels(meta, word)
+            nums2 = sorted({int(n) for n in re.findall(rx, " ".join(vis), re.I)} | set(nums))
+            if nums2 and nums2 == list(range(1, len(nums2) + 1)) and nums2 != nums:
+                nums, how = nums2, "read on the plan by the vision model (they are printed vertically)"
         if not nums or nums != list(range(1, len(nums) + 1)) or not re.search(r"how many|number|count", ql):
             return None  # the general reader looks (the hatched areas are bottom reinforcement, not these pads;
             # an incomplete run of labels, "#7" alone, is a misreading)
         n = len(nums)
-        return _res(n, conf0 * 0.8, f"{n} '{word} PAD #n' labels read on the plan: "
+        return _res(n, conf0 * 0.8, f"{n} '{word} PAD #n' labels {how}: "
                     + ", ".join(f"#{k}" for k in nums), [], A, "pads")
 
     # ---- bottom reinforcement pads (hatched)
