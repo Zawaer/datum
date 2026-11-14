@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      # CPU wheels of torch / torchvision (~200 MB instead of the ~3 GB CUDA build); nothing in the core suite runs a model
+      PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Byte-compile
+        run: python -m compileall -q bp app eval.py
+
+      - name: Ruff (pyflakes errors only)
+        # undefined names, bad syntax, misused comparisons...; unused imports / variables are not gated
+        run: ruff check --select F --ignore F401,F541,F811,F841 --output-format github bp app tests eval.py
+
+      - name: Tests (no dataset, weights or API keys)
+        run: pytest -m "not data" -q

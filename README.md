@@ -1,5 +1,7 @@
 # Blueprints That Talk
 
+<!-- CI badge (enable once the repo is public): [![CI](https://github.com/Zawaer/datum/actions/workflows/ci.yml/badge.svg)](https://github.com/Zawaer/datum/actions/workflows/ci.yml) -->
+
 **Ask a construction drawing or a BIM model a question (tested in English, Finnish, German, French, Italian and
 Dutch) and get the answer with its proof drawn on the drawing.** Our Junction 2026 entry for Stoa's *Make Blueprints Talk* challenge.
 
@@ -244,6 +246,8 @@ Without the CLI nothing crashes: free-text IFC questions fall back to the rule-b
 understood" plus the labels the drawing does have.
 
 ## Reproduce every number
+
+**Tests** (~5 s, no dataset, weights or keys; `.github/workflows/ci.yml` runs the same): `pip install -r requirements-dev.txt && pytest -m "not data"` (plain `pytest` also runs the end-to-end checks on real drawings when `data/` and the CubiCasa weights are present).
 
 Each command writes `runs/<name>.jsonl` (one row per question: prediction, gold, correct, cost, latency,
 evidence) and `runs/<name>.summary.md` (tables by type, source, source × type, language). The `--sample` is

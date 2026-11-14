@@ -1,0 +1,4 @@
+{"path": "data/cubicasa5k/colorful-10052.png", "question": "How many windows are shown on this floor plan?", "answer": 7, "unit": "count", "type": "count"}
+{"path": "data/swiss_dwellings/site1_bldg1_floor1.pdf", "question": "What is the net floor area of room 7.01 ('Balkon') in m²?", "answer": 15.47, "unit": "m²", "type": "area"}
+{"path": "data/swiss_dwellings/site1_bldg1_floor1.dxf", "question": "How many apartments (residential units) are shown on this floor plan?", "answer": 2, "unit": "count", "type": "count"}
+{"path": "data/ifc_models/example-house.ifc", "question": "How many doors are there in the model?", "answer": 12, "unit": "count", "type": "count"}
