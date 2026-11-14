@@ -74,6 +74,21 @@
   .pair .n { font-size: 200px; line-height: 1; font-weight: 600; letter-spacing: -0.04em; }
   .pair .l { font-size: 32px; line-height: 1.4; color: var(--ink2); margin-top: 32px; max-width: 720px; }
 
+  /* method: source strip */
+  table.strip { border-collapse: collapse; font-size: 24px; margin-top: 48px; }
+  table.strip td { padding: 10px 0; border-top: 1px solid var(--line); color: var(--ink2); }
+  table.strip tr:last-child td { border-bottom: 1px solid var(--line); }
+  table.strip td + td { padding-left: 96px; text-align: right; color: var(--ink); font-weight: 600; }
+
+  /* under the hood: left-to-right chain */
+  .chain { position: absolute; left: 128px; right: 128px; top: 480px; display: grid;
+           grid-template-columns: repeat(5, 1fr); column-gap: 72px; }
+  .chain div { position: relative; border-top: 2px solid var(--ink3); padding-top: 24px; }
+  .chain div.o { border-top-color: var(--ours); }
+  .chain div + div::before { content: "→"; position: absolute; left: -58px; top: 18px; font-size: 40px; line-height: 1; color: var(--ink3); }
+  .chain b { display: block; font-size: 32px; font-weight: 600; line-height: 1.2; }
+  .chain span { display: block; font-size: 24px; line-height: 1.4; color: var(--ink2); margin-top: 8px; }
+
   /* appendix */
   .cols { display: grid; grid-template-columns: 1.15fr 1fr; gap: 0 96px; margin-top: 48px; }
   .cols .s { margin: 0 0 20px; }
@@ -112,7 +127,7 @@
   598.73 m² when also given the IFC file. Ours: 353.715. -->
 <section class="slide">
   <h2>Frontier models answer fast, confidently, and wrong.</h2>
-  <p>Five models were asked the net floor area of one apartment. Five different answers. None is right.</p>
+  <p>One apartment’s net floor area. Five models, five wrong answers.</p>
   <div class="dots" style="--x0:52; --x1:78">
     <!-- x scale: 52..78 m² over 520..1520 px -->
     <div class="truth" style="left:calc(600px + (62.74 - 52) / 26 * 920px)"><span>Correct: 62.74 m²</span></div>
@@ -122,7 +137,7 @@
     <div class="row" style="top:304px"><b>Gemini 3.1 Pro</b><i class="dot" style="left:calc(600px + (73.90 - 52) / 26 * 920px)"></i><span class="v">73.90</span></div>
     <div class="row" style="top:392px; border-bottom:1px solid var(--line)"><b>Nemotron 3.5 Super VL</b><i class="dot" style="left:calc(600px + (75.00 - 52) / 26 * 920px)"></i><span class="v">75.00</span></div>
   </div>
-  <div class="foot"><span>Swiss Dwellings v3.0.0 plan, asked in German; held-out test question. Method: slide 12</span><span>2</span></div>
+  <div class="foot"><span>Held-out test question, asked in German</span><span>2</span></div>
 </section>
 
 <!-- 3 · THE ANSWER, ON THE DRAWING
@@ -133,7 +148,7 @@
   <h2>So we count it out on the drawing.</h2>
   <p>“How many doors?” 20, each one numbered. Untick one and the total changes.</p>
   <div class="bleed" style="top:328px"><img src="img/deck-swiss-doors.jpg" alt="20 doors numbered on a Swiss plan, door 8's card open, the answer 20 with its evidence list" style="object-position:50% 0%"></div>
-  <div class="foot"><span>Drawing: Swiss Dwellings v3.0.0, M. Standfest et al. (Archilyse AG), doi:10.5281/zenodo.7788422, CC BY 4.0</span><span>3</span></div>
+  <div class="foot"><span>Drawing: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0</span><span>3</span></div>
 </section>
 
 <!-- 4 · HOW IT WORKS
@@ -154,13 +169,13 @@
       <path d="M1180 280 L 1340 280"/>
       <path d="M1180 480 C 1260 480, 1260 280, 1340 280"/>
     </svg>
-    <div class="t" style="left:0; top:280px; width:240px"><b>A question</b><span>in any of six languages</span></div>
-    <div class="t" style="left:448px; top:80px; width:720px"><b>CAD plan or BIM model</b><span>Read the number from the geometry. 35 % of questions.</span></div>
-    <div class="t" style="left:448px; top:280px; width:720px"><b>Scanned plan</b><span>Our own trained detector, checked by a second model. 65 %.</span></div>
-    <div class="t" style="left:448px; top:480px; width:720px"><b>Free text</b><span>A small language model that must cite its facts. 0.4 %.</span></div>
+    <div class="t" style="left:0; top:280px; width:240px"><b>A question</b><span>in six languages</span></div>
+    <div class="t" style="left:448px; top:80px; width:720px"><b>CAD plan or BIM model</b><span>Read from geometry · 35 %</span></div>
+    <div class="t" style="left:448px; top:280px; width:720px"><b>Scanned plan</b><span>Our detector + a second model · 65 %</span></div>
+    <div class="t" style="left:448px; top:480px; width:720px"><b>Free text</b><span>A small model that cites facts · 0.4 %</span></div>
     <div class="t" style="left:1368px; top:280px; width:300px"><b class="ours">The answer, and the marks behind it</b></div>
   </div>
-  <div class="foot"><span>Shares of all 25,420 test questions. Method: slide 12</span><span>4</span></div>
+  <div class="foot"><span>Share of test questions</span><span>4</span></div>
 </section>
 
 <!-- 5 · 3D / VERIFY
@@ -181,16 +196,16 @@
   every question in every language. 90.7 % [90.4-91.1]; a "not sure" counts as wrong. When it answers (confidence
   >= 0.5): 95.8 %, declining 11.7 %. Fair baseline: Claude Sonnet 5.5 given the drawing AND its CAD / IFC files:
   69.8 % [60.9-78.4]. Frontier rows are a 400-question stratified sample re-weighted to the test mix.
-  Also: Haiku 5.5 60.6 %, Nemotron 3.5 Super VL 49.0 %. Per-source table on slide 12. -->
+  Also: Haiku 5.5 60.6 %, Nemotron 3.5 Super VL 49.0 %. Per-source table in the slide 12 notes. -->
 <section class="slide">
   <h2>90.7 % right on 25,420 questions it had never seen.</h2>
   <div class="hbar">
     <div class="lab o">Datum</div><div class="track o"><i style="width:calc(90.7 / 100 * 960px)"></i><em>90.7 %</em></div>
-    <div class="lab">Claude Sonnet 5.5,<br>given the same CAD / IFC files</div><div class="track"><i style="width:calc(69.8 / 100 * 960px)"></i><em>69.8 %</em></div>
+    <div class="lab">Claude Sonnet 5.5,<br>given the CAD / IFC files</div><div class="track"><i style="width:calc(69.8 / 100 * 960px)"></i><em>69.8 %</em></div>
     <div class="lab">Gemini 3.1 Pro,<br>drawing only</div><div class="track"><i style="width:calc(64.2 / 100 * 960px)"></i><em>64.2 %</em></div>
     <div class="lab">Claude Sonnet 5.5,<br>drawing only</div><div class="track"><i style="width:calc(63.2 / 100 * 960px)"></i><em>63.2 %</em></div>
   </div>
-  <div class="foot"><span>Held-out test split, whole drawings never used in development. Frontier: re-weighted sample. Method: slide 12</span><span>6</span></div>
+  <div class="foot"><span></span><span>6</span></div>
 </section>
 
 <!-- 7 · COST
@@ -204,7 +219,7 @@
     <div><div class="n ours">$0.013</div><div class="l">Datum, per 1,000 questions</div></div>
     <div><div class="n" style="color:var(--ink3)">$25.76</div><div class="l">Claude Sonnet 5.5 with the same files</div></div>
   </div>
-  <div class="foot"><span>API fees, measured; ours adds about $0.009 of local compute. 0.06 s per question vs 16 s. Method: slide 12</span><span>7</span></div>
+  <div class="foot"><span>API fees, measured</span><span>7</span></div>
 </section>
 
 <!-- 8 · VOICE / PHONE / SCANS
@@ -217,10 +232,10 @@
   On a phone, the app becomes a quick-ask view (right). -->
 <section class="slide">
   <h2>Ask out loud, in the language of the site.</h2>
-  <p>A scanned Finnish plan, asked in Finnish: 13 doors, each one boxed. Phones get a quick-ask view.</p>
+  <p>A scanned Finnish plan, asked in Finnish: 13 doors, each one boxed.</p>
   <div class="frame" style="position:absolute; left:128px; top:328px; width:1232px; height:680px"><img src="img/feat-voice.jpg" alt="Finnish scanned plan with doors boxed; the voice question in Finnish; the answer 13" style="object-position:0% 0%"></div>
   <div class="frame" style="position:absolute; right:128px; top:328px; width:314px; height:680px; border-radius:24px"><img src="img/phone-card.jpg" alt="The phone quick-ask view: the plan with numbered pins, one door's card open, the answer 20" style="object-position:50% 0%"></div>
-  <div class="foot"><span>Left: CubiCasa5K, © 2019 CubiCasa, Kalervo et al., SCIA 2019, CC BY-NC-SA 4.0 · Right: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0</span><span>8</span></div>
+  <div class="foot"><span>Left: CubiCasa5K, © 2019 CubiCasa, CC BY-NC-SA 4.0 · Right: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0</span><span>8</span></div>
 </section>
 
 <!-- 9 · COMPLEX SHEETS
@@ -235,7 +250,7 @@
   school plan; the dorm module's doors. API cost: $0.003 for all 41 on PDFs. -->
 <section class="slide">
   <h2>Stoa’s example sheets: 40 of 41 from a PDF, 37 from a scan.</h2>
-  <p>Floor, slab and piping plans, read from their own text and lines. Right answers by upload form:</p>
+  <p>Floor, slab and piping plans. Right answers by upload form:</p>
   <div class="hbar" style="margin-top:72px; row-gap:28px; grid-template-columns:520px 1fr">
     <div class="lab o">Vector PDF</div><div class="track o" style="height:64px"><i style="width:calc(40 / 41 * 960px)"></i><em>40 / 41</em></div>
     <div class="lab">Full-resolution PNG</div><div class="track o" style="height:64px"><i style="width:calc(37 / 41 * 960px)"></i><em>37</em></div>
@@ -244,7 +259,7 @@
     <div class="lab">Rough hand-marked scan</div><div class="track o" style="height:64px"><i style="width:calc(33 / 41 * 960px)"></i><em>33</em></div>
     <div class="lab">2,000 px JPG</div><div class="track o" style="height:64px"><i style="width:calc(31 / 41 * 960px)"></i><em>31</em></div>
   </div>
-  <div class="foot"><span>Stoa’s four example sheets, 41 questions, uploaded through the app’s API. Method: slide 12</span><span>9</span></div>
+  <div class="foot"><span>Stoa’s four example sheets, 41 questions</span><span>9</span></div>
 </section>
 
 <!-- 10 · WHY IT LASTS
@@ -257,7 +272,7 @@
   <h2>A better model still guesses from pixels.<br>We read the number from the geometry.</h2>
   <p>New models plug in behind the same proof. Each correction trains our own models.</p>
   <div class="bleed" style="top:400px"><img src="img/deck-correction.jpg" alt="A window unticked: the answer becomes 10, the app notes the solver said 11 and saves it as feedback" style="object-position:50% 0%"></div>
-  <div class="foot"><span>Drawing: Swiss Dwellings v3.0.0, M. Standfest et al. (Archilyse AG), doi:10.5281/zenodo.7788422, CC BY 4.0</span><span>10</span></div>
+  <div class="foot"><span>Drawing: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0</span><span>10</span></div>
 </section>
 
 <!-- 11 · TEAM + TRY IT
@@ -273,32 +288,44 @@
   <div class="foot"><span>Drawing: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0</span><span>11</span></div>
 </section>
 
-<!-- 12 · METHOD (appendix) -->
+<!-- 12 · METHOD (appendix)
+  Notes (everything that used to be on this slide; tables: docs/RESULTS.md, analysis/run_all.sh):
+  By source, ours / when answered / Sonnet 5.5 + files:
+    Swiss plans, counts      5,580 q   99.96 % / 99.96 % / 81.5 %
+    Swiss plans, room areas  2,634 q   99.92 % / 99.92 % / 79.6 %
+    IFC models, all types      600 q   100 %   / 100 %   / 91-98 %
+    Finnish scans, counts   16,496 q   86.1 %  / 93.5 %  / 63.6 %
+    IFC-Bench free text        110 q   38.2 %  / 41.1 %  / 9.1 %
+    All                     25,420 q   90.7 %  / 95.8 %  / 69.8 %
+  Split. 20 % of drawings held out as test by a SHA-1 hash of the drawing id, so every format and language twin of a
+  drawing stays on one side. Nothing tuned on test.
+  Scoring. Counts exact, areas, lengths and volumes within 2 %. "Not sure" counts as wrong. Free text: LLM judge,
+  same rubric for every system.
+  Sheets. 41 questions on Stoa's four example sheets; gold printed on the sheet or measured by hand (wider tolerance).
+  Sibling sheets never used in development: 9 / 11. Closet doors not counted (Stoa's rule). Weak: small JPGs with
+  unreadable room names (it asks which room), school window counts, dorm-module doors. runs/stoa_examples_v9c_*.
+  Ours. All 25,420 test questions, 90.7 % [95 % CI 90.4-91.1]; declines 11.7 %. runs/router_full_test_v8.
+  Frontier. 400 test questions stratified by source and type (~54 per cell), re-weighted to the test mix;
+  stratified-bootstrap CI. Sonnet 5.5 + files 69.8 % [60.9-78.4], drawing only 63.2 %; Gemini 3.1 Pro 64.2 %;
+  Haiku 5.5 60.6 %; Nemotron 3.5 Super VL 49.0 %. runs/baseline_*_full400.jsonl.
+  Cost. API list price of the tokens used. Ours $0.013 per 1,000 (+ ~$0.009 local compute); Sonnet + files $25.76,
+  Sonnet $13.06, Gemini $52.47, Haiku $1.21, Nemotron $2.59. 0.06 s per question vs ~16 s for Sonnet + files.
+  Checks. Both methods agree: right on 99.98 % of Swiss and IFC questions. Scan answers at confidence >= 0.95:
+  98.7 % right. Confidence levels set on development drawings only.
+  Audit. Cross-audited by a second AI agent (Codex): no leakage, no test data in training or calibration, the
+  recount reproduces. -->
 <section class="slide">
-  <h2>Method</h2>
-  <div class="cols">
-    <div>
-      <table class="t">
-        <tr><th>Ours, by source</th><th>questions</th><th>right</th><th>when answered</th><th>Sonnet + files</th></tr>
-        <tr><td>Swiss plans, counts</td><td>5,580</td><td class="o">99.96 %</td><td>99.96 %</td><td>81.5 %</td></tr>
-        <tr><td>Swiss plans, room areas</td><td>2,634</td><td class="o">99.92 %</td><td>99.92 %</td><td>79.6 %</td></tr>
-        <tr><td>IFC models, all types</td><td>600</td><td class="o">100 %</td><td>100 %</td><td>91–98 %</td></tr>
-        <tr><td>Finnish scans, counts</td><td>16,496</td><td class="o">86.1 %</td><td>93.5 %</td><td>63.6 %</td></tr>
-        <tr><td>IFC-Bench free text</td><td>110</td><td class="o">38.2 %</td><td>41.1 %</td><td>9.1 %</td></tr>
-        <tr class="tot"><td>All</td><td>25,420</td><td>90.7 %</td><td>95.8 %</td><td>69.8 %</td></tr>
-      </table>
-      <div class="s"><b>Split.</b> 20 % of drawings held out as test by a SHA-1 hash of the drawing id, so every format and language twin of a drawing stays on one side. Nothing tuned on test.</div>
-      <div class="s"><b>Scoring.</b> Counts exact, areas, lengths and volumes within 2 %. “Not sure” counts as wrong. Free text: LLM judge, same rubric for every system.</div>
-      <div class="s"><b>Sheets.</b> 41 questions on Stoa’s four example sheets; gold printed on the sheet or measured by hand (wider tolerance). Sibling sheets never used in development: 9 / 11. Closet doors not counted (Stoa’s rule). Weak: small JPGs with unreadable room names (it asks which room), school window counts, dorm-module doors. <code>runs/stoa_examples_v9c_*</code>.</div>
-    </div>
-    <div>
-      <div class="s"><b>Ours.</b> All 25,420 test questions, 90.7 % [95 % CI 90.4–91.1]; declines 11.7 %. <code>runs/router_full_test_v8</code>.</div>
-      <div class="s"><b>Frontier.</b> 400 test questions stratified by source and type (~54 per cell), re-weighted to the test mix; stratified-bootstrap CI. Sonnet 5.5 + files 69.8 % [60.9–78.4], drawing only 63.2 %; Gemini 3.1 Pro 64.2 %; Haiku 5.5 60.6 %; Nemotron 3.5 Super VL 49.0 %. <code>runs/baseline_*_full400.jsonl</code>.</div>
-      <div class="s"><b>Cost.</b> API list price of the tokens used. Ours $0.013 per 1,000 (+ ~$0.009 local compute); Sonnet + files $25.76, Sonnet $13.06, Gemini $52.47, Haiku $1.21, Nemotron $2.59.</div>
-      <div class="s"><b>Checks.</b> Both methods agree: right on 99.98 % of Swiss and IFC questions. Scan answers at confidence ≥ 0.95: 98.7 % right. Confidence levels set on development drawings only.</div>
-      <div class="s"><b>Audit.</b> Cross-audited by a second AI agent (Codex): no leakage, no test data in training or calibration, the recount reproduces. Tables: <code>docs/RESULTS.md</code>, <code>analysis/run_all.sh</code>.</div>
-    </div>
+  <h2>Method: scored on drawings it had never seen.</h2>
+  <div class="pair" style="margin-top:112px">
+    <div><div class="n ours">90.7 %</div><div class="l" style="font-size:24px">Datum</div></div>
+    <div><div class="n" style="color:var(--ink3)">69.8 %</div><div class="l" style="font-size:24px">Claude Sonnet 5.5 with the CAD / IFC files</div></div>
   </div>
+  <p class="s" style="margin-top:72px">25,420 held-out questions · drawings never seen · counts exact, areas within 2 %</p>
+  <table class="strip">
+    <tr><td>Swiss CAD plans</td><td>99.96 %</td></tr>
+    <tr><td>BIM models</td><td>100 %</td></tr>
+    <tr><td>Scanned plans</td><td>86.1 %</td></tr>
+  </table>
   <div class="foot"><span></span><span>12</span></div>
 </section>
 
@@ -307,42 +334,51 @@
   fine-tuned Qwen3-VL-8B; everything else is geometry, classical CV, OCR and our own detector. Nothing is averaged or
   voted: rules pick one method per question; a second method only halves the confidence on a conflict, or, on scans,
   replaces the count where a dev-fit rule says the detector is unsure and the VLM sure (85.1 % -> 86.1 %).
+  Every mark sits on the user's own drawing.
+  Parts (runs on · API $ per 1,000 q · measured):
+    IfcOpenShell, ezdxf, PyMuPDF · BIM models, CAD plans, vector PDFs · $0 · 99.95-100 % (8,814 q)
+    YOLO11m detector, trained by us (RTX 4070) · scanned residential plans · $0 · 85.1 % alone (16,496 q)
+    Qwen3-VL-8B + our LoRA (Verda H100s) · same scans: second opinion, narrow arbiter · $0.16 · 86.1 % with it
+    Sheet specialists, Tesseract OCR · uploaded floor, slab, piping sheets · $0 on PDFs · 40 / 41 as PDFs
+    Claude Haiku 5.5 · free text, sheet type, text OCR cannot read · ~$3 · 38.2 % free text (110 q)
   A vector PDF, DXF or IFC is read without AI: $0. Sources: runs/router_full_test_v8, runs/cubicasa_test_fliptta,
   runs/cubicasa_test_vlmarb, runs/vlm_r3_cubicasa_test_full, runs/stoa_examples_v9_pdf. Full write-up: docs/ARCHITECTURE.md. -->
 <section class="slide">
-  <h2>Under the hood: two language models, the rest is geometry.</h2>
-  <div style="margin-top:64px">
-    <table class="t hood">
-      <tr><th>Part</th><th>runs on</th><th>API $ / 1,000 q</th><th>measured</th></tr>
-      <tr><td>IfcOpenShell, ezdxf, PyMuPDF</td><td>BIM models, CAD plans, vector PDFs</td><td class="o">$0</td><td>99.95–100 % (8,814 q)</td></tr>
-      <tr><td>YOLO11m detector, trained by us (RTX 4070)</td><td>scanned residential plans</td><td class="o">$0</td><td>85.1 % alone (16,496 q)</td></tr>
-      <tr><td>Qwen3-VL-8B + our LoRA (Verda H100s)</td><td>same scans: second opinion, narrow arbiter</td><td class="o">$0.16</td><td>86.1 % with it</td></tr>
-      <tr><td>Sheet specialists, Tesseract OCR</td><td>uploaded floor, slab, piping sheets</td><td class="o">$0 on PDFs</td><td>40 / 41 as PDFs</td></tr>
-      <tr><td>Claude Haiku 5.5</td><td>free text, sheet type, text OCR cannot read</td><td class="o">~$3</td><td>38.2 % free text (110 q)</td></tr>
-    </table>
-    <p class="s" style="max-width:1500px">Nothing is averaged or voted: rules pick one method per question. Every mark sits on the user’s own drawing. Details: <code>docs/ARCHITECTURE.md</code>.</p>
+  <h2>Under the hood: read it exactly first, ask a model last.</h2>
+  <p>Two language models; the rest is geometry.</p>
+  <div class="chain">
+    <div><b>A drawing</b></div>
+    <div><b>Read it exactly</b><span>CAD, BIM, PDF · $0</span></div>
+    <div><b>A scan?</b><span>Our detector + our vision model</span></div>
+    <div><b>Can’t read it?</b><span>Claude Haiku</span></div>
+    <div class="o"><b class="ours">The answer, on the drawing</b></div>
   </div>
   <div class="foot"><span></span><span>13</span></div>
 </section>
 
-<!-- 14 · CREDITS (appendix) -->
+<!-- 14 · CREDITS (appendix)
+  Notes: full credits.
+  Drawings: Junction 2026 dataset, non-commercial, per-file licences.
+  Swiss Dwellings v3.0.0, M. Standfest, M. Franzen, Y. Schröder, L. Gonzalez Medina, Y. Villanueva Hernandez,
+  J. H. Buck, Y.-L. Tan, M. Niedzwiecka, R. Colmegna (Archilyse AG), doi:10.5281/zenodo.7788422, CC BY 4.0.
+  CubiCasa5K, (c) 2019 CubiCasa; Kalervo, Ylioinas, Häikiö, Karhu, Kannala, SCIA 2019; CC BY-NC-SA 4.0.
+  Molio Demo-hus, buildingSMART Community Sample-Test-Files contributors, CC BY 4.0.
+  BIM-Speed Warmond demo site, Garcia & Hartmann 2022, TU Berlin, doi:10.14279/depositonce-16441.2, CC BY 4.0.
+  Team: Toivo and Rene. Built at Junction 2026, Espoo, 13-15 November, with Claude Code.
+  Code: github.com/Zawaer/datum, MIT.
+  Reproduce: python eval.py --solver router --split test --judge ; analysis/run_all.sh
+  Models: Claude Haiku 5.5 for free text only; our own YOLO11m symbol detector and fine-tuned 8B vision model;
+  IfcOpenShell for BIM. -->
 <section class="slide">
-  <h2>Credits</h2>
-  <div class="cols">
-    <div>
-      <div class="s"><b>Drawings.</b> Junction 2026 dataset, non-commercial, per-file licences.</div>
-      <div class="s">Swiss Dwellings v3.0.0, M. Standfest, M. Franzen, Y. Schröder, L. Gonzalez Medina, Y. Villanueva Hernandez, J. H. Buck, Y.-L. Tan, M. Niedzwiecka, R. Colmegna (Archilyse AG), doi:10.5281/zenodo.7788422, CC BY 4.0.</div>
-      <div class="s">CubiCasa5K, © 2019 CubiCasa; Kalervo, Ylioinas, Häikiö, Karhu, Kannala, SCIA 2019; CC BY-NC-SA 4.0.</div>
-      <div class="s">Molio Demo-hus, buildingSMART Community Sample-Test-Files contributors, CC BY 4.0.</div>
-      <div class="s">BIM-Speed Warmond demo site, Garcia &amp; Hartmann 2022, TU Berlin, doi:10.14279/depositonce-16441.2, CC BY 4.0.</div>
-    </div>
-    <div>
-      <div class="s"><b>Team.</b> Toivo and Rene. Built at Junction 2026, Espoo, 13–15 November, with Claude Code.</div>
-      <div class="s"><b>Code.</b> github.com/Zawaer/datum, MIT.</div>
-      <div class="s"><b>Reproduce.</b><br><code>python eval.py --solver router --split test --judge</code><br><code>analysis/run_all.sh</code></div>
-      <div class="s"><b>Models.</b> Claude Haiku 5.5 for free text only; our own YOLO11m symbol detector and fine-tuned 8B vision model; IfcOpenShell for BIM.</div>
-    </div>
-  </div>
+  <h2>Credits: built on open drawings.</h2>
+  <p>Junction 2026 dataset, non-commercial, per-file licences.</p>
+  <table class="t" style="margin-top:72px; width:auto">
+    <tr><td>Swiss Dwellings v3.0.0</td><td style="padding-left:96px; text-align:left">Standfest et al., Archilyse AG</td><td style="padding-left:96px">CC BY 4.0</td></tr>
+    <tr><td>CubiCasa5K</td><td style="padding-left:96px; text-align:left">© 2019 CubiCasa, Kalervo et al.</td><td style="padding-left:96px">CC BY-NC-SA 4.0</td></tr>
+    <tr><td>Molio Demo-hus</td><td style="padding-left:96px; text-align:left">buildingSMART community</td><td style="padding-left:96px">CC BY 4.0</td></tr>
+    <tr><td>BIM-Speed Warmond</td><td style="padding-left:96px; text-align:left">Garcia &amp; Hartmann, TU Berlin</td><td style="padding-left:96px">CC BY 4.0</td></tr>
+  </table>
+  <p>Toivo and Rene · built with Claude Code · github.com/Zawaer/datum, MIT</p>
   <div class="foot"><span></span><span>14</span></div>
 </section>
 
