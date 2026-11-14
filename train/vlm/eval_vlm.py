@@ -83,6 +83,7 @@ def main():
     ap.add_argument("--file", default="val.jsonl", help="rows file under --data")
     ap.add_argument("--allow-test", action="store_true",
                     help="inference-only run on held-out test rows (no gold boxes; never used for training)")
+    ap.add_argument("--in-order", action="store_true", help="keep file order (no stratified sampling)")
     ap.add_argument("--shard", default="0/1", help="i/n: evaluate every n-th row starting at i")
     a = ap.parse_args()
 
@@ -90,7 +91,7 @@ def main():
 
     data = Path(a.data)
     rows = [json.loads(line) for line in open(data / a.file)]
-    rows = sample(rows, a.n, a.seed)
+    rows = rows[: a.n] if a.in_order else sample(rows, a.n, a.seed)
     si, sn = map(int, a.shard.split("/"))
     rows = rows[si::sn]
     if a.model or a.adapter or a.load_4bit or a.device:
