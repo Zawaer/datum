@@ -23,8 +23,8 @@ GB = 1 << 30
 BUDGET = int(float(os.environ.get("BP_MEM_BUDGET_GB", "8")) * GB)
 # bytes held at peak per pixel of the sheet, by stage: the RSS rise each job caused on the four hi-res examples
 # (67-139 MP, BP_MEMGATE_LOG=1) over pixels, with headroom. Measured: prep 2.4-7.9 (RGB is held at 4 B/px), warm
-# 2-5, answer 0-9, walls 28 (rooms' wall mask at work resolution, upsampled on coarse scans)
-BPP = {"prep": 9, "warm": 12, "answer": 16, "walls": 32}
+# 2-5, answer 0-23 (the 139 MP school plan's door count), walls 3-28 (rooms' wall mask at work resolution)
+BPP = {"prep": 9, "warm": 12, "answer": 24, "walls": 32}
 MIN_COST = 64 << 20  # the smallest job still holds a few copies of a small image and the libraries' scratch
 
 _cond = threading.Condition()
