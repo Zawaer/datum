@@ -142,12 +142,12 @@ says how far to trust each answer; if you only accept answers with confidence �
 | Swiss apartment plans: counts | 5,580 | 99.96 % | 99.96 % | 0 % |
 | Swiss apartment plans: room areas | 2,634 | 99.92 % | 99.92 % | 0 % |
 | IFC models: counts, areas, volumes, lengths | 600 | 100 % | 100 % | 0 % |
-| Finnish raster plans (CubiCasa, YOLO11m detector + VLM arbiter) | 16,496 | 86.1 % | 93.1 % | 17.2 % |
+| Finnish raster plans (CubiCasa, YOLO11m detector + VLM arbiter) | 16,496 | 86.1 % | 93.5 % | 18.0 % |
 | IFC-Bench free text (LLM judge; our weakest area) | 110 | 38.2 % | 41.1 % | 13.6 % |
-| **all** | **25,420** | **90.7 %** | **95.6 %** | **11.2 %** |
+| **all** | **25,420** | **90.7 %** | **95.8 %** | **11.7 %** |
 
 Stricter thresholds trade coverage for accuracy: on the Finnish plans, answering the most confident half (50.0 %)
-is 97.1 % right. On the same 400 sampled questions, Sonnet with sibling files is right on 3 that we miss; we are
+is 97.4 % right. On the same 400 sampled questions, Sonnet with sibling files is right on 3 that we miss; we are
 right on 57 that it misses. Per-source tables for every system: [docs/RESULTS.md](docs/RESULTS.md) §2; coverage
 curves: §3.
 
@@ -180,8 +180,8 @@ plus a cross-audit of the whole evaluation by a second AI agent and a robustness
    IoU ≥ 0.5), and only about 2.8 % of correct counts are right by luck (a missed object and a false box cancelling out).
 2. **Calibrated confidence.** Measured on the test split, not asserted ([RESULTS.md](docs/RESULTS.md) §3,
    fig. 3; the demo states it per answer from [`app/calibration.json`](app/calibration.json)). Raster-plan
-   answers at confidence ≥ 0.95 are right 98.6 % of the time. If the router answers only at confidence ≥ 0.5 and
-   says "not sure" otherwise, it answers 88.8 % of all questions at 95.6 % accuracy, turning 1,354 wrong answers
+   answers at confidence ≥ 0.95 are right 98.7 % of the time. If the router answers only at confidence ≥ 0.5 and
+   says "not sure" otherwise, it answers 88.3 % of all questions at 95.8 % accuracy, turning 1,421 wrong answers
    into honest abstentions. Known weak spot: a symbol the detector misses entirely cannot lower its confidence.
 3. **Independent cross-check.** A second, independent method re-derives the answer
    ([`runs/crosscheck_test.summary.md`](runs/crosscheck_test.summary.md), `bp/crosscheck.py`): Swiss answers are
@@ -197,10 +197,11 @@ plus a cross-audit of the whole evaluation by a second AI agent and a robustness
    there the detector is right **94.9 %** (57.3 % on conflict, where the VLM itself is right only 18.6 %, so it
    does not override wholesale; [`runs/crosscheck_vlm_test_v7.summary.md`](runs/crosscheck_vlm_test_v7.summary.md)).
    It does arbitrate narrowly: where they disagree and a per-template rule fit on dev-val says the detector is
-   unsure and the VLM sure, the VLM's answer is taken (CubiCasa 85.10 % → 86.15 %, +1.05 pp, 95 % CI +0.75 to
+   unsure and the VLM sure, the VLM's answer is taken, with the Wilson 95 % lower bound of the rule's dev precision
+   (capped at 0.97) as its confidence (CubiCasa 85.10 % → 86.15 %, +1.05 pp, 95 % CI +0.75 to
    +1.38 over drawings; [`runs/cubicasa_test_vlmarb.summary.md`](runs/cubicasa_test_vlmarb.summary.md)). On the
-   shipped pipeline, with the confidence halved on the remaining conflicts, the router answers 70.6 % of raster
-   questions at 95.9 % ([`runs/crosscheck_vlm_test_v8.summary.md`](runs/crosscheck_vlm_test_v8.summary.md)). The
+   shipped pipeline, with the confidence halved on the remaining conflicts, the router answers 69.9 % of raster
+   questions at 96.3 % ([`runs/crosscheck_vlm_test_v8.summary.md`](runs/crosscheck_vlm_test_v8.summary.md)). The
    demo serves the VLM's precomputed answers and boxes.
 4. **Provenance of LLM-written numbers.** Free-text answers are the least verifiable part, so
    `bp/provenance.py` traces every number and quoted name in an LLM answer to the fact lines it cited (sums,

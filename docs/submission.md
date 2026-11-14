@@ -64,7 +64,7 @@ On Stoa's four example sheets (41 questions): vector PDF 40/41, full-res PNG 37/
 
 - **Proof on the drawing:** numbered boxes, rooms with their m², table cells outlined, pipe runs with their length, IFC elements lit in 3D. Untick an item and the total updates.
 - **Replay:** the answer works itself out on the drawing in 2–4 s, from scale to total.
-- **Calibrated confidence:** answering only at ≥ 0.5 keeps 88.8 % of questions at 95.6 %.
+- **Calibrated confidence:** answering only at ≥ 0.5 keeps 88.3 % of questions at 95.8 %.
 - **Cross-check:** a second method re-derives 98 % of numeric answers; where they agree, Swiss and IFC answers are right 99.98 %.
 - **Provenance:** every number in an LLM-written answer is traced to the facts it cites, or flagged.
 

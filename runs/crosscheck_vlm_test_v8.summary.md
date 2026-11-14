@@ -41,13 +41,13 @@ Rank by the detector's calibrated confidence alone, by the router's rule (confid
 
 | ranking | 100% | 90% | 80% | **73.9%** (= agree share) | 70% | 60% | 50% |
 |---|---|---|---|---|---|---|---|
-| confidence alone | 86.1% | 91.0% | 93.9% | 95.6% | 96.0% | 96.3% | 97.2% |
-| confidence x 0.5 on conflict (router) | 86.1% | 91.3% | 94.6% | 95.7% | 96.0% | 97.2% | 97.4% |
-| agree first, then confidence | 86.1% | 91.2% | 94.0% | 94.9% | 96.6% | 97.6% | 97.8% |
+| confidence alone | 86.1% | 90.9% | 94.0% | 95.9% | 96.4% | 96.9% | 97.4% |
+| confidence x 0.5 on conflict (router) | 86.1% | 91.3% | 94.7% | 95.9% | 96.3% | 97.7% | 97.9% |
+| agree first, then confidence | 86.1% | 91.2% | 94.3% | 94.9% | 96.6% | 97.7% | 97.9% |
 
 Router threshold (answer only if confidence >= 0.5, else "not sure"):
 
 | | answered | accuracy on answered |
 |---|---|---|
-| before the cross-check | 82.8% | 93.1% |
-| after x 0.5 on VLM conflict | 70.6% | 95.9% |
+| before the cross-check | 82.0% | 93.5% |
+| after x 0.5 on VLM conflict | 69.9% | 96.3% |

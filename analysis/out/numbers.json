@@ -99,113 +99,113 @@
   "fi_acc": 0.8628758486905916
  },
  "confident_zero": {
-  "high_conf": 2187,
-  "high_conf_wrong": 13,
-  "high_conf_wrong_pred0": 5
+  "high_conf": 2138,
+  "high_conf_wrong": 6,
+  "high_conf_wrong_pred0": 0
  },
  "selective": {
   "all": {
    "n": 25420,
    "base_acc": 0.9072777340676632,
-   "aurc": 0.017384811726732674,
+   "aurc": 0.01571218177004753,
    "thresholds": [
     {
      "threshold": 0.5,
-     "coverage": 0.8879622344610543,
-     "answered": 22572,
-     "accuracy_answered": 0.9555644160907318,
-     "wrong_kept": 1003,
-     "wrong_abstained": 1354
+     "coverage": 0.8825334382376082,
+     "answered": 22434,
+     "accuracy_answered": 0.9582776143353838,
+     "wrong_kept": 936,
+     "wrong_abstained": 1421
     },
     {
      "threshold": 0.7,
-     "coverage": 0.8148308418568057,
-     "answered": 20713,
-     "accuracy_answered": 0.975570897503983,
-     "wrong_kept": 506,
-     "wrong_abstained": 1851
+     "coverage": 0.8053501180173092,
+     "answered": 20472,
+     "accuracy_answered": 0.9789957014458773,
+     "wrong_kept": 430,
+     "wrong_abstained": 1927
     },
     {
      "threshold": 0.9,
-     "coverage": 0.6242722265932337,
-     "answered": 15869,
-     "accuracy_answered": 0.9914298317474322,
-     "wrong_kept": 136,
-     "wrong_abstained": 2221
+     "coverage": 0.6216365066876475,
+     "answered": 15802,
+     "accuracy_answered": 0.9920263257815466,
+     "wrong_kept": 126,
+     "wrong_abstained": 2231
     },
     {
      "threshold": 0.95,
-     "coverage": 0.5381195908733281,
-     "answered": 13679,
-     "accuracy_answered": 0.994370933547774,
-     "wrong_kept": 77,
-     "wrong_abstained": 2280
+     "coverage": 0.536191974822974,
+     "answered": 13630,
+     "accuracy_answered": 0.9948642699926632,
+     "wrong_kept": 70,
+     "wrong_abstained": 2287
     },
     {
      "threshold": 0.99,
-     "coverage": 0.08603461841070023,
-     "answered": 2187,
-     "accuracy_answered": 0.994055784179241,
-     "wrong_kept": 13,
-     "wrong_abstained": 2344
+     "coverage": 0.08410700236034618,
+     "answered": 2138,
+     "accuracy_answered": 0.9971936389148737,
+     "wrong_kept": 6,
+     "wrong_abstained": 2351
     }
    ],
    "coverage_at": {
     "0.9": 1.0,
-    "0.95": 0.9151455546813533,
-    "0.99": 0.631117230527144
+    "0.95": 0.9144374508261212,
+    "0.99": 0.6351691581431943
    }
   },
   "cubicasa": {
    "n": 16496,
    "base_acc": 0.8614815712900097,
-   "aurc": 0.037749874830137385,
+   "aurc": 0.034638064722376016,
    "thresholds": [
     {
      "threshold": 0.5,
-     "coverage": 0.8282613967022309,
-     "answered": 13663,
-     "accuracy_answered": 0.9309814828368587,
-     "wrong_kept": 943,
-     "wrong_abstained": 1342
+     "coverage": 0.8198957322987391,
+     "answered": 13525,
+     "accuracy_answered": 0.9352310536044363,
+     "wrong_kept": 876,
+     "wrong_abstained": 1409
     },
     {
      "threshold": 0.7,
-     "coverage": 0.7212657613967022,
-     "answered": 11898,
-     "accuracy_answered": 0.9578920827029753,
-     "wrong_kept": 501,
-     "wrong_abstained": 1784
+     "coverage": 0.7066561590688651,
+     "answered": 11657,
+     "accuracy_answered": 0.9635412198678905,
+     "wrong_kept": 425,
+     "wrong_abstained": 1860
     },
     {
      "threshold": 0.9,
-     "coverage": 0.430225509214355,
-     "answered": 7097,
-     "accuracy_answered": 0.9814005917993518,
-     "wrong_kept": 132,
-     "wrong_abstained": 2153
+     "coverage": 0.4261639185257032,
+     "answered": 7030,
+     "accuracy_answered": 0.9826458036984352,
+     "wrong_kept": 122,
+     "wrong_abstained": 2163
     },
     {
      "threshold": 0.95,
-     "coverage": 0.31007516973811833,
-     "answered": 5115,
-     "accuracy_answered": 0.9857282502443793,
-     "wrong_kept": 73,
-     "wrong_abstained": 2212
+     "coverage": 0.3071047526673133,
+     "answered": 5066,
+     "accuracy_answered": 0.9869719699960521,
+     "wrong_kept": 66,
+     "wrong_abstained": 2219
     },
     {
      "threshold": 0.99,
-     "coverage": 0.13257759456838022,
-     "answered": 2187,
-     "accuracy_answered": 0.994055784179241,
-     "wrong_kept": 13,
-     "wrong_abstained": 2272
+     "coverage": 0.12960717749757517,
+     "answered": 2138,
+     "accuracy_answered": 0.9971936389148737,
+     "wrong_kept": 6,
+     "wrong_abstained": 2279
     }
    ],
    "coverage_at": {
-    "0.9": 0.9219204655674103,
-    "0.95": 0.761578564500485,
-    "0.99": 0.1450654704170708
+    "0.9": 0.9230116391852571,
+    "0.95": 0.7652764306498545,
+    "0.99": 0.2119301648884578
    }
   }
  }

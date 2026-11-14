@@ -166,7 +166,7 @@
   Notes: A BIM model, asked in Danish: how many rooms on "Grundplan"? 13, exact; each room painted on its own floor in
   3D with a numbered pin, everything else in grey. Swiss plans tilt into 3D the same way.
   Four verification layers: evidence adds up (boxes match independent hand labels at > 90 %); calibrated
-  confidence (scan answers marked >= 0.95 are right 98.6 %); an independent second method (both agree -> right on
+  confidence (scan answers marked >= 0.95 are right 98.7 %); an independent second method (both agree -> right on
   99.98 % of Swiss and IFC questions); every LLM-written number traced to the model facts it cites. -->
 <section class="slide">
   <h2>BIM models light up in 3D.</h2>
@@ -178,7 +178,7 @@
 <!-- 6 · RESULTS
   Notes: All 25,420 questions of the held-out test split (whole drawings held out by a hash of the drawing id),
   every question in every language. 90.7 % [90.4-91.1]; a "not sure" counts as wrong. When it answers (confidence
-  >= 0.5): 95.6 %, declining 11.2 %. Fair baseline: Claude Sonnet 5.5 given the drawing AND its CAD / IFC files:
+  >= 0.5): 95.8 %, declining 11.7 %. Fair baseline: Claude Sonnet 5.5 given the drawing AND its CAD / IFC files:
   69.8 % [60.9-78.4]. Frontier rows are a 400-question stratified sample re-weighted to the test mix.
   Also: Haiku 5.5 60.6 %, Nemotron 3.5 Super VL 49.0 %. Per-source table on slide 12. -->
 <section class="slide">
@@ -281,19 +281,19 @@
         <tr><td>Swiss plans, counts</td><td>5,580</td><td class="o">99.96 %</td><td>99.96 %</td><td>81.5 %</td></tr>
         <tr><td>Swiss plans, room areas</td><td>2,634</td><td class="o">99.92 %</td><td>99.92 %</td><td>79.6 %</td></tr>
         <tr><td>IFC models, all types</td><td>600</td><td class="o">100 %</td><td>100 %</td><td>91–98 %</td></tr>
-        <tr><td>Finnish scans, counts</td><td>16,496</td><td class="o">86.1 %</td><td>93.1 %</td><td>63.6 %</td></tr>
+        <tr><td>Finnish scans, counts</td><td>16,496</td><td class="o">86.1 %</td><td>93.5 %</td><td>63.6 %</td></tr>
         <tr><td>IFC-Bench free text</td><td>110</td><td class="o">38.2 %</td><td>41.1 %</td><td>9.1 %</td></tr>
-        <tr class="tot"><td>All</td><td>25,420</td><td>90.7 %</td><td>95.6 %</td><td>69.8 %</td></tr>
+        <tr class="tot"><td>All</td><td>25,420</td><td>90.7 %</td><td>95.8 %</td><td>69.8 %</td></tr>
       </table>
       <div class="s"><b>Split.</b> 20 % of drawings held out as test by a SHA-1 hash of the drawing id, so every format and language twin of a drawing stays on one side. Nothing tuned on test.</div>
       <div class="s"><b>Scoring.</b> Counts exact, areas, lengths and volumes within 2 %. “Not sure” counts as wrong. Free text: LLM judge, same rubric for every system.</div>
       <div class="s"><b>Sheets.</b> 41 questions on Stoa’s four example sheets; gold printed on the sheet or measured by hand (wider tolerance). Sibling sheets never used in development: 9 / 11. Weak: low-res school plans (1–2 / 8 below full resolution); the slab plan from 2,500 px or a scan (6–7 / 12); slab areas on an unseen slab plan 23–41 % low, flagged. <code>runs/stoa_examples_v8_*</code>.</div>
     </div>
     <div>
-      <div class="s"><b>Ours.</b> All 25,420 test questions, 90.7 % [95 % CI 90.4–91.1]; declines 11.2 %. <code>runs/router_full_test_v8</code>.</div>
+      <div class="s"><b>Ours.</b> All 25,420 test questions, 90.7 % [95 % CI 90.4–91.1]; declines 11.7 %. <code>runs/router_full_test_v8</code>.</div>
       <div class="s"><b>Frontier.</b> 400 test questions stratified by source and type (~54 per cell), re-weighted to the test mix; stratified-bootstrap CI. Sonnet 5.5 + files 69.8 % [60.9–78.4], drawing only 63.2 %; Gemini 3.1 Pro 64.2 %; Haiku 5.5 60.6 %; Nemotron 3.5 Super VL 49.0 %. <code>runs/baseline_*_full400.jsonl</code>.</div>
       <div class="s"><b>Cost.</b> API list price of the tokens used. Ours $0.013 per 1,000 (+ ~$0.009 local compute); Sonnet + files $25.76, Sonnet $13.06, Gemini $52.47, Haiku $1.21, Nemotron $2.59.</div>
-      <div class="s"><b>Checks.</b> Both methods agree: right on 99.98 % of Swiss and IFC questions. Scan answers at confidence ≥ 0.95: 98.6 % right. Confidence levels set on development drawings only.</div>
+      <div class="s"><b>Checks.</b> Both methods agree: right on 99.98 % of Swiss and IFC questions. Scan answers at confidence ≥ 0.95: 98.7 % right. Confidence levels set on development drawings only.</div>
       <div class="s"><b>Audit.</b> Cross-audited by a second AI agent (Codex): no leakage, no test data in training or calibration, the recount reproduces. Tables: <code>docs/RESULTS.md</code>, <code>analysis/run_all.sh</code>.</div>
     </div>
   </div>

@@ -17,7 +17,9 @@ VLM arbiter (on by default when arbiter_flip.json sits next to the weights; CUBI
 detector-only answers): where the detector and the fine-tuned VLM's precomputed (or live) answer disagree, the
 detector is unsure and the VLM sure, per a per-template rule fit on dev-val (train/cubicasa/arbiter_dev.py, CV
 +0.87 pp), the VLM's answer is taken. CubiCasa test 85.10 % -> 86.15 % (+1.05 pp, 95 % CI +0.75 to +1.38 over
-drawings; runs/cubicasa_test_vlmarb). No extra CPU: the VLM answers are looked up.
+drawings; runs/cubicasa_test_vlmarb). No extra CPU: the VLM answers are looked up. A switched answer's confidence
+is the Wilson 95 % lower bound of that template's dev precision on switched answers, capped at 0.97 (raw precision
+said 1.0 on 6/6 dev switches and was right 42 of 49 times at 1.0 on test).
 """
 import collections
 import json
@@ -27,7 +29,7 @@ import threading
 from pathlib import Path
 
 from bp.cubicasa.classes import COUNTS
-from bp.cubicasa.counting import calib_p, posterior, runs_rule, select_runs
+from bp.cubicasa.counting import calib_p, posterior, runs_rule, select_runs, switched_confidence
 from bp.cubicasa.infer import SYMBOLS, load, predict
 from bp.cubicasa.questions import LABEL, target
 from bp.data import data_root
@@ -38,6 +40,16 @@ DEFAULT_WEIGHTS = "cache/cubicasa/weights/best.pt"
 def _inside(b, r, pad=0.01):
     cx, cy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
     return r[0] - pad <= cx <= r[2] + pad and r[1] - pad <= cy <= r[3] + pad
+
+
+def arbiter_confidence(a, t):
+    """Confidence of an arbiter-switched answer: the Wilson 95 % lower bound of the template's dev precision on
+    switched answers, capped at 0.97. Older arbiter files without the dev counts fall back to min(precision, 0.97)."""
+    if t in a.get("switched_confidence", {}):
+        return float(a["switched_confidence"][t])
+    if t in a.get("switched_n", {}):
+        return switched_confidence(*a["switched_n"][t])
+    return min(0.97, float(a.get("switched_precision", {}).get(t, 0.5)))
 
 
 class CubicasaSolver:
@@ -166,7 +178,8 @@ class CubicasaSolver:
 
     def arbitrate(self, q, t, res):
         """Take the VLM's answer instead of the detector's when the dev-fitted rule says so (they disagree, the
-        detector is unsure, the VLM is sure enough). Confidence = the rule's dev precision on switched answers."""
+        detector is unsure, the VLM is sure enough). Confidence = the Wilson 95 % lower bound of the rule's dev
+        precision on switched answers for this template, capped at 0.97 (train/cubicasa/arbiter_dev.py)."""
         from bp.crosscheck import vlm_answer
 
         a = self.arbiter
@@ -179,7 +192,7 @@ class CubicasaSolver:
         if not (res["confidence"] < lo and (v.get("confidence") or 0.0) >= hi):
             return res
         n = v["answer"]
-        return {**res, "answer": n, "confidence": float(a.get("switched_precision", {}).get(t, 0.5)),
+        return {**res, "answer": n, "confidence": arbiter_confidence(a, t),
                 "method": "cubicasa-vlm-arbiter", "detector_answer": res["answer"],
                 "detector_confidence": res["confidence"], "evidence": v.get("evidence") or [],
                 "explanation": f"{n} {LABEL[t]}{'' if n == 1 else 's'} by the fine-tuned VLM: the detector "

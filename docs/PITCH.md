@@ -245,7 +245,7 @@ harder set of 40 questions worded like a site engineer would (four languages, 5 
 midday got 91 of 160 across four upload forms; per-room door counts and slab volumes were the misses.
 
 **"How does it do on real-world scans?"**
-The Finnish plans are raster scans: 86.1 % on all 16,496 test questions, 93.1 % when it answers, against 63.6 %
+The Finnish plans are raster scans: 86.1 % on all 16,496 test questions, 93.5 % when it answers, against 63.6 %
 for Sonnet. On 30 messy uploads (phone photos, sideways scans, a 120-page set, broken files) nothing crashed, but
 that is hand-checked, not a measured accuracy, so the app says "no track record yet" on uploads.
 
@@ -257,7 +257,7 @@ free-text questions) and any better model plugs into the same evidence contract;
 **"What's the 9 % you get wrong?"**
 Almost all of it is on the scanned Finnish plans (86.1 %): mostly counts off by one, with windows the weakest
 template (53 % exact), plus free text at 38.2 %. The confidence catches most of it: answering only at ≥ 0.5
-turns 1,354 wrong answers into "not sure", and 95.6 % of the rest are right.
+turns 1,421 wrong answers into "not sure", and 95.8 % of the rest are right.
 
 **"What does it cost at scale?"**
 $0.013 in API fees per 1,000 questions plus about $0.009 of local compute, so a million questions is roughly $13

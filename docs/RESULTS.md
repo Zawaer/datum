@@ -76,44 +76,44 @@ Same questions, head to head (ours restricted to exactly the questions the basel
 
 Answer only when the solver's own confidence is at least t:
 
-**All test questions** (n = 25,420, accuracy when forced to answer everything 90.7 %, area under the risk-coverage curve 0.017):
+**All test questions** (n = 25,420, accuracy when forced to answer everything 90.7 %, area under the risk-coverage curve 0.016):
 
 | threshold t | coverage | answered | accuracy of answered | wrong answers kept | wrong answers turned into "not sure" |
 |---|---|---|---|---|---|
-| 0.5 (router) | 88.8 % | 22,572 | 95.6 % | 1,003 | 1,354 |
-| 0.7 | 81.5 % | 20,713 | 97.6 % | 506 | 1,851 |
-| 0.9 | 62.4 % | 15,869 | 99.1 % | 136 | 2,221 |
-| 0.95 | 53.8 % | 13,679 | 99.4 % | 77 | 2,280 |
-| 0.99 | 8.6 % | 2,187 | 99.4 % | 13 | 2,344 |
+| 0.5 (router) | 88.3 % | 22,434 | 95.8 % | 936 | 1,421 |
+| 0.7 | 80.5 % | 20,472 | 97.9 % | 430 | 1,927 |
+| 0.9 | 62.2 % | 15,802 | 99.2 % | 126 | 2,231 |
+| 0.95 | 53.6 % | 13,630 | 99.5 % | 70 | 2,287 |
+| 0.99 | 8.4 % | 2,138 | 99.7 % | 6 | 2,351 |
 
-**CubiCasa only** (n = 16,496, accuracy when forced to answer everything 86.1 %, area under the risk-coverage curve 0.038):
+**CubiCasa only** (n = 16,496, accuracy when forced to answer everything 86.1 %, area under the risk-coverage curve 0.035):
 
 | threshold t | coverage | answered | accuracy of answered | wrong answers kept | wrong answers turned into "not sure" |
 |---|---|---|---|---|---|
-| 0.5 (router) | 82.8 % | 13,663 | 93.1 % | 943 | 1,342 |
-| 0.7 | 72.1 % | 11,898 | 95.8 % | 501 | 1,784 |
-| 0.9 | 43.0 % | 7,097 | 98.1 % | 132 | 2,153 |
-| 0.95 | 31.0 % | 5,115 | 98.6 % | 73 | 2,212 |
-| 0.99 | 13.3 % | 2,187 | 99.4 % | 13 | 2,272 |
+| 0.5 (router) | 82.0 % | 13,525 | 93.5 % | 876 | 1,409 |
+| 0.7 | 70.7 % | 11,657 | 96.4 % | 425 | 1,860 |
+| 0.9 | 42.6 % | 7,030 | 98.3 % | 122 | 2,163 |
+| 0.95 | 30.7 % | 5,066 | 98.7 % | 66 | 2,219 |
+| 0.99 | 13.0 % | 2,138 | 99.7 % | 6 | 2,279 |
 
 Calibration: accuracy per confidence bin (Wilson 95 % CI).
 
 | subset | confidence | n | mean confidence | accuracy [95 % CI] | share of answers that are 0 |
 |---|---|---|---|---|---|
-| all | 0–0.5 | 2,848 | 0.29 | 52.5 % [50.6, 54.3] | 8 % |
-| all | 0.5–0.7 | 1,859 | 0.61 | 73.3 % [71.2, 75.2] | 4 % |
-| all | 0.7–0.9 | 4,844 | 0.79 | 92.4 % [91.6, 93.1] | 5 % |
-| all | 0.9–0.95 | 2,190 | 0.93 | 97.3 % [96.5, 97.9] | 4 % |
+| all | 0–0.5 | 2,986 | 0.29 | 52.4 % [50.6, 54.2] | 8 % |
+| all | 0.5–0.7 | 1,962 | 0.61 | 74.2 % [72.2, 76.1] | 4 % |
+| all | 0.7–0.9 | 4,670 | 0.79 | 93.5 % [92.7, 94.2] | 6 % |
+| all | 0.9–0.95 | 2,172 | 0.93 | 97.4 % [96.7, 98.0] | 4 % |
 | all | 0.95–0.99 | 11,492 | 0.97 | 99.4 % [99.3, 99.6] | 13 % |
-| all | 0.99–1.0 | 2,187 | 1.00 | 99.4 % [99.0, 99.7] | 1 % |
-| cubicasa | 0–0.5 | 2,833 | 0.29 | 52.6 % [50.8, 54.5] | 8 % |
-| cubicasa | 0.5–0.7 | 1,765 | 0.61 | 75.0 % [72.9, 76.9] | 5 % |
-| cubicasa | 0.7–0.9 | 4,801 | 0.79 | 92.3 % [91.5, 93.0] | 5 % |
-| cubicasa | 0.9–0.95 | 1,982 | 0.93 | 97.0 % [96.2, 97.7] | 4 % |
+| all | 0.99–1.0 | 2,138 | 1.00 | 99.7 % [99.4, 99.9] | 0 % |
+| cubicasa | 0–0.5 | 2,971 | 0.29 | 52.6 % [50.8, 54.4] | 8 % |
+| cubicasa | 0.5–0.7 | 1,868 | 0.62 | 75.9 % [73.9, 77.7] | 4 % |
+| cubicasa | 0.7–0.9 | 4,627 | 0.79 | 93.5 % [92.7, 94.1] | 6 % |
+| cubicasa | 0.9–0.95 | 1,964 | 0.93 | 97.1 % [96.3, 97.8] | 4 % |
 | cubicasa | 0.95–0.99 | 2,928 | 0.97 | 98.0 % [97.4, 98.4] | 48 % |
-| cubicasa | 0.99–1.0 | 2,187 | 1.00 | 99.4 % [99.0, 99.7] | 1 % |
+| cubicasa | 0.99–1.0 | 2,138 | 1.00 | 99.7 % [99.4, 99.9] | 0 % |
 
-**Reading.** The confidence is useful: at the router's threshold (0.5) we answer 89 % of all questions at 95.6 % and say "not sure" on the rest, which turns 1,354 wrong answers into honest abstentions at the price of 1,494 right ones. On CubiCasa the same threshold keeps 83 % at 93.1 % (vs 86.1 %). Below 0.95 the bins are roughly calibrated (stated confidence within about ten points of observed accuracy). **The weak spot is the very top:** answers with confidence ≥ 0.99 (all of them CubiCasa) are right 99.4 % of the time while claiming 0.997, below the 0.95–0.99 bin (99.4 %, mostly Swiss and IFC); that is why the blue curve falls again at the low-coverage (right) end. 5 of the 13 wrong top-confidence CubiCasa answers are a confident **0**: the detector saw nothing even near its threshold, so the confidence formula (which only looks at detections near the threshold) has nothing to doubt. A symbol the detector misses entirely cannot lower its confidence; that remains the failure mode to watch. The published 90.7 % is the forced-answer number; the router's Sonnet/Haiku fallback below the threshold is off in this run.
+**Reading.** The confidence is useful: at the router's threshold (0.5) we answer 88 % of all questions at 95.8 % and say "not sure" on the rest, which turns 1,421 wrong answers into honest abstentions at the price of 1,565 right ones. On CubiCasa the same threshold keeps 82 % at 93.5 % (vs 86.1 %). Below 0.95 the bins are roughly calibrated (stated confidence within about ten points of observed accuracy). At the very top, answers with confidence ≥ 0.99 (all of them CubiCasa) are right 99.7 % of the time (2,138 questions). A symbol the detector misses entirely cannot lower its confidence; that remains the failure mode to watch. The published 90.7 % is the forced-answer number; the router's Sonnet/Haiku fallback below the threshold is off in this run.
 
 ## 4. CubiCasa per question template
 

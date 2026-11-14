@@ -1,5 +1,6 @@
 """Fit a detector-vs-VLM arbitration rule on cubicasa DEV questions (dev-val drawings only) and estimate its gain
-by cross-validation over drawings.
+by cross-validation over drawings. A switched answer reports the Wilson 95 % lower bound of its template's dev
+precision on switched answers, capped at 0.97 ("switched_confidence"), not the raw precision.
 
     .venv/bin/python train/cubicasa/arbiter_dev.py --det cache/cubicasa/tta/cv_flipq.jsonl \
         --vlm cache/vlm_dev/devval_r3.jsonl [--det2 other_cv.jsonl] [--out arbiter.json]
@@ -25,6 +26,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from bp.cubicasa.counting import switched_confidence  # noqa: E402
 from bp.cubicasa.questions import target  # noqa: E402
 
 A_GRID = [0.0, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.01]
@@ -147,12 +149,17 @@ def main():
               f"{acc(rule, g):.1%}  switched {len(sw)} (VLM right {sum(x['vlm'] == x['gold'] for x in sw)}, "
               f"det right {sum(x['det'] == x['gold'] for x in sw)})")
     if a.out:
-        prec = {}
-        for t, g in by.items():  # dev precision of switched answers: the confidence reported for them
+        prec, cnt, conf = {}, {}, {}
+        for t, g in by.items():  # dev precision of switched answers, and the confidence reported for them
             sw = [x for x in g if apply(rule, x) != x["det"]]
             if sw:
-                prec[t] = round(sum(x["vlm"] == x["gold"] for x in sw) / len(sw), 3)
+                k = sum(x["vlm"] == x["gold"] for x in sw)
+                prec[t] = round(k / len(sw), 3)
+                cnt[t] = [k, len(sw)]
+                conf[t] = switched_confidence(k, len(sw))
         rule["switched_precision"] = prec
+        rule["switched_n"] = cnt  # [VLM right, switched] per template on dev-val
+        rule["switched_confidence"] = conf
         rule["cv_gain_pp"] = round(100 * (res[best] - base), 2)
         Path(a.out).write_text(json.dumps(rule, indent=1))
         print("wrote", a.out)

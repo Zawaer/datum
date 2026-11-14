@@ -116,3 +116,15 @@ def select_runs(dets, t_min, t_w, ovl=0.25, align=0.5):
             best.append((take, best[p][1] + [d]) if take > best[k][0] else best[k])
         kept += best[-1][1]
     return kept
+
+
+def switched_confidence(k, n, z=1.959964, cap=0.97):
+    """Confidence reported for a switched answer: the Wilson 95 % lower bound of the dev precision k/n of switched
+    answers for that template, capped at `cap` (raw precision on 6-17 switches per template reads 1.0 on 6/6 and
+    was 85.7 % right at 1.0 on test)."""
+    if n <= 0:
+        return 0.0
+    p = k / n
+    d = 1 + z * z / n
+    lo = (p + z * z / (2 * n) - z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))) / d
+    return round(min(cap, lo), 3)
