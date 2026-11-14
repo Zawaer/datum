@@ -709,10 +709,14 @@ function updateMeter() {
 // ------------------------------------------------------------ evidence overlay
 const PHONE = matchMedia('(max-width: 860px)');
 const pgLabelY = (cy, by, fs) => Math.max(cy + fs * 2.4, by - fs * 0.9);
+const pgBadgeY = (cy, ty, fs) => Math.max(ty + fs * 1.1, cy - fs * 2.4);
 function labelSize() { return (PHONE.matches ? 11 : 14) / view.s; }
 function rescaleLabels() {
   const fs = labelSize();
-  ov.querySelectorAll('circle.badgebg').forEach(c => c.setAttribute('r', fs * 0.78));
+  ov.querySelectorAll('circle.badgebg').forEach(c => {
+    c.setAttribute('r', fs * 0.78);
+    if (c.dataset.ty) { const y = pgBadgeY(+c.dataset.y, +c.dataset.ty, fs); c.setAttribute('cy', y); c.nextElementSibling?.setAttribute('y', y); }
+  });
   ov.querySelectorAll('text.badge').forEach(t => t.style.fontSize = (t.textContent.length > 2 ? fs * 0.62 : fs * 0.82) + 'px');
   ov.querySelectorAll('text.pglabel').forEach(t => { t.style.fontSize = fs + 'px'; t.setAttribute('y', pgLabelY(+t.dataset.y, +t.dataset.by, fs)); });
   ov.querySelectorAll('rect.badgebg').forEach(c => { const cx = +c.dataset.cx, cy = +c.dataset.cy, h = fs * 0.72;
@@ -742,7 +746,7 @@ function shapeFor(e, i, W, H) {
     shape.setAttribute('points', e.points.map(p => (p[0] * W) + ',' + (p[1] * H)).join(' '));
     shape.setAttribute('class', 'pg appear' + (e.on ? '' : ' off'));
     const xs = e.points.map(p => p[0] * W), ys = e.points.map(p => p[1] * H);
-    lx = (Math.min(...xs) + Math.max(...xs)) / 2; ly = (Math.min(...ys) + Math.max(...ys)) / 2; var by = Math.max(...ys);
+    lx = (Math.min(...xs) + Math.max(...xs)) / 2; ly = (Math.min(...ys) + Math.max(...ys)) / 2; var by = Math.max(...ys), ty = Math.min(...ys);
   } else {
     const [x0, y0, x1, y1] = e.bbox;
     shape = document.createElementNS(NS, 'rect');
@@ -771,7 +775,12 @@ function shapeFor(e, i, W, H) {
     if (modelRead(e)) {
       const h = fs * 0.72; c = document.createElementNS(NS, 'rect'); c.dataset.cx = lx; c.dataset.cy = ly;
       c.setAttribute('x', lx - h); c.setAttribute('y', ly - h); c.setAttribute('width', 2 * h); c.setAttribute('height', 2 * h); c.setAttribute('rx', h * 0.15);
-    } else { c = document.createElementNS(NS, 'circle'); c.setAttribute('cx', lx); c.setAttribute('cy', ly); c.setAttribute('r', fs * 0.78); }
+    } else {
+      c = document.createElementNS(NS, 'circle');
+      // a room's printed name and number sit at its centre: put the room's number badge above them, inside the room
+      if (e.kind === 'polygon') { c.dataset.y = ly; c.dataset.ty = ty; ly = pgBadgeY(ly, ty, fs); }
+      c.setAttribute('cx', lx); c.setAttribute('cy', ly); c.setAttribute('r', fs * 0.78);
+    }
     c.setAttribute('class', 'badgebg' + (e.added ? ' added' : '') + (modelRead(e) ? ' model' : '')); g.appendChild(c);
     const t = document.createElementNS(NS, 'text');
     t.setAttribute('x', lx); t.setAttribute('y', ly); t.setAttribute('text-anchor', 'middle');
