@@ -318,6 +318,10 @@ def _gray(meta, max_side=2000, stretch=True):
 
             g = cv2.medianBlur(g, 3)
             g = np.clip((g.astype(np.float32) - ink) * (195.0 / (paper - ink)) + 40, 0, 255).astype(np.uint8)
+        elif paper >= 245 and ink > 80 and os.environ.get("SLAB_FAINT", "1") == "1":
+            # clean paper but faint ink (a scan of a hi-res render, downscaled: wall outlines mid-grey and broken
+            # under the threshold, rooms leak into each other): the ink is darkened, the paper left
+            g = np.clip((g.astype(np.float32) - ink) * ((paper - 20.0) / (paper - ink)) + 20, 0, 255).astype(np.uint8)
         elif 120 < paper < 235:
             g = np.clip(g.astype(np.float32) * (235.0 / paper), 0, 255).astype(np.uint8)
         return g, f
