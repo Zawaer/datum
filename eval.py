@@ -136,7 +136,8 @@ def main():
             "pred": res.get("answer"), "correct": is_correct(q["type"], res.get("answer"), q["answer"]),
             "confidence": res.get("confidence"), "cost_usd": float(res.get("cost_usd") or 0.0),
             "latency_s": round(dt, 3), "method": res.get("method"),
-            "evidence": res.get("evidence", []), **{k: res[k] for k in ("error", "raw", "turns") if k in res},
+            "evidence": res.get("evidence", []),
+            **{k: res[k] for k in ("error", "raw", "turns", "normalized_question", "normalize") if k in res},
         }
         if "crosscheck" in res:
             xc = res["crosscheck"]

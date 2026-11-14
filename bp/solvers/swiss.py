@@ -10,12 +10,14 @@ no PDF fills to tell outdoor spaces apart, ...), so the router can fall back.
 """
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 from pathlib import Path
 
 from bp.data import data_root
 from bp.swiss.parse import FILL_COMMON, parse_floor
+from bp.templates import _SQ
 
 SYMBOL_PATTERNS = [
     ("apartment", r"apartments?\b|wohnungen|appartamenti|logements|appartements|residential units"),
@@ -26,7 +28,7 @@ SYMBOL_PATTERNS = [
     ("bathtub", r"bath ?tubs?|badewannen?|baignoires?|vasche|vasca"),
     ("shower", r"showers?\b|duschen?|douches?|docce|doccia"),
 ]
-LABEL_KW = r"labell?ed|bezeichnung|désignation|désignées|denominazione|denominati"
+LABEL_KW = r"labell?ed|bezeichnung|désignation|désignées|denominazione|denominati|\b(?:marked|tagged|called|named)\b"
 NUMBERED_KW = r"numbered|nummerierten|numérotées|numerati"
 APT_RE = r"(?:apartment|wohnung|appartement|appartamento|unit)\s+([A-Z]{1,2}\d*)\b"
 ROOM_RE = r"(?:room|raum|pièce|locale)\s+([A-Z]?\d+(?:\.\d+)*)\s*\("
@@ -40,8 +42,9 @@ def _quoted(q: str) -> str | None:
     m = re.search(r"[\"“„](.+?)[\"”“]", q)
     if m:
         return m.group(1)
-    m = re.search(r"'(.+)'", q)  # greedy: handles labels like 'Cage d'escalier'
-    return m.group(1) if m else None
+    # paired and word-boundary aware: "What's" opens nothing, 'Cage d'escalier' stays whole
+    m = re.search(_SQ, q)
+    return m.group(0)[1:-1] if m else None
 
 
 def parse_question(q: str, qtype: str | None):
@@ -60,11 +63,25 @@ def parse_question(q: str, qtype: str | None):
         m = re.search(ROOM_RE, q, re.I)
         if m:
             return ("area_room", m.group(1), _quoted(q))
+        # free wording: "room 3.29 labeled 'Balkon'", "the 'Küche' room, U1.09": a room number like 3.29 / U1.09
+        # (no dataset area template other than the one above carries one)
+        m = re.search(r"(?<![\w.])([A-Z]?\d+\.\d{2})(?![\w.])", q)
+        if m and re.search(r"room|raum|pièce|locale|stanza", ql):
+            return ("area_room", m.group(1), _quoted(q.replace(f'"{m.group(1)}"', m.group(1))
+                                                      .replace(f"'{m.group(1)}'", m.group(1))))
         if re.search(NUMBERED_KW, ql):
             return ("area_numbered", None)
         if re.search(LABEL_KW, ql):
             return ("area_label", _quoted(q))
     return None
+
+
+ROOM_LABELS = set(json.loads((Path(__file__).resolve().parents[1] / "swiss/room_labels.json").read_text()))
+
+
+def _no_label(label, rooms):
+    names = sorted({r.name for r in rooms if r.name})
+    return f"no room labelled '{label}' on this plan; labels are: " + ", ".join(f"'{n}'" for n in names)
 
 
 def _norm(s):
@@ -206,7 +223,11 @@ class SwissSolver:
                 poly(r, 1, f"room {i}: {r.number} {r.name}")
             c = 0.97
             if not hits:
-                # the plan has no such name at all: 0 is likely right only if the name is foreign to the plan
+                # 0 is a real answer only for a room name this kind of plan uses (the 34 labels the dev split asks
+                # about: 'Küche', 'Balcon', ...; dev never asks for a label that is absent, so this costs nothing
+                # there). Anything else is more likely a misread name than an honest zero.
+                if label not in ROOM_LABELS:
+                    return {**base, "explanation": _no_label(intent[1], rooms_num)}
                 c = 0.6
                 notes.append("label not found on this plan")
             return done(len(hits), c, f"{len(hits)} rooms labelled '{intent[1]}'"
@@ -233,12 +254,12 @@ class SwissSolver:
         if kind == "area_label":
             label = _norm(intent[1])
             hits = [r for r in rooms_num if _norm(r.name) == label]
+            if not hits:  # an area summed over nothing is not an answer
+                return {**base, "explanation": _no_label(intent[1], rooms_num)}
             for r in hits:
                 poly(r, r.area)
             tot = round(sum(r.area for r in hits), 2)
-            c = room_conf(hits) if hits else 0.3
-            if not hits:
-                notes.append("label not found on this plan")
+            c = room_conf(hits)
             return done(tot, c, (" + ".join(f"{r.area:.2f}" for r in hits) or "0") + f" = {tot:.2f} m²")
 
         if kind == "area_numbered":

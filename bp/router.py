@@ -50,6 +50,8 @@ class Router:
         # second-method check (bp/crosscheck.py): on unless BP_CROSSCHECK=0 (eval.py sets it from --crosscheck)
         self.crosscheck = os.environ.get("BP_CROSSCHECK", "1") == "1" if crosscheck is None else crosscheck
         self._solvers = {}
+        # free wording -> a supported template (bp/normalize.py), only when the solver could not parse the question
+        self.normalize = os.environ.get("BP_NORMALIZE", "1") == "1"
 
     def _get(self, name):
         if name not in self._solvers:
@@ -74,6 +76,27 @@ class Router:
         res["route"] = name
         return res
 
+    def _normalized(self, s, q, name, res):
+        from bp.normalize import normalize, understood
+
+        if understood(name, q) and not res.get("unparsed"):
+            return res, q
+        nq = normalize(name, q)
+        if not nq["question"]:
+            res["cost_usd"] = res.get("cost_usd", 0.0) + nq["cost_usd"]
+            res["normalize"] = {"question": None, "why": nq["why"], "cost_usd": nq["cost_usd"]}
+            return res, q
+        q2 = dict(q, question=nq["question"])
+        t2 = guess_type(nq["question"])
+        if t2 != "text":
+            q2["type"] = t2
+        res2 = self._run(s, q2, name)
+        res2["cost_usd"] = res2.get("cost_usd", 0.0) + res.get("cost_usd", 0.0) + nq["cost_usd"]
+        res2["normalized_question"] = nq["question"]
+        res2["normalize"] = {"question": nq["question"], "cost_usd": nq["cost_usd"], "type": q2["type"]}
+        res2["explanation"] = f"read as: {nq['question']} | " + (res2.get("explanation") or "")
+        return res2, q2
+
     def __call__(self, q):
         q = dict(q)
         q.setdefault("type", guess_type(q["question"]))
@@ -81,6 +104,8 @@ class Router:
         res = None
         if name and (s := self._get(name)):
             res = self._run(s, q, name)
+            if res.get("answer") is None and self.normalize:
+                res, q = self._normalized(s, q, name, res)  # q: the rewrite, if one was used
         if (res is None or res.get("answer") is None or (res.get("confidence") or 0) < self.min_conf) \
                 and self.fallback_name and (fb := self._get(self.fallback_name)):
             prev_cost = (res or {}).get("cost_usd", 0.0)

@@ -11,7 +11,7 @@ import functools
 import re
 from pathlib import Path
 
-_G = re.compile(r'<g\b[^>]*?class="(Ifc\w+)"[^>]*?data-guid="([^"]+)"[^>]*>(.*?)</g>', re.S)
+_G = re.compile(r'<g\b[^>]*?class="(?:[^"]*\s)?(Ifc\w+)"[^>]*?data-guid="([^"]+)"[^>]*>(.*?)</g>', re.S)
 _D = re.compile(r'\bd="([^"]+)"')
 _TOK = re.compile(r"[MLHVCSQTAZmlhvcsqtaz]|-?\d*\.?\d+(?:[eE][-+]?\d+)?")
 _NARGS = {"M": 2, "L": 2, "T": 2, "H": 1, "V": 1, "C": 6, "S": 4, "Q": 4, "A": 7, "Z": 0}

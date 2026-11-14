@@ -38,6 +38,45 @@ def _abstain(why: str, method: str = "ifc") -> dict:
             "evidence": []}
 
 
+# "the model 'X'", "the 'X' model", "Modell 'X'", "modelo «X»", "mudelis „X“", "modelul 'X'", ...
+_MODEL_WORD = r"(?:model\w*|modèle\w*|mudel\w*|projec?t\w*|building|file)"
+
+
+def _names_model(question: str, slot: str) -> bool:
+    """Is this quoted name introduced as the model's (or project's) name rather than a storey?"""
+    i = question.find(slot)
+    if i < 0:
+        return False
+    before = question[max(0, i - 30):i].rstrip(" '\"«»„“”‘’")
+    after = question[i + len(slot):i + len(slot) + 30].lstrip(" '\"«»„“”‘’")
+    return bool(re.search(rf"\b{_MODEL_WORD}\s*$", before, re.I) or re.match(rf"{_MODEL_WORD}\b", after, re.I))
+
+
+def _no_storey(m, name: str | None) -> str:
+    names = [s["name"] or s["long_name"] for s in m["storeys"] if s["name"] or s["long_name"]]
+    head = f"no storey named '{name}' in this model; " if name else ""
+    return head + "storeys are: " + ", ".join(f"'{n}'" for n in names)
+
+
+# a storey mentioned in words (not "floor plan" / "floor area"): only checked when nothing is quoted
+_STOREY_WORD = (r"\b(?:storeys?|stor(?:y|ies)|levels?|floors?(?!\s*(?:plans?|areas?|space))|ground|basement|attic|"
+                r"cellar|loft|mezzanine|geschoss\w*|etage\w*|kerro\w*)\b")
+
+
+def _unquoted_storey(m, question: str):
+    """A storey whose exact name appears in the question as a whole phrase (longest name wins)."""
+    ql = question.casefold()
+    best = None
+    for st in m["storeys"]:
+        for n in (st["name"], st["long_name"]):
+            n = (n or "").strip()
+            if len(n) < 2:
+                continue
+            if re.search(rf"(?<!\w){re.escape(n.casefold())}(?!\w)", ql) and (best is None or len(n) > best[1]):
+                best = (st, len(n))
+    return best[0] if best else None
+
+
 def _fmt(v: float) -> str:
     return f"{v:,.2f}".replace(",", " ")
 
@@ -75,12 +114,25 @@ class IfcSolver:
         storey, sscore = None, 0.0
         if pq["kind"] == "room_area":
             return self._room_area(m, q, pq, rel)
+        unknown = []
         for s in slots:
             st, sc = M.match_storey(m, s)
             if st is not None and sc > sscore:
                 storey, sscore = st, sc
-        if slots and storey is None and pq["kind"] != "count":
-            pass  # model-wide measure question naming the model
+            elif st is None and not _names_model(q["question"], s):
+                unknown.append(s)
+        if not slots:
+            # typed questions name storeys without quotes: "doors on Level 1", "walls on the ground floor"
+            storey = _unquoted_storey(m, q["question"])
+            if storey is not None:
+                sscore = 1.0
+            elif re.search(_STOREY_WORD, pq["text"], re.I):
+                return {**_abstain("the question names a storey I cannot find; " + _no_storey(m, None)),
+                        "unparsed": True}  # the router may rewrite it with the storey names (bp/normalize.py)
+        if storey is None and unknown:
+            # a quoted name that is neither a storey of this model nor introduced as the model's name: answering
+            # model-wide would silently ignore it ("doors on 'Level 99'" -> every door in the model)
+            return _abstain(_no_storey(m, unknown[0]))
         what = pq["what"]
         if what is None:
             return _abstain("could not tell which element type the question is about")
@@ -136,10 +188,20 @@ class IfcSolver:
                 storey, sscore = st, sc
             else:
                 room = slots[0]
+        if not slots:
+            # unquoted, typed: "area of WC 414B-23-003-006 on 3. Level", "all rooms on the ground floor"
+            storey = _unquoted_storey(m, q["question"])
+            names_storey = storey is not None or re.search(_STOREY_WORD, pq["text"], re.I)
+            if not pq["total"] or (names_storey and storey is None):
+                return {**_abstain("could not tell which room or storey the question is about; " + _no_storey(m, None)),
+                        "unparsed": True}
+            sscore = 1.0 if storey is not None else 0.0
+        if len(slots) >= 2 and storey is None:
+            return _abstain(_no_storey(m, slots[-1]))
         if room is None:
             if storey is None:
                 if slots:
-                    return _abstain("storey not found")
+                    return _abstain(_no_storey(m, slots[0]))
                 els = M.elements_of(m, ["IfcSpace"])
             else:
                 els = M.elements_of(m, ["IfcSpace"], storey)
@@ -155,7 +217,9 @@ class IfcSolver:
                     if els:
                         storey = st2
             if not els:
-                return _abstain(f"room '{room}' not found")
+                if pq["total"] and len(slots) == 1:
+                    return _abstain(_no_storey(m, room))
+                return _abstain(f"no room named '{room}'" + (f" on '{storey['name']}'" if storey else " in this model"))
             conf = 0.95 if rs >= 1.0 else 0.5
             if len(els) > 1:
                 conf *= 0.6

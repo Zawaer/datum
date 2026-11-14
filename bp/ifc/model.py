@@ -77,15 +77,28 @@ def match_storey(m, name: str):
                   f"{s['name']} ({s['long_name'] or ''})"]
         if any(nkey(c) == k for c in combos):
             return s, 1.0
+    # fuzzy fallback (typos, missing spaces): only for near-identical names whose signed numbers agree, so
+    # 'Basement -7' never becomes 'Basement' and 'Level 99' never becomes 'Level 9'. Never needed by the
+    # dataset questions (all match exactly); it is there for typed questions.
     best, bs = None, 0.0
+    nums = _signed_numbers(name)
     for s in m["storeys"]:
         for c in (s["name"], s["long_name"]):
-            if not c:
+            if not c or _signed_numbers(c) != nums:
                 continue
             r = difflib.SequenceMatcher(None, k, nkey(c)).ratio()
             if r > bs:
                 best, bs = s, r
-    return (best, bs) if bs >= 0.75 else (None, bs)
+    return (best, bs) if bs >= 0.88 else (None, bs)
+
+
+def _signed_numbers(s) -> list[str]:
+    """'Basement -7' -> ['-7']; a sign counts only when it is not glued to a word ('Level-1' -> ['1'])."""
+    out = []
+    for x in re.findall(r"(?<!\w)[-+]?\d+|\d+", str(s or "").replace("−", "-")):
+        sign = "-" if x.startswith("-") else ""
+        out.append(sign + (x.lstrip("+-").lstrip("0") or "0"))
+    return out
 
 
 def space_labels(e):
