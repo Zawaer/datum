@@ -135,9 +135,9 @@ def _parse_type(text: str) -> dict | None:
     el = _EL_RE.search(t)
     bar = [re.sub(r"\s", "", b).upper() + f" @ {s}" for b, s in bars]
     faces = []
-    if re.search(r"TOP FACE|\bT\.?F\.?\b|TOP\b", t):
+    if re.search(r"TOP FACE|\bT\.?F\.?\b|\bT\s*&\s*B\b|EACH FACE|\bE\.?F\.?\b", t):
         faces.append("top")
-    if re.search(r"BOTTOM FACE|\bB\.?F\.?\b", t):
+    if re.search(r"BOTTOM FACE|\bB\.?F\.?\b|\bT\s*&\s*B\b|EACH FACE|\bE\.?F\.?\b", t):
         faces.append("bottom")
     return {"thickness_mm": int(m.group(1)) if m else None, "bars": bar,
             "elevation": el.group(1).rstrip(".,") if el else None, "faces": faces,
@@ -523,10 +523,13 @@ def _cj_panels(g, zmask):
     if not len(xs):
         return 1, []
     x0, x1, y0, y1 = xs.min(), xs.max(), ys.min(), ys.max()
-    bold = ((g < 110) & (zmask > 0)).astype(np.uint8)
+    bold = ((g < 140) & (zmask > 0)).astype(np.uint8)
     Lh, Lv = max(15, int((x1 - x0) * 0.5)), max(15, int((y1 - y0) * 0.5))
-    hl = cv2.morphologyEx(bold, cv2.MORPH_OPEN, np.ones((2, Lh), np.uint8))
-    vl = cv2.morphologyEx(bold, cv2.MORPH_OPEN, np.ones((Lv, 2), np.uint8))
+    # bold = 2+ px thick (thin dimension / extension lines are 1 px); small breaks (lossy rasters) are bridged
+    hl = cv2.morphologyEx(cv2.morphologyEx(bold, cv2.MORPH_CLOSE, np.ones((1, 7), np.uint8)), cv2.MORPH_OPEN,
+                          np.ones((2, Lh), np.uint8))
+    vl = cv2.morphologyEx(cv2.morphologyEx(bold, cv2.MORPH_CLOSE, np.ones((7, 1), np.uint8)), cv2.MORPH_OPEN,
+                          np.ones((Lv, 2), np.uint8))
     cuts = []
     for m, o in ((hl, "H"), (vl, "V")):
         n, lab, st, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
@@ -543,42 +546,32 @@ def _cj_panels(g, zmask):
                 if len(ys_c) and y - ys_c.min() < 0.06 * (y1 - y0) and ys_c.max() - (y + h) < 0.06 * (y1 - y0):
                     cuts.append(("V", x, y, w, h))
     cut = zmask.copy()
-    for o, x, y, w, h in cuts:
+    for o, x, y, w, h in cuts:  # a joint runs wall to wall: cut the zone's whole extent along it
         if o == "H":
-            cut[max(0, y - 2):y + h + 2, :] = 0 if False else cut[max(0, y - 2):y + h + 2, :]
-            cut[max(0, y - 2):y + h + 2, x - 3:x + w + 3] = 0
+            cut[max(0, y - 2):y + h + 2, :] = 0
         else:
-            cut[y - 3:y + h + 3, max(0, x - 2):x + w + 2] = 0
+            cut[:, max(0, x - 2):x + w + 2] = 0
     n, lab, st, _ = cv2.connectedComponentsWithStats(cut.astype(np.uint8), connectivity=4)
     big = [i for i in range(1, n) if st[i, 4] > 0.02 * zmask.sum()]
     return max(1, len(big)), cuts
 
 
 def _hatch(g, union_mask):
-    """Hatched (diagonal-line) pads inside the slab zones: list of (bbox px, area px)."""
+    """Hatched / shaded pads inside the slab zones: list of {bbox, area_px, poly} (px)."""
     import cv2
     import numpy as np
 
     S = max(g.shape)
-    dark = (g < 200).astype(np.uint8)
-    L = max(7, round(S * 0.005))
-    k1 = np.eye(L, dtype=np.uint8)
-    k2 = np.fliplr(k1).copy()
-    diag = cv2.morphologyEx(dark, cv2.MORPH_OPEN, k1) | cv2.morphologyEx(dark, cv2.MORPH_OPEN, k2)
-    r = max(7, round(S * 0.006)) | 1
-    den = cv2.blur(diag.astype(np.float32), (r, r))
-    m = ((den > 0.10) & (union_mask > 0)).astype(np.uint8)
-    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((r, r), np.uint8))
-    m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((r, r), np.uint8))
+    m = (_shade_mask(g) & (union_mask > 0)).astype(np.uint8)
     n, lab, st, _ = cv2.connectedComponentsWithStats(m, connectivity=4)
     out = []
     for i in range(1, n):
         x, y, w, h, a = st[i]
-        if a < (S * 0.012) ** 2:
+        if a < (S * 0.01) ** 2:
             continue
         cs, _ = cv2.findContours((lab == i).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         c = max(cs, key=cv2.contourArea)
-        poly = cv2.approxPolyDP(c, 2.5, True)[:, 0, :].tolist()
+        poly = cv2.approxPolyDP(c, 2.0, True)[:, 0, :].tolist()
         out.append({"bbox": [int(x), int(y), int(x + w), int(y + h)], "area_px": float(a), "poly": poly})
     return out
 
