@@ -115,6 +115,11 @@ def answer(path, question, meta):
     t0 = time.monotonic()
     deadline = t0 + ANSWER_TIMEOUT_S
     wf = warm_job(meta)
+    if wf is None and (callable(getattr(m, "warm", None)) or _default_warm(n) is not None):
+        # no warm-up in this process (the server restarted after the upload was prepared): start it now, so that
+        # questions asked at once on this sheet share one reading instead of each running the analysis next to the
+        # others (3 parallel slab analyses on the 4-core VM ran one question past its timeout)
+        wf = warm_upload(meta)
     if wf is not None and not wf.done():
         try:
             wf.result(timeout=max(0.0, deadline - time.monotonic()))

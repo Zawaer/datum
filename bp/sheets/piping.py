@@ -287,7 +287,7 @@ def _vision_items(image_path: str) -> tuple[list[dict], float]:
             crop = crop.resize((round(crop.width * up), round(crop.height * up)), Image.LANCZOS)
         got, spent = [], 0.0
         for attempt in range(2):  # an empty / unparseable reply (it happens on dense tiles) is retried once
-            r = llm.ask(VISION_PROMPT.format(w=crop.width, h=crop.height), [crop], model="haiku",
+            r = llm.ask(VISION_PROMPT.format(w=crop.width, h=crop.height), [crop], model="haiku", think="low",
                         system="You transcribe drawings exactly. Output only the requested lines.", timeout=180,
                         tag="sheets-piping-ocr")
             spent += float(r.get("cost_usd") or 0.0)

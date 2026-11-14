@@ -712,84 +712,157 @@ def _work_image(meta, ppm):
         return img, ppm, 1.0
 
 
+# The CubiCasa detector on a big sheet is the slow half of a first door question on the CPU-only demo VM (139 MP school
+# plan: swing reading ~22 s, detector ~40 s on 4 vCPU). When the swing reading stands on its own (vector swings, or a
+# full-resolution raster with doors), the answer goes out without it and the detector runs right after, in the
+# background, as the sanity check it is; its verdict (cv_ok) is applied to the cached reading for later questions.
+DEFER_YOLO = os.environ.get("BP_OPENINGS_DEFER_YOLO", "1") == "1"
+_inflight_lock = __import__("threading").Lock()
+_inflight: dict = {}
+
+
 def analyse_meta(meta) -> dict:
-    """detect_openings() for an upload, cached in meta["openings"] and on disk next to the page image."""
+    """detect_openings() for an upload, cached in meta["openings"] and on disk next to the page image. Questions
+    asked at once on the same sheet share one reading (the first computes, the others wait for it)."""
     if "openings" in meta:
         return meta["openings"]
+    from concurrent.futures import Future
+
     ppm = _scale(meta)
     img, wppm, f = _work_image(meta, ppm)
     st = os.stat(img)
     key = hashlib.sha1(f"{img}|{st.st_size}|{st.st_mtime}|{wppm}|v1".encode()).hexdigest()[:12]
     cf = Path(meta["image"]).with_name(f"openings_{key}.json")
+    with _inflight_lock:
+        fut = _inflight.get(str(cf))
+        owner = fut is None
+        if owner:
+            fut = _inflight[str(cf)] = Future()
+    if not owner:
+        res = fut.result()
+    else:
+        try:
+            res = _analyse_uncached(meta, ppm, img, wppm, f, cf)
+            fut.set_result(res)
+        except BaseException as e:
+            fut.set_exception(e)
+            raise
+        finally:
+            with _inflight_lock:
+                _inflight.pop(str(cf), None)
+    meta["openings"] = res
+    return res
+
+
+def _judge(res, meta):
+    """cv_ok: whether the swing / strip reading stands (else the detector's or the vision tiles' answer is used)."""
+    yd = len((res.get("yolo") or {}).get("doors") or [])
+    if res.get("vector"):
+        res["low_res"] = False  # the doors come from the vector drawing, whatever the raster's resolution
+    # swing reading implausibly short of the detector (unfilled double-line walls, grey swings): treat as low-res
+    res["cv_ok"] = bool(res.get("vector")) or not res["low_res"] and not (yd >= 10 and len(res["doors"]) < 0.6 * yd) \
+        and not (len(res["doors"]) < 3 and yd > len(res["doors"]))  # 1-2 swings on a scan: not a reading
+    # plausibility: a floor plan has at least ~1 door per 100 m2 of building (bbox area, needs a scale)
+    if res["cv_ok"] and res.get("px_per_m") and not res.get("vector"):
+        if "footprint_bbox_m2" not in res:
+            try:
+                ext = building_bbox(_gray(meta["image"]))
+            except Exception:  # noqa: BLE001
+                ext = None
+            if ext:
+                res["footprint_bbox_m2"] = round((ext[2] - ext[0]) * meta["w"] * (ext[3] - ext[1]) * meta["h"]
+                                                 / res["px_per_m"] ** 2)
+        area = res.get("footprint_bbox_m2")
+        if area and len(res["doors"]) < area / 100 * 0.5:  # bbox overstates an L / T footprint: allow half
+            res["cv_ok"] = False
+    if not res["cv_ok"] and "haiku" not in res and os.environ.get("BP_OPENINGS_HAIKU", "1") == "1":
+        try:
+            res["haiku"] = haiku_openings(meta["image"])
+        except Exception as e:  # noqa: BLE001
+            log.warning("openings: vision tiles failed: %s", e)
+
+
+def _write(cf, res):
+    try:
+        cf.write_text(json.dumps(res))
+    except OSError:
+        pass
+
+
+def _finish_yolo(meta, ppm, res, cf):
+    """The deferred detector run (background thread), inside the process memory budget; updates res in place."""
+    from bp import memgate
+
+    try:
+        with memgate.hold(memgate.cost(int(meta.get("w") or 0) * int(meta.get("h") or 0), "answer"),
+                          tag=memgate.tag_for(meta.get("image") or ""), label="openings detector"):
+            y = yolo_openings(meta["image"], ppm)
+    except Exception as e:  # noqa: BLE001
+        log.warning("openings: deferred detector failed: %s", e)
+        y = None
+    if y is not None:
+        res["yolo"] = y
+    res.pop("yolo_pending", None)
+    _judge(res, meta)
+    _write(cf, res)
+
+
+def _analyse_uncached(meta, ppm, img, wppm, f, cf) -> dict:
     res = None
     if cf.exists():
         try:
             res = json.loads(cf.read_text())
         except json.JSONDecodeError:
             res = None
-    if res is None:
-        r = detect_openings(img, wppm)
-        W, H = r["size"]
+    if res is not None:
+        if res.get("yolo_pending"):  # the process ended before the deferred detector run finished: run it now
+            __import__("threading").Thread(target=_finish_yolo, args=(meta, ppm, res, cf), daemon=True).start()
+        return res
+    r = detect_openings(img, wppm)
+    W, H = r["size"]
 
-        def norm(items):
-            return [{"bbox": [d["bbox"][0] / W, d["bbox"][1] / H, d["bbox"][2] / W, d["bbox"][3] / H],
-                     **{k: d[k] for k in ("leaves", "kind", "score", "exterior", "lines") if k in d}} for d in items]
-        res = {"doors": norm(r["doors"]), "windows": norm(r["windows"]), "internal_glazing": norm(r["internal_glazing"]),
-               "low_res": bool(r.get("low_res")), "render_factor": f,
-               "px_per_m": (wppm or r.get("px_per_m_estimated") or 0) / f or None,
-               "scale_from": "printed scale" if wppm else "median door swing = 0.9 m" if r.get("px_per_m_estimated") else None,
-               "solid_walls": None}
-        # vector PDF page: door swings read from the drawing's own curves are exact; they replace the raster swings
-        # (leaf-only / folding doors found on the raster are kept when no vector swing covers them)
-        if str(meta.get("path") or "").lower().endswith(".pdf"):
-            try:
-                vd = vector_doors(meta["path"], meta.get("page") or 0)
-            except Exception as e:  # noqa: BLE001
-                log.warning("openings: vector doors failed: %s", e)
-                vd = None
-            if vd and len(vd["doors"]) >= 3:
-                vb = [d["bbox"] for d in vd["doors"]]
+    def norm(items):
+        return [{"bbox": [d["bbox"][0] / W, d["bbox"][1] / H, d["bbox"][2] / W, d["bbox"][3] / H],
+                 **{k: d[k] for k in ("leaves", "kind", "score", "exterior", "lines") if k in d}} for d in items]
+    res = {"doors": norm(r["doors"]), "windows": norm(r["windows"]), "internal_glazing": norm(r["internal_glazing"]),
+           "low_res": bool(r.get("low_res")), "render_factor": f,
+           "px_per_m": (wppm or r.get("px_per_m_estimated") or 0) / f or None,
+           "scale_from": "printed scale" if wppm else "median door swing = 0.9 m" if r.get("px_per_m_estimated") else None,
+           "solid_walls": None}
+    # vector PDF page: door swings read from the drawing's own curves are exact; they replace the raster swings
+    # (leaf-only / folding doors found on the raster are kept when no vector swing covers them)
+    if str(meta.get("path") or "").lower().endswith(".pdf"):
+        try:
+            vd = vector_doors(meta["path"], meta.get("page") or 0)
+        except Exception as e:  # noqa: BLE001
+            log.warning("openings: vector doors failed: %s", e)
+            vd = None
+        if vd and len(vd["doors"]) >= 3:
+            vb = [d["bbox"] for d in vd["doors"]]
 
-                def covered(b):
-                    cx, cy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
-                    return any(v[0] - 0.003 <= cx <= v[2] + 0.003 and v[1] - 0.003 <= cy <= v[3] + 0.003 for v in vb)
-                extra = [d for d in res["doors"] if d.get("kind") == "leaf" and not covered(d["bbox"])] \
-                    if not res["low_res"] and len(vb) >= 20 else []  # small sheets: leader lines look like leaves
-                res["doors"] = [{"bbox": d["bbox"], "leaves": d["leaves"], "kind": "vector-swing"}
-                                for d in vd["doors"]] + extra
-                res["doors"].sort(key=lambda d: (round(d["bbox"][1] * 40), d["bbox"][0]))
-                res["vector"] = {"swing_doors": len(vd["doors"]), "arcs": vd["arcs"], "raster_leaf_doors": len(extra)}
-        try:  # the symbol detector always runs (free, ~5 s): fallback for low-res rasters and a sanity check
+            def covered(b):
+                cx, cy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+                return any(v[0] - 0.003 <= cx <= v[2] + 0.003 and v[1] - 0.003 <= cy <= v[3] + 0.003 for v in vb)
+            extra = [d for d in res["doors"] if d.get("kind") == "leaf" and not covered(d["bbox"])] \
+                if not res["low_res"] and len(vb) >= 20 else []  # small sheets: leader lines look like leaves
+            res["doors"] = [{"bbox": d["bbox"], "leaves": d["leaves"], "kind": "vector-swing"}
+                            for d in vd["doors"]] + extra
+            res["doors"].sort(key=lambda d: (round(d["bbox"][1] * 40), d["bbox"][0]))
+            res["vector"] = {"swing_doors": len(vd["doors"]), "arcs": vd["arcs"], "raster_leaf_doors": len(extra)}
+    # the symbol detector always runs (free; ~5 s on a GPU, ~40 s for a 139 MP sheet on the 4-core VM): fallback for
+    # low-res rasters and a sanity check. A reading that stands without it answers first (DEFER_YOLO)
+    defer = DEFER_YOLO and (bool(res.get("vector")) or (not res["low_res"] and len(res["doors"]) >= 3))
+    if defer:
+        res["yolo_pending"] = True
+    else:
+        try:
             res["yolo"] = yolo_openings(meta["image"], ppm)
         except Exception as e:  # noqa: BLE001
             log.warning("openings: detector fallback failed: %s", e)
-        # swing reading implausibly short of the detector (unfilled double-line walls, grey swings): treat as low-res
-        yd = len((res.get("yolo") or {}).get("doors") or [])
-        if res.get("vector"):
-            res["low_res"] = False  # the doors come from the vector drawing, whatever the raster's resolution
-        res["cv_ok"] = bool(res.get("vector")) or not res["low_res"] and not (yd >= 10 and len(res["doors"]) < 0.6 * yd) \
-            and not (len(res["doors"]) < 3 and yd > len(res["doors"]))  # 1-2 swings on a scan: not a reading
-        # plausibility: a floor plan has at least ~1 door per 100 m2 of building (bbox area, needs a scale)
-        if res["cv_ok"] and res.get("px_per_m") and not res.get("vector"):
-            try:
-                ext = building_bbox(_gray(meta["image"]))
-            except Exception:  # noqa: BLE001
-                ext = None
-            if ext:
-                area = (ext[2] - ext[0]) * meta["w"] * (ext[3] - ext[1]) * meta["h"] / res["px_per_m"] ** 2
-                res["footprint_bbox_m2"] = round(area)
-                if len(res["doors"]) < area / 100 * 0.5:  # bbox overstates an L / T footprint: allow half
-                    res["cv_ok"] = False
-        if not res["cv_ok"] and os.environ.get("BP_OPENINGS_HAIKU", "1") == "1":
-            try:
-                res["haiku"] = haiku_openings(meta["image"])
-            except Exception as e:  # noqa: BLE001
-                log.warning("openings: vision tiles failed: %s", e)
-        try:
-            cf.write_text(json.dumps(res))
-        except OSError:
-            pass
-    meta["openings"] = res
+    _judge(res, meta)
+    _write(cf, res)
+    if defer:
+        __import__("threading").Thread(target=_finish_yolo, args=(meta, ppm, res, cf), daemon=True).start()
     return res
 
 
