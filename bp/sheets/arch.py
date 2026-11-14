@@ -438,9 +438,18 @@ def answer(path, question, meta):
     for name in SUBMODULES.get(it, []):
         try:
             mod = importlib.import_module(f"bp.sheets.{name}")
-        except ImportError:
+        except Exception:  # noqa: BLE001  a module being written or broken: skip it
             continue
-        r = mod.answer(path, question, meta)
+        if not callable(getattr(mod, "answer", None)):
+            continue
+        try:
+            r = mod.answer(path, question, meta)
+        except Exception as e:  # noqa: BLE001
+            import logging
+
+            logging.getLogger(__name__).exception("sheet module %s failed", name)
+            r = {"answer": None, "confidence": 0.0, "evidence": [], "cost_usd": 0.0, "method": f"sheets-{name}-error",
+                 "explanation": f"{name} failed: {type(e).__name__}"}
         if r is not None and r.get("answer") is not None:
             r.setdefault("method", f"sheets-{name}")
             return r

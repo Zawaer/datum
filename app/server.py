@@ -944,7 +944,9 @@ window windows door doors toilet toilets room rooms bedroom bedrooms bathroom ba
 sink sinks shower showers bathtub bathtubs stair stairs staircase staircases storey storeys floors level levels
 balcony balconies wall walls column columns parking spaces space elevator lift corridor living dining garage
 closet closets office offices show shows does have has with and for from all each any can see find list name
-names labelled labeled marked count give tell please whats into than then them they their these those""".split())
+names labelled labeled marked count give tell please whats into than then them they their these those
+dorm dorms dormitory dormitories baseboard baseboards skirting slab slabs piping pipe pipes valve valves classroom
+classrooms hall library meters metres linear footage square feet wing wings circulation trench trenches""".split())
 
 
 def _fix_typos(question: str) -> str:
