@@ -157,7 +157,7 @@ About 220 words. Same order, fewer switches: one demo moment at the start, then 
 deck and the recorded video (below). The GPU box only matters for the second opinion on free-worded scan
 questions and raster uploads; the run sheet below avoids both.
 
-**Rate limit.** The public demo allows 30 asks + uploads per client IP per 10 minutes (HTTP 429 after that). If
+**Rate limit.** The public demo allows 150 asks + uploads per client IP per 10 minutes (raised from 30 because a venue shares one IP; the $5/day model-spend cap still protects the budget) (HTTP 429 after that). If
 the judges and your laptop share the venue Wi-Fi, they share an IP: do not rehearse on venue Wi-Fi in the last
 10 minutes before your slot, or rehearse on a phone hotspot.
 
@@ -175,7 +175,7 @@ the judges and your laptop share the venue Wi-Fi, they share an IP: do not rehea
    - **Tab 4:** `docs/deck/deck.pdf`, full screen, on slide 2.
 3. In tab 1, press the mic once and allow microphone access, then **reload tab 1** so the ask box is empty again.
 4. Say "Kuinka monta ovea?" once in tab 1 to warm the server and check the mic hears you over the room, then
-   reload. (This uses 1 of the 30 asks.)
+   reload. (This uses 1 of the 150 asks.)
 
 ### During the talk: exact actions
 

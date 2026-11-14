@@ -27,7 +27,7 @@ rsync -az --delete -e "ssh ${SSHO[*]}" deploy/bundle/ "$R:/opt/bp/bundle/"
 
 echo "== secrets + caps (chmod 600 on the VM)"
 { grep -E '^ANTHROPIC_API_KEY=' data/secrets/anthropic.env
-  echo "BP_RATE_LIMIT=${BP_RATE_LIMIT:-30/600}"
+  echo "BP_RATE_LIMIT=${BP_RATE_LIMIT:-150/600}"
   echo "BP_DAILY_USD_CAP=${BP_DAILY_USD_CAP:-5}"
   # ask by voice: ElevenLabs speech-to-text key (+ optional BP_STT_* caps); absent -> browser speech recognition only
   [ -f data/secrets/elevenlabs.env ] && grep -E '^(ELEVENLABS_API_KEY|BP_STT_[A-Z_]+)=' data/secrets/elevenlabs.env || true

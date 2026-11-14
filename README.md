@@ -161,7 +161,7 @@ paid calls at all; only the 110 free-text IFC questions call Claude Haiku. In th
 no parser understands add one cached Haiku call for the normaliser (~$0.0003-0.003). Local compute (CAD / IFC parsing on
 CPU, the detector on one GPU, ~0.17 s per drawing with flip test-time augmentation) prices at about $0.006 per 1,000 questions at $0.50 per
 GPU-hour. Building everything (frontier baselines, fine-tuning runs, development calls, demo hosting) cost
-about $175 one-off so far (the demo server, still running at the time of writing, is costed up to now). Per-answer and build costs, with every line item: [docs/COSTS.md](docs/COSTS.md)
+about $197 one-off so far (including the live-model GPU windows on Saturday and Sunday) (the demo server, still running at the time of writing, is costed up to now). Per-answer and build costs, with every line item: [docs/COSTS.md](docs/COSTS.md)
 (`.venv/bin/python analysis/costs.py` regenerates it).
 
 ## How it works
