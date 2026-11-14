@@ -19,15 +19,23 @@
   <button class="iconbtn only-phone" id="drawerbtn" aria-label="Drawings">☰</button>
   <a class="brand" href="/"><span class="logo">▦</span> Blueprints <em>that talk</em></a>
   <nav class="links">
-    <button class="linkbtn" id="tourbtn" title="A guided 7-step tour (Esc to leave, ← → to step)"><span class="only-desk">Demo </span>tour</button>
+    <button class="linkbtn" id="tourbtn" title="A guided 7-step tour, about a minute (Esc to leave, ← → to step)"><span class="only-desk">Demo </span>tour</button>
     <a class="linkbtn" href="/results">Score<span class="only-desk">board</span></a>
   </nav>
-  <div class="meter" id="meter" data-short="ours $0 vs frontier $0" title="What this session's questions cost us vs what a frontier vision model would have cost (measured on our baseline run)">
+  <div class="meter" id="meter" data-n="0" data-short="this session: ours $0 vs frontier $0" title="What your questions in this session cost us, vs what a frontier vision model (Claude Sonnet) charged for the same kind of question in our baseline run">
     <div class="mrow"><span class="mlab">ours</span><span class="mbar"><i id="bar-ours"></i></span><b id="m-ours">$0</b></div>
     <div class="mrow"><span class="mlab">frontier</span><span class="mbar"><i id="bar-base" class="base"></i></span><b id="m-base">$0</b></div>
-    <div class="msum" id="m-sum">ask something</div>
+    <div class="msum" id="m-sum">cost of this session's questions</div>
   </div>
 </header>
+<a class="headline" id="headline" href="/results" title="Per source, on every held-out test question: Finnish raster plans 84.2 % (16,496 questions) · Swiss CAD plans 100.0 % (8,214) · IFC / BIM models 100 % (600) · IFC free-text questions 36.4 % (110). Click for the full scoreboard.">
+  <span class="hl-main"><b>89.5 % right</b> on all 25,420 held-out test questions<span class="only-desk">: every question in every language, not a sample (95 % CI 89.1–89.8)</span></span>
+  <span class="hl-sep only-desk">·</span>
+  <span class="hl-vs">Claude Sonnet <span class="only-desk">given the same files:</span><span class="only-phone">+ same files</span> 69.8 %</span>
+  <span class="hl-sep">·</span>
+  <span class="hl-cost"><b>$0.014</b> vs $25.76 per 1,000<span class="only-desk"> questions</span></span>
+  <span class="hl-go">Scoreboard ›</span>
+</a>
 <div class="scrim" id="scrim"></div>
 <main>
   <nav id="list">
@@ -36,7 +44,7 @@
       <b>Upload a drawing</b><small>PDF · PNG · JPG · DXF · IFC, or drop it anywhere</small>
     </label>
     <div class="tabs" id="tabs"></div>
-    <input class="search" id="search" placeholder="filter by file name…">
+    <input class="search" id="search" placeholder="filter by file name…" aria-label="Filter drawings by file name">
     <div id="items"></div>
     <button class="more" id="more" hidden>show more</button>
   </nav>
@@ -62,8 +70,9 @@
   <aside id="side">
     <div class="ask"><input id="q" placeholder="Ask in any language, e.g. How many windows?" autocomplete="off" enterkeyhint="send" aria-label="Your question"><button id="go">Ask</button></div>
     <div class="intro" id="intro">
-      <b>Ask this drawing anything you would count or measure.</b>
-      <span>Pick a suggested question or type your own, in English, Finnish, German, French, Danish or any other language. The answer is drawn on the plan so you can check it, and you can correct it with a click.</span>
+      <b class="vp">Ask a construction drawing or BIM model a question. The answer is counted out on the drawing, so you can check it in seconds.</b>
+      <button class="btn cta" id="ctatour">▶ Start the 60-second tour</button>
+      <span>Or pick a question below, or type your own in any language. Every answer shows its evidence on the plan, says in words how far to trust it, and you can correct it with a click.</span>
       <span class="keys"><kbd>Enter</kbd> ask · <kbd>/</kbd> focus · <kbd>Esc</kbd> cancel · <kbd>f</kbd> fit drawing</span>
     </div>
     <div class="qs"><h3 id="qstitle">Questions for this drawing</h3><div class="chips" id="chips"></div></div>

@@ -57,6 +57,15 @@ header { display: flex; align-items: center; gap: 16px; padding: 5px 16px; borde
 .msum { font-size: 11px; color: var(--mut); text-align: right; }
 .msum b { color: var(--ok-ink); font-weight: 600; }
 
+/* headline result strip: the one number a judge should leave with, linking to the scoreboard */
+.headline { display: flex; align-items: baseline; gap: 4px 10px; flex-wrap: wrap; padding: 5px 16px; background: var(--panel2); border-bottom: 1px solid var(--line2);
+  font-size: 13px; color: var(--mut); text-decoration: none; line-height: 1.35; }
+.headline b { color: var(--text); font-weight: 600; }
+.headline .hl-main b { color: var(--ev-ink); }
+.headline .hl-sep { color: var(--faint); }
+.headline .hl-go { margin-left: auto; color: var(--ev-ink); font-weight: 500; white-space: nowrap; }
+.headline:hover .hl-go { text-decoration: underline; }
+
 main { flex: 1; display: grid; grid-template-columns: 264px 1fr 424px; min-height: 0; }
 @media (min-width: 1700px) { main { grid-template-columns: 288px 1fr 480px; } }
 
@@ -129,7 +138,7 @@ main { flex: 1; display: grid; grid-template-columns: 264px 1fr 424px; min-heigh
 .ask { display: flex; gap: 8px; order: 0; position: sticky; top: -16px; z-index: 3; background: var(--panel); margin: -16px -16px 0; padding: 16px 16px 12px; border-bottom: 1px solid var(--line); }
 /* content scrolling under the sticky question box must not peek out between it and the answer card */
 .ask::after { content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 15px; background: var(--panel); pointer-events: none; }
-.qs { order: 1; } #intro { order: 2; } #answer { order: 3; } #evwrap { order: 4; }
+#intro { order: 1; } .qs { order: 2; } #answer { order: 3; } #evwrap { order: 4; }
 .ask input { flex: 1; min-width: 0; background: var(--panel); border: 1px solid var(--faint); color: var(--text); border-radius: var(--r1); padding: 9px 10px; font-size: 15px; }
 .ask input:focus { outline: none; border-color: var(--ev); box-shadow: 0 0 0 1px var(--ev); }
 .ask button, .btn { background: var(--ink); color: #fff; border: 1px solid var(--ink); border-radius: var(--r1); padding: 0 16px; font-weight: 600; cursor: pointer; }
@@ -140,6 +149,8 @@ main { flex: 1; display: grid; grid-template-columns: 264px 1fr 424px; min-heigh
 .intro { display: flex; flex-direction: column; gap: 8px; padding: 0 0 0 12px; border-left: 2px solid var(--line2); color: var(--mut); font-size: 13px; }
 .intro b { color: var(--text); font-size: 14px; font-weight: 600; }
 .intro .keys { font-size: 12px; }
+.intro .vp { font-size: 16px; line-height: 1.4; }
+.intro .cta { align-self: flex-start; padding: 8px 16px; font-size: 14px; }
 kbd { font: 500 11px var(--mono); background: var(--panel2); border: 1px solid var(--line2); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; color: var(--text); }
 h3 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--mut); font-weight: 600; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; max-height: 148px; overflow: auto; padding-bottom: 12px;
@@ -315,6 +326,10 @@ svg .appear { animation: pop .25s ease-out; transform-box: fill-box; transform-o
   .ask button { padding: 0 18px; }
   #intro { order: 1; } #answer { order: 1; } #evwrap { order: 2; } .qs { order: 3; }
   .intro .keys { display: none; }
+  .headline { padding: 4px 12px; font-size: 12px; gap: 2px 6px; }
+  .meter[data-n="0"] { display: none; }
+  .headline .hl-go { display: none; }  /* nothing asked yet: the headline strip says it */
+  .intro .vp { font-size: 15px; }
   .chips { max-height: none; -webkit-mask-image: none; mask-image: none; padding-bottom: 0; }
   .chip { padding: 6px 10px; font-size: 13px; }
   #list { position: fixed; z-index: 30; left: 0; top: 0; bottom: 0; width: min(320px, 86vw); transform: translateX(-102%); transition: transform .25s ease, box-shadow .25s; box-shadow: none; }

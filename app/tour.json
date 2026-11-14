@@ -1,7 +1,7 @@
 [
   {
     "title": "Count it out, symbol by symbol",
-    "caption": "Swiss apartment floor. Every door is read from the CAD layers and numbered on the drawing, so you can check the count in seconds. No model call: it costs $0.",
+    "caption": "Swiss apartment floor: 20 doors, each read from the CAD layers and numbered on the drawing and in the list, so you can check the count in seconds. On the right: how far to trust it, in words, and a second, independent method that agrees. No AI model call: $0.",
     "source": "swiss_dwellings",
     "path": "data/swiss_dwellings/site3387_bldg5238_floor23498.pdf",
     "question": "How many doors (interior doors and entrance doors together) are drawn on this floor plan?",
@@ -12,39 +12,38 @@
   },
   {
     "title": "Ask in German, compare with frontier models",
-    "caption": "Net living area of apartment A: each room is outlined with its own m² and the list adds up to 62.74 m², as in the dataset. Frontier models given the same drawing said 59 to 73.9 m². “Why this answer” shows the route, what was read and the sum.",
+    "caption": "Net living area of apartment A: each room is outlined with its own m², and the list adds up to 62.74 m², the dataset's answer. Below the answer, the same question put to five frontier models given the same drawing: all five missed it (59 to 75 m²).",
     "source": "swiss_dwellings",
     "path": "data/swiss_dwellings/site11487_bldg17991_floor47889.pdf",
     "question": "Wie gross ist die Nettowohnfläche von Wohnung A in m² (Summe aller Räume ohne Balkone, Loggien, Terrassen und andere Aussenräume)?",
     "actions": [
       "wait:600",
       "hover:0",
-      "wait:1500",
-      "trace:open",
-      "wait:1800"
+      "wait:800",
+      "scroll:.vs",
+      "wait:2500"
     ]
   },
   {
     "title": "Disagree? Correct it with a click",
-    "caption": "The evidence is the answer. Untick an item or click to add one the solver missed: the total updates on the spot, and the correction is saved as feedback for the next training run.",
+    "caption": "The evidence is the answer. Untick an item (here window #4) or click the drawing to add one the solver missed: the total updates on the spot, and the correction is saved as feedback for the next training run.",
     "source": "swiss_dwellings",
     "path": "data/swiss_dwellings/site3387_bldg5238_floor23498.pdf",
     "question": "How many windows are drawn on this floor plan?",
     "actions": [
       "wait:500",
       "toggle:3",
-      "wait:1800",
-      "toggle:3"
+      "wait:1500"
     ]
   },
   {
     "title": "A Finnish plan, asked in Finnish",
-    "caption": "CubiCasa raster plans: a small detector finds the door symbols and boxes each one it counted.",
+    "caption": "A raster plan with no CAD file: a small detector we trained boxes each door it counted (5). Our fine-tuned vision model says 4, so the app flags the conflict and says in words to check. The five boxes make that a five-second check; 5 is right.",
     "source": "cubicasa5k",
     "path": "data/cubicasa5k/colorful-10052.png",
     "question": "Kuinka monta ovea pohjapiirustuksessa on? Laske oviaukot, joissa on ovi; pelkkiä oviaukkoja ilman ovilehteä ei lasketa.",
     "actions": [
-      "wait:800"
+      "wait:1500"
     ]
   },
   {
@@ -62,18 +61,20 @@
   },
   {
     "title": "Wall lengths, asked in Danish, in 3D",
-    "caption": "Every wall that adds to the total lights up on its storey with its own length in the list: 21 walls, summed exactly from the model.",
+    "caption": "Every wall that adds to the total lights up on its storey, with its own length in the list. “Why this answer” shows the arithmetic: 21 walls, summed exactly from the model.",
     "source": "ifc_models",
     "path": "data/ifc_models/bsc-molio_molio-with-uris_plan-03-grundplan.pdf",
     "question": "Hvad er den samlede længde af alle vægge på 'Grundplan' i meter?",
     "actions": [
       "wait:1200",
-      "hover:1"
+      "hover:1",
+      "trace:open",
+      "wait:1800"
     ]
   },
   {
     "title": "Rooms inside the building",
-    "caption": "The storey is cut open so interior spaces are visible. Click any element in 3D (or any row) to drop it from the answer.",
+    "caption": "Click any element in 3D, or untick its row, to drop it from the answer. When you agree, mark it as checked and download the whole session as a takeoff CSV.",
     "source": "ifc_models",
     "path": "data/ifc_models/bsc-molio_molio-with-uris_plan-03-grundplan.pdf",
     "question": "How many rooms (spaces) are shown on the floor plan of 'Grundplan'?",

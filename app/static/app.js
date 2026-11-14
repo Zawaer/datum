@@ -2,7 +2,7 @@
 'use strict';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
-const SRC = {swiss_dwellings: 'Swiss apartments', cubicasa5k: 'Finnish plans', ifc_models: 'IFC models', ifc_bench: 'IFC bench',
+const SRC = {swiss_dwellings: 'Swiss apartments', cubicasa5k: 'Finnish plans', ifc_models: 'IFC / BIM models', ifc_bench: 'IFC text Q&A',
              opening_design: 'US drawing sets', upload: 'Your uploads'};
 const ROUTE = {swiss: 'CAD layers (DXF twin)', ifc: 'IFC model query', cubicasa: 'plan symbol detector', generic: 'generic drawing reader', ifctext: 'IFC fact sheet'};
 const NS = 'http://www.w3.org/2000/svg';
@@ -184,7 +184,7 @@ async function loadList(append = false) {
   const r = await (await fetch(`/api/drawings?source=${tab}&q=${encodeURIComponent(listQuery)}&offset=${listOffset}&limit=80`)).json();
   renderTabs(r.counts);
   if (!append) box.innerHTML = '';
-  for (const d of r.items) box.appendChild(itemEl(d, `${d.n} questions · ${d.split === 'test' ? 'held-out test' : 'dev'}`));
+  for (const d of r.items) box.appendChild(itemEl(d, `${d.n} questions · ${d.split === 'test' ? 'test drawing, never trained on' : 'development drawing'}`));
   listOffset += r.items.length;
   $('#more').hidden = listOffset >= r.total;
   $('#more').textContent = `show more (${r.total - listOffset} left)`;
@@ -233,6 +233,7 @@ async function select(d, how = 'push') {
     localStorage.setItem('bp_uploads', JSON.stringify(uploads)); if (tab === 'upload') loadList();
   }
   Object.assign(cur, info); has3d = info.has3d; loaded3d = null; loading(''); if (window.V3) V3.clear();
+  cur.page = 0; cur.pin = null; uploadPanel(info);
   $('#modes').classList.toggle('show', has3d);  // a model without a plan sheet still shows "3D model", with Plan disabled
   $('#m2d').disabled = !info.view; $('#m2d').title = info.view ? '' : 'no plan sheet for this model';
   $('#credit').textContent = info.credit ? '© ' + info.credit : '';
@@ -248,14 +249,49 @@ async function select(d, how = 'push') {
   // chips first: a big model can take a while to tessellate and the questions should not wait for it
   if (cur.path === d.path) await setMode(info.view ? '2d' : (has3d ? '3d' : '2d'));
 }
-function showImage(view) {
-  cur.shown = view || null;
+function showImage(view, page = 0) {
+  cur.shown = view || null; cur.page = page || 0; syncPageBar();
   if (!view) { img.removeAttribute('src'); return; }
-  const src = '/api/render?path=' + encodeURIComponent(view);
+  const src = '/api/render?path=' + encodeURIComponent(view) + (page ? '&page=' + page : '');
   if (img.getAttribute('src') !== src) { loading('Rendering the drawing…'); img.onload = () => loading(''); img.onerror = () => { loading(''); hint('Could not render this drawing'); }; img.src = src; }
 }
 
 // ------------------------------------------------------------ upload
+$('#file').accept = '.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.bmp,.gif,.svg,.dxf,.ifc';
+// what the server did to an upload (rectified photo, turned scan, ...), a not-a-drawing warning, and a page picker
+function uploadPanel(info) {
+  let box = $('#upnote');
+  if (!box) { box = document.createElement('div'); box.id = 'upnote'; box.style.cssText = 'font-size:12px;color:var(--mut);margin:0 0 10px;line-height:1.45'; $('#chips').parentElement.before(box); }
+  const up = cur.path.startsWith('uploads/');
+  const notes = (up ? info.notes || [] : []).map(n => `<div>· ${esc(n)}</div>`).join('');
+  const orig = up && info.original ? `<div><a href="/api/file?path=${encodeURIComponent(info.original)}" target="_blank" rel="noopener">see your original file</a></div>` : '';
+  const warn = up && info.not_drawing ? `<div style="color:#b45309"><b>This doesn't look like a construction drawing</b> (it looks like: ${esc(info.not_drawing)}). You can still ask about its text, but nothing will be counted on it.</div>` : '';
+  box.innerHTML = `${warn}${notes ? '<b>We prepared your file:</b>' + notes : ''}${orig}`;
+  box.hidden = !box.innerHTML;
+  let bar = $('#pagebar');
+  if (!bar) {
+    bar = document.createElement('div'); bar.id = 'pagebar';
+    bar.style.cssText = 'position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:6;display:flex;gap:4px;align-items:center;background:var(--panel);border:1px solid var(--line2);border-radius:var(--r1);padding:3px 6px;font-size:12px;max-width:70%';
+    bar.innerHTML = '<button id="pgprev" aria-label="Previous page">‹</button><select id="pgsel" aria-label="Page to ask about" style="max-width:340px"></select><button id="pgnext" aria-label="Next page">›</button>';
+    $('#viewer').appendChild(bar);
+    const go = p => { if (!cur || p < 0 || p >= (cur.pages || 1)) return; cur.pin = p; showImage(cur.view, p); };
+    $('#pgsel').onchange = e => { const v = e.target.value; if (v === 'auto') { cur.pin = null; syncPageBar(); } else go(+v); };
+    $('#pgprev').onclick = () => go((cur.page || 0) - 1); $('#pgnext').onclick = () => go((cur.page || 0) + 1);
+  }
+  const n = info.pages || 1, titles = info.page_titles || {};
+  bar.hidden = !(cur.path.startsWith('uploads/') && n > 1 && info.view);
+  if (!bar.hidden) {
+    $('#pgsel').innerHTML = '<option value="auto">Any page: find the right one</option>' +
+      Array.from({length: n}, (_, i) => `<option value="${i}">Page ${i + 1} of ${n}${titles[i] ? ' · ' + esc(titles[i]).slice(0, 60) : ''}</option>`).join('');
+  }
+  syncPageBar();
+}
+function syncPageBar() {
+  const sel = $('#pgsel'); if (!sel || !cur || $('#pagebar').hidden) return;
+  sel.value = cur.pin != null ? String(cur.pin) : 'auto';
+  const o = sel.querySelector('option[value="auto"]');
+  if (o) o.textContent = cur.pin != null ? 'Any page: find the right one' : `Any page (showing ${(cur.page || 0) + 1} of ${cur.pages || 1})`;
+}
 $('#file').onchange = e => { if (e.target.files[0]) upload(e.target.files[0]); e.target.value = ''; };
 let dragDepth = 0;
 window.addEventListener('dragenter', e => { if (e.dataTransfer?.types?.includes('Files')) { dragDepth++; $('#dropzone').hidden = false; } });
@@ -302,7 +338,8 @@ async function ask() {
   $('#evwrap').hidden = true; ov.innerHTML = '';
   let r;
   try {
-    const resp = await fetch('/api/ask', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({path: cur.path, question})});
+    const body = {path: cur.path, question}; if (cur.pin != null) body.page = cur.pin;
+    const resp = await fetch('/api/ask', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
     r = await resp.json();
     if (!resp.ok) r = {answer: null, confidence: 0, evidence: [], explanation: r.detail || `server error ${resp.status}`, method: 'error'};
   } catch (err) {
@@ -321,7 +358,7 @@ async function ask() {
   else {
     if (mode === '3d' && cur.shown) await setMode('2d');  // no plan sheet (IFC-only): stay in 3D
     const go = () => { zoomToEvidence(); draw(true); };
-    if (cur.shown && img.complete && img.naturalWidth && img.getAttribute('src')?.includes(encodeURIComponent(cur.shown))) go();
+    if (cur.shown && img.complete && img.naturalWidth && img.getAttribute('src') === '/api/render?path=' + encodeURIComponent(cur.shown) + (cur.page ? '&page=' + cur.page : '')) go();
     else pendingDraw = go;
   }
   renderEvidence();
@@ -334,14 +371,18 @@ $('#go').onclick = ask; $('#q').addEventListener('keydown', e => { if (e.key ===
 
 function setupEvidence() {
   const ev = res.evidence || [];
-  const two = ev.filter(e => (e.kind === 'box' || e.kind === 'polygon') && (e.page || 0) === 0);
-  const txt = ev.filter(e => e.kind === 'text');
+  const flat = ev.filter(e => e.kind === 'box' || e.kind === 'polygon' || e.kind === 'text');
+  // which file and page do the 2D items refer to? (multi-page PDFs: the page the answer was read on)
+  const files = {}; for (const e of flat) if (e.file) files[e.file] = (files[e.file] || 0) + 1;
+  const evFile = Object.keys(files).sort((x, y) => files[y] - files[x])[0];
+  const pages = {}; for (const e of flat) if (!e.file || !evFile || e.file === evFile) pages[e.page || 0] = (pages[e.page || 0] || 0) + 1;
+  const top = Object.keys(pages).sort((x, y) => pages[y] - pages[x])[0];
+  const evPage = top != null ? +top : (cur.pin ?? res.page ?? cur.page ?? 0);
+  const two = ev.filter(e => (e.kind === 'box' || e.kind === 'polygon') && (e.page || 0) === evPage);
+  const txt = ev.filter(e => e.kind === 'text' && (e.page || 0) === evPage);
   const three = ev.filter(e => e.kind === 'ifc');
   primary = three.length && has3d ? 'ifc' : '2d';
-  // which page image do the 2D items refer to? switch to it if it isn't the one on screen
-  const files = {}; for (const e of [...two, ...txt]) if (e.file) files[e.file] = (files[e.file] || 0) + 1;
-  const evFile = Object.keys(files).sort((x, y) => files[y] - files[x])[0];
-  if (evFile && evFile !== cur.shown && /\.(pdf|png|jpe?g)$/i.test(evFile)) showImage(evFile);
+  if (((evFile && evFile !== cur.shown) || evPage !== (cur.page || 0)) && /\.(pdf|png|jpe?g)$/i.test(evFile || cur.shown || '')) showImage(evFile || cur.shown, evPage);
   const onShown = e => !e.file || e.file === (evFile || cur.shown);
   const plan2d = two.filter(onShown);
   if (three.length && plan2d.length === three.length) {
@@ -417,15 +458,15 @@ function calibHTML(r) {
   const c = r.calibration;
   if (!c) return '';
   const conf = Math.round(100 * (r.confidence ?? 0));
-  if (!c.measured) return `<div class="calib unk"><b>No track record yet</b><span>answers made this way were not part of our held-out test, so the confidence (${conf} %) is the model's own guess: check the evidence before relying on it.</span></div>`;
+  if (!c.measured) return `<div class="calib unk"><b>No track record yet</b><span>answers made this way were not part of our test, so the ${conf} % is the model's own guess: check the evidence before relying on it.</span></div>`;
   const p = c.right / c.n, cls = p >= 0.95 ? 'hi' : p >= 0.85 ? 'mid' : p >= 0.6 ? 'lo' : 'bad';
   const word = p >= 0.95 ? 'Very likely right' : p >= 0.85 ? 'Usually right' : p >= 0.6 ? 'Often right: check the evidence' : 'Uncertain: check the evidence';
   const band = c.scope === 'bin' ? `, confidence ${Math.round(c.lo * 100)}–${Math.round(c.hi * 100)} %` : '';
   const tally = c.right === c.n ? `all ${nf(c.n)}` : `${nf(c.right)} of ${nf(c.n)}`;
-  return `<div class="calib ${cls}" title="Calibration from the full held-out test split (${nf(c.family_n)} questions answered this way, ${pctOf(c.family_right, c.family_n)} % right overall)">
+  return `<div class="calib ${cls}" title="Track record on the full held-out test split: ${esc(c.label)}${band}; this answer's own confidence: ${conf} %. ${nf(c.family_n)} questions were answered this way, ${pctOf(c.family_right, c.family_n)} % right overall.">
     <div class="cbar"><i style="width:${(100 * p).toFixed(1)}%"></i></div>
     <b>${word} · ${pctOf(c.right, c.n)} %</b>
-    <span>${tally} answers like this were right on held-out test questions (${esc(c.label)}${band}; this one: ${conf} %)</span></div>`;
+    <span>${tally} similar answers were right on test drawings we never trained on</span></div>`;
 }
 let traceOpen = false;
 function traceHTML(r) {
@@ -479,19 +520,19 @@ function renderAnswer(shownSoFar) {
   const hasVs = (res.frontier || []).length && res.answer != null;
   const abst = res.answer == null;
   const num = typeof res.answer === 'number';
-  const route = res.route && res.route !== '-' ? `<span class="pill">${esc(res.route.split(' -> ').filter(x => x !== '-').map(x => ROUTE[x] || x).join(' → '))}</span>` : '';
   const baseS = res.baseline_latency_s || 8;
   a.innerHTML = `
     <div class="qecho">${esc(res.question)}</div>
-    <div class="big ${abst ? 'abstain' : ''} ${counting ? 'counting' : ''}">${abst ? 'Not sure, so no guess' : num ? fmt(val, t) : ''} <small>${abst ? '' : unitOf(t)}</small></div>
-    ${typeof res.answer === 'string' ? `<div class="textans">${esc(res.answer)}</div>` : ''}
+    ${res.normalized_question && res.normalized_question !== res.question ? `<div class="readas" style="font-size:12px;color:var(--mut);margin:-4px 0 6px">read as: <i>${esc(res.normalized_question)}</i></div>` : ''}
+    ${typeof res.answer === 'string' ? '' : `<div class="big ${abst ? 'abstain' : ''} ${counting ? 'counting' : ''}">${abst ? 'Not sure, so no guess' : num ? fmt(val, t) : ''} <small>${abst ? '' : unitOf(t)}</small></div>`}
+    ${typeof res.answer === 'string' ? `<div class="textans">${esc(res.answer.trim().split('\n').map(l => l.replace(/^\s{1,4}(?=\S)/, '')).join('\n'))}</div>` : ''}
     ${(() => { const h = howOf(res); return `<div class="how ${h.cls}"><b>${h.cls === 'geo' ? '✓ ' : ''}${esc(h.t)}</b><span>${esc(h.how)}</span></div>`; })()}
     ${res.rule ? `<div class="rule"><b>Rule</b> ${esc(res.rule)}</div>` : ''}
     ${crossHTML(res)}
     ${calibHTML(res)}
     ${abst || !res.trace ? `<div class="expl">${esc(res.explanation || '')}</div>` : ''}
     <div class="row">${abst || res.calibration ? '' : `<span class="pill ${confCls}">confidence ${(conf * 100).toFixed(0)}%</span>`}
-      ${route}${gold}</div>
+      ${gold}</div>
     <div class="corr" id="corr"></div>
     ${hasVs ? frontierHTML(res, oursOk) : ''}
     ${traceHTML(res)}
@@ -499,7 +540,7 @@ function renderAnswer(shownSoFar) {
     <div class="costcmp" ${hasVs ? 'hidden' : ''}>
       <span class="lab">this answer</span><span><span class="mbar" style="display:block"><i style="width:${Math.max(0.5, 100 * (res.cost_usd || 0) / Math.max(res.baseline_cost_usd || 1e-9, res.cost_usd || 0))}%"></i></span></span>
       <span class="v"><b>${money(res.cost_usd || 0)}</b> · ${latency(res.latency_s)}</span>
-      <span class="lab">frontier VLM</span><span><span class="mbar" style="display:block"><i class="base" style="width:100%"></i></span></span>
+      <span class="lab">frontier model</span><span><span class="mbar" style="display:block"><i class="base" style="width:100%"></i></span></span>
       <span class="v">~${money(res.baseline_cost_usd || 0)} · ~${baseS.toFixed(0)} s</span>
     </div>`;
   const d = a.querySelector('details.trace'); if (d) d.ontoggle = () => { traceOpen = d.open; };
@@ -607,7 +648,8 @@ function updateMeter() {
   $('#m-sum').innerHTML = `<span class="only-desk">${session.n} question${session.n === 1 ? '' : 's'} · </span>` + (saved >= 0
     ? `<b>${saved >= 99.95 ? '100' : saved.toFixed(1)}% cheaper</b>` + (session.ours > 0 ? ` (${(session.base / session.ours).toFixed(0)}×)` : '<span class="only-desk"> · no model calls</span>')
     : `${(-saved).toFixed(0)}% dearer`);
-  $('#meter').dataset.short = `ours ${money(session.ours)} vs frontier ${money(session.base)}`;
+  $('#meter').dataset.n = session.n;
+  $('#meter').dataset.short = `this session: ours ${money(session.ours)} vs frontier ${money(session.base)}`;
 }
 
 // ------------------------------------------------------------ evidence overlay
@@ -864,10 +906,20 @@ async function doAction(act) {
     }
     await sleep(900);
   }
+  else if (k === 'scroll') {  // bring one part of the answer card into view (e.g. the frontier table)
+    const el = $('#answer ' + arg); if (!el) return;
+    if (PHONE.matches) el.scrollIntoView({behavior: 'smooth', block: 'start'});
+    else {
+      const side = $('#side'), top = el.getBoundingClientRect().top - side.getBoundingClientRect().top + side.scrollTop;
+      side.scrollTo({top: Math.max(0, top - $('.ask').offsetHeight - 24), behavior: 'smooth'});
+    }
+    await sleep(900);
+  }
   else if (k === 'hover') { const i = +arg; hotItem(i, true); rowHot(i, true, true); await sleep(1400); hotItem(i, false); rowHot(i, false); }
 }
 function endTour() { tour = null; $('#caption').hidden = true; document.body.classList.remove('touring'); }
 $('#tourbtn').onclick = () => startTour(false);
+$('#ctatour').onclick = () => startTour(false);
 $('#tnext').onclick = () => { if (!tour) return; if (tourI < tour.length - 1) { tourI++; runStep(); } else endTour(); };
 $('#tprev').onclick = () => { if (tour && tourI > 0) { tourI--; runStep(); } };
 $('#texit').onclick = endTour;

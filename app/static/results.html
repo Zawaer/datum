@@ -17,6 +17,7 @@
   h1 { font-size: 28px; font-weight: 600; letter-spacing: -.3px; margin: 0 0 8px; }
   .lede { color: var(--mut); margin: 0 0 16px; max-width: 780px; font-size: 14px; }
   .lede b { color: var(--text); font-weight: 600; }
+  .headl { font-size: 18px; margin: 0 0 8px; max-width: 900px; } .headl b { color: var(--ev-ink); font-weight: 600; }
   .legend { display: flex; gap: 8px 20px; flex-wrap: wrap; font-size: 13px; color: var(--mut); margin: 8px 0 16px; }
   .legend b { color: var(--text); font-weight: 600; }
   .legend i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: 0; }
@@ -64,6 +65,7 @@
 </header>
 <div class="wrap">
   <h1>Scoreboard</h1>
+  <p class="headl" id="headl"><b>89.5 %</b> right on all 25,420 held-out test questions: every question in every language, not a sample (95 % CI 89.1–89.8).</p>
   <p class="lede">Accuracy on the held-out test split (split by drawing, so no drawing seen during development is scored).
     Ours and the prior answer all <b id="ntest">25,420</b> test questions; the frontier models were asked 400 questions sampled
     across every source and type, re-weighted to the test mix (so each source counts as much as it does in the test split).
@@ -114,10 +116,16 @@ const usd = v => '$' + (+v).toFixed(2);
   for (let i = SYS.length - 1; i >= 0; i--) if (!runs0.includes(SYS[i][0])) SYS.splice(i, 1);
   $('#legend').innerHTML = SYS.map(([, l, d, c]) => `<span><i style="background:${c}"></i><b>${l}</b> ${d}</span>`).join('');
   const ov = Object.fromEntries((A.overall || []).map(r => [r.run, r]));
-  if (ov[SYS[0][0]]) $('#ntest').textContent = num(ov[SYS[0][0]].n);
+  const me = ov[SYS[0][0]], fair = ov.baseline_sonnetfair_full400;
+  if (me) {
+    $('#ntest').textContent = num(me.n);
+    $('#headl').innerHTML = `<b>${pct(me.accuracy)}</b> right on all ${num(me.n)} held-out test questions: every question in every language, not a sample
+      (95 % CI ${(100 * me.ci_lo).toFixed(1)}–${(100 * me.ci_hi).toFixed(1)})` + (fair ? `. Claude Sonnet given the same drawing and its CAD / IFC files: ${pct(fair.accuracy)}.
+      Model-API fees per 1,000 questions: <b>$${(+me.api_usd_per_1k).toFixed(3)}</b> vs $${(+fair.api_usd_per_1k).toFixed(2)}.` : '.');
+  }
   $('#hero').innerHTML = SYS.map(([k, l, , c]) => { const r = ov[k]; if (!r) return '';
     return `<div class="tile" style="box-shadow:inset 0 3px ${c}"><h4>${l}</h4><div class="hero">${pct(r.accuracy)}</div>
-      <div class="vs">[${pct(r.ci_lo)} – ${pct(r.ci_hi)}] · n=${num(r.n)}<br>${usd(+r.api_usd_per_1k + +r.compute_usd_per_1k)} per 1k questions ·
+      <div class="vs">[${pct(r.ci_lo)} – ${pct(r.ci_hi)}] · n=${num(r.n)}<br>${(+r.api_usd_per_1k) < 0.1 ? '$' + (+r.api_usd_per_1k).toFixed(3) : usd(r.api_usd_per_1k)} API + ${usd(r.compute_usd_per_1k)} compute per 1k questions ·
       ${(+r.mean_latency_s) < 1 ? (r.mean_latency_s * 1000).toFixed(0) + ' ms' : (+r.mean_latency_s).toFixed(1) + ' s'} each</div></div>`; }).join('');
 
   const rows = A.by_source_type || [];
