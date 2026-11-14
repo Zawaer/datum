@@ -101,7 +101,9 @@ class IfcTextSolver:
     def __init__(self, variant=None, budget: int = 14000):
         parts = (variant or "route").split("-")
         self.mode = parts[0]
-        self.model = parts[1] if len(parts) > 1 else "haiku"
+        # answering model: `ifctext@route-sonnet`, or BP_IFCTEXT_MODEL=sonnet for the router's default ifctext
+        # (default haiku; on a 300-question dev sample sonnet was -0.3 pp at ~9x the cost, see docs/IFCTEXT.md)
+        self.model = parts[1] if len(parts) > 1 else os.environ.get("BP_IFCTEXT_MODEL", "haiku")
         self.budget = budget
         self._sheets = {}
 
