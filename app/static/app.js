@@ -359,7 +359,7 @@ function setupEvidence() {
   }
 }
 
-function zoomToEvidence(only, maxK = 6) {
+function zoomToEvidence(only, maxK = 3) {  // cap: keep enough of the plan around one or two small items for context
   const all = (only || [...items, ...marks]).filter(e => e.kind !== 'ifc' && (e.points || e.bbox));
   if (!all.length || !img.naturalWidth) { fit(); return; }
   let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
@@ -515,9 +515,17 @@ function crossHTML(r) {
   const n2 = (sec.evidence || []).filter(e => e.bbox || e.points).length;
   const btn = n2 ? `<button class="linkish" data-act="second">${showSecond ? 'hide' : 'show'} its ${n2} mark${n2 === 1 ? '' : 's'}</button>` : '';
   const val = v => typeof v === 'number' ? fmt(v, t) : esc(String(v ?? '—'));
-  const meth = esc(ROUTE[String(sec.method || '').split('-')[0]] || sec.method || 'second method');
-  if (c.status === 'agree') return `<div class="xcheck agree"><b>✓ 2 independent methods agree</b><span>${meth} also says ${val(sec.answer)}${c.note ? ' · ' + esc(c.note) : ''} ${btn}</span></div>`;
-  return `<div class="xcheck conflict"><b>⚠ Conflict: ${val(r.answer)} vs ${val(sec.answer)}</b><span>${meth} disagrees${c.note ? ': ' + esc(c.note) : ''}; check the evidence before using this number. ${btn}</span></div>`;
+  // plain-language name of the second method, and what agreement has meant on held-out test questions
+  // (runs/crosscheck_vlm_test.summary.md, runs/crosscheck_test.summary.md)
+  const m = String(sec.method || '');
+  const [name, track] = /VLM/i.test(m) ? ['Our fine-tuned vision model', 'When both agree, answers were right 94.6 % of the time (12,153 held-out raster questions).']
+    : /swiss|pdf/i.test(m) ? ['Reading the PDF itself (not the CAD file)', 'When both agree, answers were right 100 % of the time on held-out Swiss plans.']
+    : /svg|sheet|ifc/i.test(m) ? ['The rendered plan sheet', 'When both agree, answers were right 100 % of the time on held-out IFC questions.']
+    : /yolo|cubicasa/i.test(m) ? ['A second, separately trained detector', '']
+    : [esc(ROUTE[m.split('-')[0]] || m || 'A second method'), ''];
+  const tip = c.note ? ` title="${esc(c.note)}"` : '';
+  if (c.status === 'agree') return `<div class="xcheck agree"${tip}><b>✓ Two independent methods agree</b><span>${name} also says ${val(sec.answer)}. ${track} ${btn}</span></div>`;
+  return `<div class="xcheck conflict"${tip}><b>⚠ Conflict: ${val(r.answer)} vs ${val(sec.answer)}</b><span>${name} disagrees, so confidence is halved: check the evidence before using this number. ${btn}</span></div>`;
 }
 function secondMarks() {
   const ev = (showSecond && res && res.crosscheck && res.crosscheck.second && res.crosscheck.second.evidence) || [];
