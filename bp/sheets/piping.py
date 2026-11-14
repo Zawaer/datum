@@ -272,27 +272,89 @@ def _vision_items(image_path: str) -> tuple[list[dict], float]:
         crop = im.crop(tb)
         if up != 1.0:
             crop = crop.resize((round(crop.width * up), round(crop.height * up)), Image.LANCZOS)
-        r = llm.ask(VISION_PROMPT.format(w=crop.width, h=crop.height), [crop], model="haiku",
-                    system="You transcribe drawings exactly. Output only the requested lines.", timeout=180,
-                    tag="sheets-piping-ocr")
-        got = []
-        for line in (r.get("text") or "").splitlines():
-            m = re.match(r"\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)"
-                         r"\s*\|\s*(.+?)\s*$", line)
-            if not m:
-                continue
-            a, b, c, d = (float(m.group(k)) / up for k in range(1, 5))
-            txt = m.group(5).strip().strip("`")
-            if not txt:
-                continue
-            bb = [(tb[0] + min(a, c)) / W, (tb[1] + min(b, d)) / H, (tb[0] + max(a, c)) / W, (tb[1] + max(b, d)) / H]
-            bb = [min(max(v, 0.0), 1.0) for v in bb]
-            got.append({"text": txt, "bbox": bb, "src": "vision", "conf": 80.0})
-        return got, float(r.get("cost_usd") or 0.0)
+        got, spent = [], 0.0
+        for attempt in range(2):  # an empty / unparseable reply (it happens on dense tiles) is retried once
+            r = llm.ask(VISION_PROMPT.format(w=crop.width, h=crop.height), [crop], model="haiku",
+                        system="You transcribe drawings exactly. Output only the requested lines.", timeout=180,
+                        tag="sheets-piping-ocr")
+            spent += float(r.get("cost_usd") or 0.0)
+            for line in (r.get("text") or "").splitlines():
+                m = re.match(r"\s*[\[(]?\s*(-?\d+(?:\.\d+)?)[\s,]+(-?\d+(?:\.\d+)?)[\s,]+(-?\d+(?:\.\d+)?)[\s,]+"
+                             r"(-?\d+(?:\.\d+)?)\s*[\])]?\s*[|:\t]\s*(.+?)\s*$", line)
+                if not m:
+                    continue
+                a, b, c, d = (float(m.group(k)) / up for k in range(1, 5))
+                txt = m.group(5).strip().strip("`").strip()
+                if not txt:
+                    continue
+                bb = [(tb[0] + min(a, c)) / W, (tb[1] + min(b, d)) / H, (tb[0] + max(a, c)) / W,
+                      (tb[1] + max(b, d)) / H]
+                bb = [min(max(v, 0.0), 1.0) for v in bb]
+                got.append({"text": txt, "bbox": bb, "src": "vision", "conf": 80.0,
+                            "tile": [tb[0] / W, tb[1] / H, tb[2] / W, tb[3] / H]})
+            if got:
+                break
+        return got, spent
 
     with ThreadPoolExecutor(6) as ex:
         res = list(ex.map(one, tiles))
     return [it for g, _ in res for it in g], sum(c for _, c in res)
+
+
+def _norm_txt(t: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", _canon(t).upper().replace("O", "0"))
+
+
+def _calibrate(vis: list[dict], tess: list[dict]) -> list[dict]:
+    """Vision boxes sometimes come back in the wrong frame for a whole tile (e.g. in the un-upscaled size). Per tile,
+    pair vision lines with the unique tesseract line of the same text inside that tile and fit a scale about the
+    tile origin per axis; apply it when >= 3 pairs agree on a clearly wrong scale."""
+    if not tess:
+        return vis
+    tidx = defaultdict(list)
+    for t in tess:
+        k = _norm_txt(t["text"])
+        if len(k) >= 2:
+            tidx[k].append(t)
+    by_tile = defaultdict(list)
+    for v in vis:
+        by_tile[tuple(v.get("tile") or ())].append(v)
+    for tile, vs in by_tile.items():
+        if not tile:
+            continue
+        tx0, ty0, tx1, ty1 = tile
+        rx, ry = [], []
+        for v in vs:
+            k = _norm_txt(v["text"])
+            if len(k) < 2:
+                continue
+            cand = {(round(c["bbox"][0], 3), round(c["bbox"][1], 3)): c for c in tidx.get(k, [])
+                    if tx0 <= _center(c["bbox"])[0] <= tx1 and ty0 <= _center(c["bbox"])[1] <= ty1}
+            if len(cand) != 1:
+                continue
+            c = next(iter(cand.values()))
+            (vx, vy), (cx, cy) = _center(v["bbox"]), _center(c["bbox"])
+            if vx - tx0 > 0.02 * (tx1 - tx0):
+                rx.append((cx - tx0) / (vx - tx0))
+            if vy - ty0 > 0.02 * (ty1 - ty0):
+                ry.append((cy - ty0) / (vy - ty0))
+
+        def fit(r):
+            if len(r) < 3:
+                return 1.0
+            r = sorted(r)
+            m = r[len(r) // 2]
+            agree = sum(abs(x - m) < 0.08 * m for x in r)
+            return m if abs(m - 1) > 0.12 and agree >= max(3, 0.6 * len(r)) else 1.0
+
+        ax, ay = fit(rx), fit(ry)
+        if ax != 1.0 or ay != 1.0:
+            for v in vs:
+                b = v["bbox"]
+                v["bbox"] = [tx0 + (b[0] - tx0) * ax, ty0 + (b[1] - ty0) * ay, tx0 + (b[2] - tx0) * ax,
+                             ty0 + (b[3] - ty0) * ay]
+                v["calibrated"] = [round(ax, 3), round(ay, 3)]
+    return vis
 
 
 def _image_of(path: str, meta: dict) -> str | None:
@@ -327,6 +389,10 @@ def read_sheet(path: str, meta: dict | None = None, vision: bool | None = None) 
     if f.exists():
         d = json.loads(f.read_text())
         d["cost_usd_now"] = 0.0
+        vis = [it for it in d["items"] if it["src"] == "vision"]
+        if vis:  # (idempotent) older caches were stored before the per-tile calibration existed
+            _calibrate(vis, [it for it in d["items"] if it["src"].startswith("tesseract")])
+        d["image"] = None if "pdf text layer" in d["readers"] else _image_of(path, meta)
         with _lock:
             _mem[key] = d
         return d
@@ -349,12 +415,13 @@ def read_sheet(path: str, meta: dict | None = None, vision: bool | None = None) 
                 cost += c
                 if v:
                     readers.append(f"Claude Haiku tile transcription (${c:.3f})")
-                items += v
+                items += _calibrate(v, t)
     d = {"items": items, "readers": readers, "cost_usd": round(cost, 5)}
     if items:
         CACHE.mkdir(parents=True, exist_ok=True)
         f.write_text(json.dumps(d))
     d["cost_usd_now"] = cost
+    d["image"] = None if "pdf text layer" in readers else _image_of(path, meta)
     with _lock:
         _mem[key] = d
     return d
@@ -380,6 +447,12 @@ def _sub_box(item: dict, a: int, b: int) -> list:
 
 _DIG = str.maketrans({"O": "0", "o": "0", "D": "0", "Q": "0", "I": "1", "l": "1", "i": "1", "t": "1", "|": "1",
                       "!": "1", "]": "1", "S": "5", "s": "5", "B": "8", "Z": "2", "z": "2", "G": "6", "g": "9"})
+
+
+def clean(text: str) -> str:
+    """For display: OCR's degree sign after a size is an inch mark; stray dashes trimmed."""
+    t = re.sub(r"(\d)\s?[°\u00ba]", r'\1"', text)
+    return re.sub(r"^[\s\-\u2014\u2013_~|=]+|[\s\-\u2014\u2013_~|=]+$", "", t)
 
 
 def _canon(text: str) -> str:
@@ -452,11 +525,38 @@ def _src_kind(src: str) -> str:
     return src.split(":")[0]
 
 
-def tag_instances(items: list[dict]) -> list[dict]:
+_ink_cache: dict = {}
+
+
+def _inked(image: str | None):
+    """f(bbox) -> share of dark pixels in the box (None without an image): a box with no ink holds no label."""
+    if not image or not os.path.exists(image):
+        return None
+    if image not in _ink_cache:
+        import numpy as np
+        from PIL import Image
+
+        Image.MAX_IMAGE_PIXELS = None
+        _ink_cache.clear()
+        _ink_cache[image] = np.asarray(Image.open(image).convert("L")) < 128
+    g = _ink_cache[image]
+    H, W = g.shape
+
+    def f(b):
+        x0, y0 = int(b[0] * W), int(b[1] * H)
+        x1, y1 = max(x0 + 1, math.ceil(b[2] * W)), max(y0 + 1, math.ceil(b[3] * H))
+        return float(g[y0:y1, x0:x1].mean())
+    return f
+
+
+def tag_instances(items: list[dict], image: str | None = None) -> list[dict]:
     """Every printed tag label once: mentions from all readers merged by place. A place read differently by the
     readers keeps the reading two readers agree on, else the vision reading (tesseract confuses 5/8, 1/t)."""
     cands = []
+    ink = _inked(image)
     for it in items:
+        if ink and _src_kind(it["src"]) != "pdf" and ink(it["bbox"]) < 0.03:
+            continue  # a misplaced vision box over blank paper
         for t in tags_in(it):
             t["src"] = _src_kind(it["src"])
             t["conf"] = it.get("conf", 50)
@@ -477,6 +577,18 @@ def tag_instances(items: list[dict]) -> list[dict]:
                for k in kept):
             continue
         kept.append(c)
+    # a lone reading far past the family's numbering (PS-38 among PS-1..24) is a misread, not a tag
+    fam_nums = defaultdict(list)
+    for k in kept:
+        if k["num"] is not None:
+            fam_nums[k["family"]].append(k)
+    for f, ks in fam_nums.items():
+        nums = sorted({k["num"] for k in ks})
+        for k in ks:
+            others = [n for n in nums if n != k["num"]]
+            if others and k["num"] > 1.4 * max(others) + 2 and len(k["seen_by"]) < 2 \
+                    and sum(1 for x in ks if x["num"] == k["num"]) == 1:
+                kept.remove(k)
     kept.sort(key=lambda c: (c["bbox"][1], c["bbox"][0]))
     return kept
 
@@ -496,7 +608,9 @@ def dedupe_items(items: list[dict]) -> list[dict]:
     order = sorted(items, key=lambda it: (prio.get(_src_kind(it["src"]), 3), -len(it["text"]), -it.get("conf", 0)))
     kept: list[dict] = []
     for it in order:
-        if len(it["text"].strip()) < 1:
+        if not re.search(r"[A-Za-z0-9]", it["text"]) or it["bbox"][3] - it["bbox"][1] < 1e-3:
+            continue
+        if _src_kind(it["src"]) == "tesseract" and it.get("conf", 100) < 20:
             continue
         if any(_overlap(it["bbox"], k["bbox"]) > 0.5 for k in kept):
             continue
@@ -523,7 +637,7 @@ def blocks(items: list[dict]) -> list[dict]:
             best.append(ln)
         else:
             groups.append([ln])
-    return [{"text": " ".join(x["text"] for x in g), "bbox": _union([x["bbox"] for x in g]), "lines": g}
+    return [{"text": clean(" ".join(x["text"] for x in g)), "bbox": _union([x["bbox"] for x in g]), "lines": g}
             for g in groups]
 
 
@@ -561,7 +675,7 @@ def size_instances(items: list[dict]) -> list[dict]:
     cands = []
     for it in dedupe_items(items):
         for s, a, b in sizes_in(it["text"]):
-            cands.append({"size": s, "bbox": _sub_box(it, a, b), "context": it["text"], "src": _src_kind(it["src"])})
+            cands.append({"size": s, "bbox": _sub_box(it, a, b), "context": clean(it["text"]), "src": _src_kind(it["src"])})
     return cands
 
 
@@ -595,8 +709,19 @@ def sheet_refs(items: list[dict], own: str = "") -> list[dict]:
                             and abs(_center(o["bbox"])[0] - _center(it["bbox"])[0]) < 0.02:
                         det = o["text"].strip()
                         break
-            out.append({"sheet": sheet, "bbox": _sub_box(it, m.start(), m.end()), "detail": det, "context": ctx})
-    # the same reference read twice at one place
+            out.append({"sheet": sheet, "bbox": _sub_box(it, m.start(), m.end()), "detail": det, "context": ctx,
+                        "src": _src_kind(it["src"])})
+    # the same reference read twice at one place; with a second reader, a lone tesseract read must be confirmed
+    srcs = {_src_kind(it["src"]) for it in items}
+    allrefs = []
+    for it in items:
+        for m in _SHEET.finditer(_canon(it["text"])):
+            allrefs.append((re.sub(r"[^A-Z0-9]", "", m.group(1).upper() + m.group(2)[0].translate(_DIG) + m.group(2)[1:]),
+                            _src_kind(it["src"]), _sub_box(it, m.start(), m.end())))
+    if "vision" in srcs and "tesseract" in srcs:
+        out = [r for r in out if len({s for k, s, b in allrefs
+                                      if k == re.sub(r"[^A-Z0-9]", "", r["sheet"]) and _near(b, r["bbox"], 2)}) > 1
+               or any(k == re.sub(r"[^A-Z0-9]", "", r["sheet"]) and s == "vision" for k, s, b in allrefs)]
     kept = []
     for r in out:
         if not any(k["sheet"] == r["sheet"] and _near(k["bbox"], r["bbox"]) for k in kept):
@@ -642,23 +767,33 @@ def notes(items: list[dict]) -> dict | None:
     if not best:
         return None
     h, body = best
+    # paragraphs: a new note starts at a printed number ('4.' / a lone '4') or after a wider line gap
+    hs = sorted(ln["bbox"][3] - ln["bbox"][1] for ln in body)
+    med_h = hs[len(hs) // 2]
+    paras: list[dict] = []
+    pending_num = None
+    last_y1 = None
+    for ln in body:
+        t = ln["text"].strip()
+        lone = re.fullmatch(r"(\d{1,2})\s*[.)]?", t)
+        if lone:
+            pending_num = int(lone.group(1))
+            continue
+        m = re.match(r"(\d{1,2})\s*[.)]\s+(.*)", t)
+        gap = None if last_y1 is None else ln["bbox"][1] - last_y1
+        start = m is not None or pending_num is not None or gap is None or gap > 0.6 * med_h
+        if start:
+            num = int(m.group(1)) if m else pending_num
+            paras.append({"num": num, "text": (m.group(2) if m else t), "lines": [ln]})
+        else:
+            paras[-1]["text"] += " " + t
+            paras[-1]["lines"].append(ln)
+        pending_num = None
+        last_y1 = ln["bbox"][3]
     out: dict = {}
-    cur = None
-    numbered = sum(bool(re.match(r"\s*\d{1,2}\s*[.)]", ln["text"])) for ln in body)
-    gaps = [b["bbox"][1] - a["bbox"][3] for a, b in zip(body, body[1:])]
-    med_h = sorted(ln["bbox"][3] - ln["bbox"][1] for ln in body)[len(body) // 2]
-    for i, ln in enumerate(body):
-        m = re.match(r"\s*(\d{1,2})\s*[.)]\s*(.*)", ln["text"])
-        new_by_gap = numbered < 2 and (i == 0 or gaps[i - 1] > 0.6 * med_h)
-        if m and numbered >= 2:
-            cur = int(m.group(1))
-            out[cur] = {"text": m.group(2).strip(), "lines": [ln]}
-        elif new_by_gap:
-            cur = (max(out) + 1) if out else 1
-            out[cur] = {"text": ln["text"].strip(), "lines": [ln]}
-        elif cur is not None:
-            out[cur]["text"] += " " + ln["text"].strip()
-            out[cur]["lines"].append(ln)
+    for p in paras:
+        n = p["num"] if p["num"] is not None and p["num"] not in out else (max(out) + 1 if out else 1)
+        out[n] = {"text": p["text"].strip(), "lines": p["lines"]}
     for n, v in out.items():
         v["bbox"] = _union([ln["bbox"] for ln in v["lines"]])
         del v["lines"]
@@ -671,9 +806,9 @@ def grid(items: list[dict]):
     for it in items:
         t = it["text"].strip()
         cx, cy = _center(it["bbox"])
-        if re.fullmatch(r"\d{1,2}", t) and (cy < 0.035 or cy > 0.965):
+        if re.fullmatch(r"\d{1,2}", t) and (cy < 0.05 or cy > 0.95):
             cols[t].append(cx)
-        elif re.fullmatch(r"[A-HJ-N]", t) and (cx < 0.03 or cx > 0.97):
+        elif re.fullmatch(r"[A-HJ-N]", t) and (cx < 0.05 or cx > 0.95):
             rows[t].append(cy)
     cols = {k: sorted(v)[len(v) // 2] for k, v in cols.items()}
     rows = {k: sorted(v)[len(v) // 2] for k, v in rows.items()}
@@ -750,6 +885,17 @@ def _llm_family(q: str, present: dict, cost: list) -> list[str] | None:
     return out or None
 
 
+def _tag_list(fam: str, nums: list[int]) -> str:
+    """'FP-1 ... FP-5' for a full run, else the tags themselves (shortened with ranges past 8)."""
+    nums = sorted(set(nums))
+    if len(nums) >= 3 and nums == list(range(nums[0], nums[-1] + 1)):
+        return f"{fam}-{nums[0]} to {fam}-{nums[-1]}"
+    if len(nums) <= 8:
+        return ", ".join(f"{fam}-{n}" for n in nums)
+    return ", ".join(f"{fam}-{r}".replace("-", " to " + fam + "-", 2).replace(f"{fam} to {fam}-", f"{fam}-", 1)
+                     if "-" in r else f"{fam}-{r}" for r in _ranges(nums).split(", "))
+
+
 def _ranges(nums: list[int]) -> str:
     nums = sorted(set(nums))
     out, i = [], 0
@@ -800,7 +946,7 @@ def _count(q: str, sheet: dict, insts: list[dict], base: dict, cost: list) -> di
                 continue
             gaps = [k for k in range(1, nums[-1] + 1) if k not in nums]
             labels = sum(1 for t in numbered if t["family"] == f)
-            s = f"{f}-{_ranges(nums)}: {len(nums)} distinct"
+            s = f"{_tag_list(f, nums)}: {len(nums)} distinct"
             if labels > len(nums):
                 s += f", printed at {labels} places (repeated labels counted once)"
             if gaps:
@@ -829,7 +975,7 @@ def _count(q: str, sheet: dict, insts: list[dict], base: dict, cost: list) -> di
                 " on the piping (see the notes). Ask 'how many pipe support labels' for every printed label."
     if "FP" in fams:
         other = [it["text"] for it in dedupe_items(sheet["items"]) if re.search(r"\bPUMP\b", it["text"], re.I)
-                 and not re.search(r"DISCHARGE|SUCTION|HEADER|CENTRIFUGAL|FP", it["text"], re.I)]
+                 and not re.search(r"DISCHARGE|SUCTION|HEADER|CENTRIFUGAL|FP|^\W*\d", it["text"], re.I)]
         if other:
             expl += f" Also labelled on the sheet (not FP-tagged): {', '.join(sorted(set(other))[:4])}."
     return dict(base, answer=n, confidence=conf, evidence=ev, explanation=expl, unit="count")
@@ -941,8 +1087,15 @@ def _where(q, sheet, insts, base) -> dict | None:
     main = bl[0]
     # other callouts that mention the same run (e.g. '8" CROSS CONNECTION FROM RETURN LINE')
     key = [k for k in kws if k not in ("where",)]
-    related = [b for b in blocks(sheet["items"]) if b is not main and len(key) >= 1
-               and sum(_fuzzy_has(b["text"], k) for k in key) >= max(1, len(key) - 0)][:5]
+    related = []
+    for b in blocks(sheet["items"]):
+        if b is main or _overlap(b["bbox"], main["bbox"]) > 0.3 or b["text"] == main["text"] or not key:
+            continue
+        if any(_overlap(b["bbox"], r["bbox"]) > 0.3 or b["text"] == r["text"] for r in related):
+            continue
+        if sum(_fuzzy_has(b["text"], k) for k in key) >= len(key):
+            related.append(b)
+    related = related[:5]
     ans = f'"{main["text"]}" is labelled at {where(main["bbox"], g)}'
     if related:
         ans += "; related callouts: " + "; ".join(f'"{b["text"]}" ({where(b["bbox"], g)})' for b in related)
@@ -1083,7 +1236,8 @@ def answer(path, question, meta) -> dict | None:
     if not sheet["items"]:
         return None
     cost = [sheet.get("cost_usd_now", 0.0)]
-    insts = tag_instances(sheet["items"])
+    sheet["cost_usd_now"] = 0.0  # the read is paid once per sheet; later questions reuse it
+    insts = tag_instances(sheet["items"], sheet.get("image"))
     res = None
     try:
         if _RX_NOTE.search(q) and not _RX_REFS.search(q):
@@ -1104,6 +1258,8 @@ def answer(path, question, meta) -> dict | None:
         pass
     if res is None:
         return None
+    if "pdf text layer" in sheet["readers"] and res.get("answer") is not None and res.get("unit") == "count":
+        res["confidence"] = max(res["confidence"], 0.9)  # exact vector text: misses come only from the parsing
     res["cost_usd"] = round(sum(cost), 5)
     res["readers"] = sheet["readers"]
     res["method"] = METHOD
