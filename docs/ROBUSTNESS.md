@@ -298,9 +298,8 @@ an honest decline too (two kitchens on one plan, "ground floor" on a model with 
 By source after: Swiss 24 correct + 7 honest declines + 1 bad decline of 32; CubiCasa 11 + 4 + 2 wrong of 17;
 IFC 14 + 2 of 16. Both remaining wrong answers are CubiCasa detector counts (8 windows for 12, 9 doors for 8),
 the same numbers the router gives the dataset's own template questions on those plans, so they are detector
-errors, not misreadings. The remaining bad decline is "is apartment B bigger than apartment A?" (comparisons of
-two answers are not supported; it says so). "Which room is the largest?" is answered on IFC (from the model) and
-declined on Swiss plans. A second run with an empty normaliser cache gave 48/65: "numbr of colums" got NONE from
+errors, not misreadings. The remaining bad decline was "is apartment B bigger than apartment A?" and "Which room is
+the largest?" was declined on Swiss plans; both are answered since fix 5 below. A second run with an empty normaliser cache gave 48/65: "numbr of colums" got NONE from
 Haiku on both calls (it does about one call in four), so it said "not available" instead of 62.
 Paid calls: $0.016 per uncached run of all 65 (Haiku, normaliser only).
 
@@ -323,6 +322,26 @@ Before = `runs/typed_before.jsonl` (code at 462811b). Fixes (`bp/normalize.py`, 
    wrapped in quotes is unwrapped (before, "how many sinks?" → the right template, then rejected as a name not on
    the drawing); a NONE or rejected rewrite gets one more call (`BP_NORMALIZE_TRIES`, default 2). Every rewrite
    still has to name only things on the drawing. Cache key bumped (v4).
+5. **Comparisons and superlatives** (`bp/compare.py`, answered in `bp/solvers/swiss.py` and `bp/solvers/ifc.py`):
+   "Which room is the largest?", "Is apartment B bigger than apartment A?", "Which apartment has the most
+   bedrooms?", "What's the smallest bathroom?", "How much bigger is the living room than the kitchen?", "Which
+   floor has the most windows?" (IFC), read by fixed patterns in en/de/fr/it/fi/nl/sv/es. The values compared are
+   the ones the area and count answers use (room polygons / printed areas, apartment sums without outdoor spaces,
+   IFC NetFloorArea, storey containment); the evidence is every room or element compared, and the explanation shows
+   the arithmetic ("apartment B 81.55 m² vs apartment A 62.59 m²: apartment B is larger by 18.96 m²").
+   Superlatives answer the room or apartment and its value, yes/no comparisons "yes, by 18.96 m²" / "no, ...",
+   "how much" the difference. An ambiguous side ("the kitchen" on a plan with four) is declined with the
+   candidates' numbers; an operand the patterns cannot place goes to the normaliser, which now also has comparison
+   templates (every room number and apartment letter in a rewrite is checked, not only the first). On a plan
+   sheet of an IFC model "which room is the largest?" means that sheet's storey; the explanation also names the
+   model-wide one. Comparisons skip the cross-check (its second methods read one count or area, not a
+   difference). 19 typed comparisons were added (n 65-83, gold from the dataset's own apartment/room answers,
+   from the DXF's printed areas and unit outlines read with ezdxf + shapely, or from ifcopenshell): all 19
+   correct, and the old ones (n 5, 12) are now correct; set total 71/84 correct, 12 honest declines, 1 wrong (the
+   CubiCasa window count above), 0 bad declines (`runs/typed_cmp.jsonl`, $0.006 of Haiku). No dataset question
+   parses as a comparison (`python -m bp.compare check`: 0 of 40,646 Swiss and IFC-model questions); the test
+   runs below were repeated with identical answers and evidence (`runs/swiss_cmp_regress.summary.md`
+   8,210/8,214, `runs/ifc_cmp_regress.summary.md` 600/600).
 
 Unchanged on dataset questions: `eval.py --solver router --split test --source swiss_dwellings`
 (`runs/swiss_typed_regress.summary.md`) 8,210/8,214, ifc_models 600/600 (`runs/ifc_typed_regress.summary.md`);

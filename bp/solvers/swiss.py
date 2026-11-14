@@ -15,6 +15,7 @@ import re
 import unicodedata
 from pathlib import Path
 
+from bp import compare as C
 from bp.data import data_root
 from bp.swiss import rooms as RK
 from bp.swiss.parse import FILL_COMMON, parse_floor
@@ -137,6 +138,55 @@ def _norm(s):
     return unicodedata.normalize("NFKC", s or "").strip().lower()
 
 
+def _apt_rooms(rooms_num, letter):
+    """The rooms an apartment's net area sums (outdoor spaces, shafts and common rooms excluded)."""
+    return [r for r in rooms_num if r.unit == letter and not r.outdoor and not r.shaft_void and r.fill != FILL_COMMON]
+
+
+def _apt_conf(fl, letter, hits, room_conf, notes):
+    c = min(room_conf(hits), 0.97)
+    if letter in fl.unit_by_distance:
+        c = min(c, 0.7)
+        notes.append(f"label 'apartment {letter}' lies outside its outline")
+    if letter in fl.unit_merged:
+        c = min(c, 0.7)
+        notes.append(f"apartment {letter} is drawn as several outlines")
+    if any(r.fill is None for r in hits):
+        c = min(c, 0.8)
+        notes.append("room(s) without a PDF fill")
+    return c
+
+
+def _kind_rooms(fl, kind, pool):
+    """(rooms of one kind, the unnamed ones among them) in `pool`: by label (bp/swiss/rooms.py); many plans print
+    bathrooms / WCs with a number but no name, and their fixtures say what they are: a bath or shower inside the
+    outline = bathroom, a toilet without one = separate toilet room."""
+    hits = [r for r in pool if r.name and RK.matches(kind, r.name)]
+    unnamed = []
+    if kind in ("bathroom", "toilet_room"):
+        def holds(r, kinds):
+            return any(s.kind in kinds and r.poly.intersects(s.geom.centroid) for s in fl.symbols)
+        for r in pool:
+            if r.name:
+                continue
+            wet = holds(r, ("bathtub", "shower"))
+            if (kind == "bathroom" and wet) or (kind == "toilet_room" and not wet and holds(r, ("toilet",))):
+                unnamed.append(r)
+        hits += unnamed
+    return hits, unnamed
+
+
+def _rname(r):
+    return " ".join(x for x in (r.number, f"'{r.name}'" if r.name else "(unnamed)") if x)
+
+
+def _nat(r):
+    return [int(x) if x.isdigit() else x for x in re.split(r"(\d+)", r.number)]
+
+
+ROOM_NUM_RE = r"(?<![\w.])([a-z]?\d+\.\d{2})(?![\w.])"
+
+
 class SwissSolver:
     def __init__(self, variant=None):
         self.root = data_root()
@@ -151,7 +201,9 @@ class SwissSolver:
 
     def __call__(self, q):
         base = {"answer": None, "confidence": 0.0, "evidence": [], "cost_usd": 0.0, "method": "swiss-dxf"}
-        intent = parse_question(q["question"], q.get("type"))
+        # comparisons first ("is apartment B bigger than A?"); no dataset question parses as one (bp/compare.py)
+        cp = C.parse(q["question"])
+        intent = ("compare", cp) if cp else parse_question(q["question"], q.get("type"))
         try:
             fl = self.floor_for(q)
         except Exception as e:  # noqa: BLE001  one unreadable drawing must not take the run down
@@ -295,6 +347,9 @@ class SwissSolver:
         if kind in ("count_kind", "area_kind"):
             return self._kind(fl, intent, rooms_num, base, poly, area_text, done, room_conf)
 
+        if kind == "compare":
+            return self._compare(fl, intent[1], rooms_num, base, poly, box, done, room_conf, notes, q.get("type"))
+
         if kind == "area_room":
             num = intent[1]
             hits = [r for r in rooms_num if r.number == num]
@@ -345,21 +400,11 @@ class SwissSolver:
             letter = intent[1]
             if letter not in fl.units:
                 return {**base, "explanation": f"apartment {letter} not found"}
-            hits = [r for r in rooms_num if r.unit == letter and not r.outdoor and not r.shaft_void
-                    and r.fill != FILL_COMMON]
+            hits = _apt_rooms(rooms_num, letter)
             for r in hits:
                 poly(r, r.area)
             tot = round(sum(r.area for r in hits), 2)
-            c = min(room_conf(hits), 0.97)
-            if letter in fl.unit_by_distance:
-                c = min(c, 0.7)
-                notes.append(f"label 'apartment {letter}' lies outside its outline")
-            if letter in fl.unit_merged:
-                c = min(c, 0.7)
-                notes.append(f"apartment {letter} is drawn as several outlines")
-            if any(r.fill is None for r in hits):
-                c = min(c, 0.8)
-                notes.append("room(s) without a PDF fill")
+            c = _apt_conf(fl, letter, hits, room_conf, notes)
             return done(tot, c, f"apartment {letter}: {len(hits)} rooms = {tot:.2f} m²")
         return {**base, "explanation": "question not understood"}
 
@@ -373,20 +418,7 @@ class SwissSolver:
                                            + ", ".join(sorted(fl.units))}
         pool = [r for r in rooms_num if letter is None or r.unit == letter]
         where = f" in apartment {letter}" if letter else ""
-        hits = [r for r in pool if r.name and RK.matches(kind, r.name)]
-        # Many plans print bathrooms / WCs with a room number but no name; their fixtures say what they are:
-        # a bath or shower inside the outline = bathroom, a toilet without one = separate toilet room.
-        unnamed = []
-        if kind in ("bathroom", "toilet_room"):
-            def holds(r, kinds):
-                return any(s.kind in kinds and r.poly.intersects(s.geom.centroid) for s in fl.symbols)
-            for r in pool:
-                if r.name:
-                    continue
-                wet = holds(r, ("bathtub", "shower"))
-                if (kind == "bathroom" and wet) or (kind == "toilet_room" and not wet and holds(r, ("toilet",))):
-                    unnamed.append(r)
-            hits += unnamed
+        hits, unnamed = _kind_rooms(fl, kind, pool)
         hits = sorted(hits, key=lambda r: [int(x) if x.isdigit() else x for x in re.split(r"(\d+)", r.number)])
         labels = sorted({r.name for r in hits if r.name})
         fx = "a bath or shower" if kind == "bathroom" else "a toilet"
@@ -444,3 +476,257 @@ class SwissSolver:
             expl = f"{len(hits)} rooms labelled {lab_q}{where}: " + " + ".join(f"{r.area:.2f}" for r in hits) + \
                 f" = {tot:.2f} m²"
         return {**done(tot, c, expl), "read_as": rq}
+
+    # ------------------------------------------------------------------ comparisons (bp/compare.py)
+    @staticmethod
+    def _compare(fl, cp, rooms_num, base, poly, box, done, room_conf, notes, qtype=None):
+        """Superlatives and comparatives from the same rooms / apartment sums the area and count answers use."""
+        res = {**base, "method": "swiss-dxf-compare", "comparison": cp["op"]}
+        letters = sorted(fl.units)
+
+        def fin(answer, c, expl):
+            return {**done(answer, c, expl), "method": res["method"], "comparison": cp["op"]}
+
+        cval = 1 if qtype == "count" else None  # (a 1 on a text-typed answer would be drawn as "1 m²")
+
+        def ev_item(x, label):  # a counted room (outline) or symbol (box)
+            if hasattr(x, "poly"):
+                poly(x, cval, label)
+            else:
+                box(x.geom, label, cval, pad=0.05)
+
+        def apt_in(text):
+            m = re.search(rf"(?<!\w)(?:{C.APT})\s+([a-z]{{1,2}}\d*)(?!\w)", text)
+            if m and m.group(1).upper() in fl.units:
+                return m.group(1).upper()
+            return None
+
+        def indoor(pool):  # "rooms": labelled (or holding a fixture), not outdoor, not a shaft or void
+            return [r for r in pool if not r.outdoor and not r.shaft_void and r.counts_as_room]
+
+        def kind_pool(kind, pool, label=None):
+            if label is not None:
+                return [r for r in pool if _norm(r.name) == _norm(label)]
+            if kind in (None, "room"):
+                return indoor(pool)
+            return _kind_rooms(fl, kind, pool)[0]
+
+        def plural(name):
+            if " (" in name:
+                return name.replace(" (", "s (", 1)
+            return name[:-1] + "ies" if name.endswith("y") else name + "s"
+
+        def counted_what(text):
+            """-> (plural description, function apartment letter -> (count, rooms or symbols)) or None"""
+            lab = _quoted(text)
+            if lab is not None:  # (the parse is lower-case: show the plan's own spelling)
+                lab = next((r.name for r in rooms_num if _norm(r.name) == _norm(lab)), lab)
+                def fl_(letter):
+                    hits = [r for r in rooms_num if r.unit == letter and _norm(r.name) == _norm(lab)]
+                    return len(hits), hits
+                return f"rooms labelled '{lab}'", fl_
+            km = C.kind_of(text)
+            if km is not None:
+                kind = km[0]
+
+                def f(letter, kind=kind):
+                    pool = [r for r in rooms_num if r.unit == letter]
+                    hits = _kind_rooms(fl, kind, pool)[0] if kind != "room" else \
+                        [r for r in pool if r.name and RK.matches("room", r.name)]
+                    return len(hits), hits
+                if kind == "room":
+                    notes.append("rooms = the plan's 'Zimmer' / 'Pièce' / 'Stanza' and bedroom labels")
+                return plural(RK.kind_name(kind)), f
+            for sym, pat in SYMBOL_PATTERNS:
+                if sym != "apartment" and re.search(pat, text):
+                    def g(letter, sym=sym):
+                        # a symbol belongs to the apartment of a room within 0.8 m of it (doors and windows sit in
+                        # the walls between room outlines; an entrance door counts for its apartment)
+                        hits = [x for x in fl.symbols if x.kind == sym and any(
+                            r.unit == letter and r.poly.distance(x.geom.centroid) <= 0.8 for r in rooms_num)]
+                        return len(hits), hits
+                    return f"{sym}s", g
+            return None
+
+        def operand(text, other=None, count=False):
+            """-> ("apt", letter) | ("rooms", [room], kind) | ("error", why). `other`: the left operand, whose
+            kind / apartment-ness a bare right side ("... than apartment A's", "... than B") takes over."""
+            letter = apt_in(text)
+            m = re.search(rf"(?<!\w)(?:{C.APT})\s+([a-z])(?!\w)", text)
+            if letter is None and m and m.group(1).upper() not in fl.units and fl.units:
+                return "error", f"apartment {m.group(1).upper()} not found; apartments on this plan: " + \
+                    ", ".join(letters)
+            if letter is None and other and other[0] == "apt":
+                m = re.fullmatch(r"(?:(?:the\s+one\s+of|that\s+of|the|die|der|das|l'|la|le|il|lo)\s*)?([a-z]{1,2})"
+                                 r"(?:'s)?", text)
+                if m and m.group(1).upper() in fl.units:
+                    letter = m.group(1).upper()
+            if count:
+                return ("apt", letter) if letter else ("error", "could not tell which apartments to compare")
+            ql = _quoted(text)
+            km = C.kind_of(strip_quoted(text))
+            kind = km[0] if km and km[0] != "room" else None
+            if kind is None and ql is None and letter and other and other[0] == "rooms" and other[2]:
+                kind = other[2]  # "is apartment B's kitchen bigger than apartment A's?"
+            mnum = re.search(ROOM_NUM_RE, text)
+            if mnum:
+                hits = [r for r in rooms_num if r.number.lower() == mnum.group(1)]
+                return ("rooms", hits[:1], None) if hits else ("error", f"room {mnum.group(1).upper()} not found")
+            if ql or kind:
+                pool = [r for r in rooms_num if letter is None or r.unit == letter]
+                hits = kind_pool(kind, pool, ql)
+                what = f"'{ql}'" if ql else f"the {RK.kind_name(kind)}"
+                what += f" in apartment {letter}" if letter else ""
+                if not hits:
+                    return "error", f"no room labelled as {what} on this plan"
+                if len(hits) > 1:
+                    return "error", (f"{len(hits)} rooms are {what} (" + ", ".join(_rname(r) for r in hits) +
+                                     "): name one by its number, e.g. 'room " + hits[0].number + "'")
+                return "rooms", hits, kind
+            if letter:
+                return "apt", letter
+            return "error", "could not tell what to compare"
+
+        def value(op_):
+            """-> (display name, m², rooms, confidence)"""
+            if op_[0] == "apt":
+                hits = _apt_rooms(rooms_num, op_[1])
+                return (f"apartment {op_[1]}", round(sum(r.area for r in hits), 2), hits,
+                        _apt_conf(fl, op_[1], hits, room_conf, notes))
+            r = op_[1][0]
+            return f"room {_rname(r)}", round(r.area, 2), [r], room_conf([r])
+
+        if cp["op"] in ("cmp", "diff", "which2"):
+            if cp["measure"] == "count":
+                cw = counted_what(cp["counted"])
+                a = operand(cp["left"], count=True)
+                b = operand(cp["right"], other=a, count=True)
+                if cw is None or a[0] != "apt" or b[0] != "apt":
+                    return {**res, "unparsed": True, "explanation": "count comparisons on this plan are between "
+                            "apartments (" + ", ".join(letters) + ") and of rooms of one kind or of doors / windows / "
+                            "fixtures, e.g. 'does apartment A have more bedrooms than apartment B?'"}
+                what, f = cw
+                (va, ia), (vb, ib) = f(a[1]), f(b[1])
+                na, nb = f"apartment {a[1]}", f"apartment {b[1]}"
+                for i, x in enumerate(ia, 1):
+                    ev_item(x, f"apartment {a[1]}: {what[:-1]} {i}")
+                for i, x in enumerate(ib, 1):
+                    ev_item(x, f"apartment {b[1]}: {what[:-1]} {i}")
+                if a[1] == b[1]:
+                    return {**res, "explanation": f"both sides of the comparison are {na}"}
+                expl, d = C.verdict_text(na, va, nb, vb, what)
+                c = 0.95
+            else:
+                a = operand(cp["left"])
+                b = operand(cp["right"], other=a)
+                for x in (a, b):
+                    if x[0] == "error":
+                        return {**res, "unparsed": "could not tell" in x[1], "explanation": x[1]}
+                if a[0] != b[0]:
+                    notes.append("comparing a room with an apartment")
+                (na, va, ra, ca), (nb, vb, rb, cb) = value(a), value(b)
+                for r in ra:
+                    poly(r, r.area, f"{na}: {_rname(r)}" if a[0] == "apt" else None)
+                for r in rb:
+                    poly(r, r.area, f"{nb}: {_rname(r)}" if b[0] == "apt" else None)
+                if (na, ra) == (nb, rb):
+                    return {**res, "explanation": f"both sides of the comparison are {na}"}
+                expl, d = C.verdict_text(na, va, nb, vb, "m²")
+                what, c = "m²", min(ca, cb)
+            unit = what if cp["measure"] == "count" else "m²"
+            if cp["op"] == "which2":
+                if abs(d) < 1e-9:
+                    return fin("equal", c, expl)
+                win = (na, va) if (d > 0) == (cp["dir"] > 0) else (nb, vb)
+                return fin(f"{win[0]} ({C.fmt(win[1], unit)})", c, expl)
+            if cp["op"] == "diff":
+                sign = 1 if cp["dir"] >= 0 else -1
+                ans = round(abs(d), 2) if cp["dir"] == 0 else round(sign * d, 2)
+                if cp["measure"] == "count":
+                    ans = int(round(ans))
+                neg, ans = ans < 0, C.typed(ans, unit, qtype)
+                return fin(ans, c, expl + (" (asked the other way round, so the difference is negative)"
+                                            if neg else ""))
+            yes = d > 0 if cp["dir"] > 0 else d < 0
+            if abs(d) < 1e-9:
+                return fin("no, they are equal", c, expl)
+            small = "smaller" if unit == "m²" else "fewer"
+            big = "larger" if unit == "m²" else "more"
+            ans = f"yes, by {C.fmt(abs(d), unit)}" if yes else \
+                f"no, {na} is {small if cp['dir'] > 0 else big} by {C.fmt(abs(d), unit)}" if unit == "m²" else \
+                f"no, {na} has {C.fmt(abs(d), unit)} {big if cp['dir'] < 0 else small}"
+            return fin(ans, c, expl)
+
+        # superlatives
+        subj = cp["subject"]
+        letter = apt_in(subj)
+        best = max if cp["op"] == "max" else min
+        word = ("largest" if cp["op"] == "max" else "smallest") if cp["measure"] == "area" else \
+            ("most" if cp["op"] == "max" else "fewest")
+        if cp["measure"] == "count":
+            cw = counted_what(cp["counted"])
+            if cw is None or not letters or letter or re.search(rf"(?<!\w)(?:{C.ROOM_WORD})(?!\w)", subj) and \
+                    not re.search(rf"(?<!\w)(?:{C.APT})(?!\w)", subj):
+                return {**res, "unparsed": cw is None, "explanation": "on this plan 'most' / 'fewest' compares "
+                        "apartments (" + (", ".join(letters) or "none labelled") + ") by a count of rooms of one kind "
+                        "or of doors / windows / fixtures, e.g. 'which apartment has the most bedrooms?'"}
+            what, f = cw
+            vals = {x: f(x) for x in letters}
+            top = best(v[0] for v in vals.values())
+            win = [x for x in letters if vals[x][0] == top]
+            for x in win:
+                for i, it in enumerate(vals[x][1], 1):
+                    ev_item(it, f"apartment {x}: {what[:-1]} {i}")
+            expl = f"{what} per apartment: " + ", ".join(f"{x} {vals[x][0]}" for x in letters) + \
+                f"; {word}: " + " and ".join(f"apartment {x}" for x in win) + f" ({top})"
+            ans = " and ".join(f"apartment {x}" for x in win) + f" ({top} {what if top != 1 else what[:-1]})"
+            return fin(ans, 0.95 if len(letters) > 1 else 0.6, expl)
+        ql = _quoted(subj)
+        if ql is not None:
+            ql = next((r.name for r in rooms_num if _norm(r.name) == _norm(ql)), ql)
+        km = C.kind_of(strip_quoted(subj))
+        if letter is None and km is None and ql is None and re.search(rf"(?<!\w)(?:{C.APT})(?!\w)", subj):
+            if not letters:
+                return {**res, "explanation": "no labelled apartments on this plan"}
+            vals = {x: value(("apt", x)) for x in letters}
+            top = best(v[1] for v in vals.values())
+            win = [x for x in letters if vals[x][1] == top]
+            for x in win:
+                for r in vals[x][2]:
+                    poly(r, r.area, f"apartment {x}: {_rname(r)}")
+            c = min(vals[x][3] for x in letters)
+            expl = "net area per apartment (rooms except outdoor spaces, shafts and common rooms): " + \
+                ", ".join(f"{x} {vals[x][1]:.2f} m²" for x in letters) + f"; {word}: " + \
+                " and ".join(f"apartment {x}" for x in win)
+            if len(letters) == 1:
+                c = min(c, 0.6)
+                notes.append("only one apartment on this plan")
+            return fin(" and ".join(f"apartment {x}" for x in win) + f" ({top:.2f} m²)", c, expl)
+        pool = [r for r in rooms_num if letter is None or r.unit == letter]
+        kind = km[0] if km else None
+        cands = kind_pool(kind, pool, ql)
+        if kind not in (None, "room") or ql:
+            desc = f"rooms labelled '{ql}'" if ql else plural(RK.kind_name(kind))
+        else:
+            desc = "numbered indoor rooms (outdoor spaces, shafts, voids and unlabelled outlines excluded)"
+        where = f" in apartment {letter}" if letter else " on this floor"
+        if not cands:
+            return {**res, "explanation": f"no {desc}{where}"}
+        top = best(r.area for r in cands)
+        win = sorted((r for r in cands if r.area == top), key=_nat)
+        for r in win:
+            poly(r, r.area, f"{word}: {_rname(r)}")
+        rest = sorted((r for r in cands if r not in win), key=lambda r: -r.area if cp["op"] == "max" else r.area)
+        for r in rest:
+            poly(r, r.area)
+        c = room_conf(cands)
+        if len(cands) == 1:
+            notes.append(f"only one {desc[:-1] if desc.endswith('s') else desc}{where}")
+        expl = f"{word} of {len(cands)} {desc}{where}: " + " and ".join(f"{_rname(r)} {r.area:.2f} m²" for r in win)
+        if rest:
+            expl += "; next: " + ", ".join(f"{_rname(r)} {r.area:.2f} m²" for r in rest[:4])
+        in_apt = bool(re.search(rf"(?<!\w)(?:{C.APT})(?!\w)", subj))  # "which flat has the biggest living room?"
+        ans = " and ".join(_rname(r).replace("'", "") + (f" in apartment {r.unit}" if in_apt and r.unit else "")
+                           for r in win) + f" ({top:.2f} m²{' each' if len(win) > 1 else ''})"
+        return fin(ans, c, expl)
+

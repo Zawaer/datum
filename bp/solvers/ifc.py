@@ -9,11 +9,13 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from bp import compare as C
 from bp.data import data_root
 from bp.ifc import model as M
 from bp.ifc.extract import load_model
 from bp.ifc.plan2d import evidence_2d, guids_on_sheet
-from bp.ifc.query import CLASSES, parse
+from bp.ifc.query import CLASSES, HERE_FLOOR, _first_class, parse
+from bp.swiss import rooms as RK
 
 MAX_EVIDENCE = 400
 
@@ -123,6 +125,13 @@ def _fmt(v: float) -> str:
     return f"{v:,.2f}".replace(",", " ")
 
 
+def _plural(what: str) -> str:
+    """CLASSES key -> the counted thing in words ('door' -> 'doors')."""
+    return {"space": "rooms", "sanitary": "sanitary fixtures", "building_storey": "storeys", "stair": "stairs",
+            "light": "light fixtures", "proxy": "proxy elements", "furniture": "furniture items"}.get(
+        what, what.replace("_", " ") + "s")
+
+
 class IfcSolver:
     def __init__(self, variant=None):
         self.variant = variant
@@ -132,6 +141,17 @@ class IfcSolver:
         if not ifc.exists():
             return _abstain(f"IFC model {rel} not available")
         m = load_model(ifc)
+        # comparisons ("which room is the largest?"); no dataset question parses as one (bp/compare.py)
+        cp = C.parse(q["question"]) if q.get("source") != "ifc_bench" else None
+        if cp is not None:
+            out = self._compare(m, q, cp, rel)
+            if out.get("answer") is not None and q["path"].lower().endswith(".pdf"):
+                items = [{"guid": g, "label": ev["label"], "value": ev.get("value")}
+                         for ev in out["evidence"] if ev["kind"] == "ifc" for g in ev["guids"][:1]]
+                out["evidence"] += evidence_2d(q["path"], data_root() / q["path"], items,
+                                               polygon=out.pop("_spaces", False))
+            out.pop("_spaces", None)
+            return out
         if q.get("type") in ("text", "other") or q.get("source") == "ifc_bench":
             from bp.ifc.bench import answer_text
 
@@ -314,3 +334,217 @@ class IfcSolver:
         return [{"kind": "ifc", "file": rel, "guids": [e["guid"] for e in g],
                  "label": f"{k[0]} '{k[1]}' x{len(g)}", "value": round(sum(valf(e) for e in g), 4)}
                 for k, g in groups.items()]
+
+    # ------------------------------------------------------------------ comparisons (bp/compare.py)
+    def _compare(self, m, q, cp, rel):
+        """Rooms by net floor area (the measure of the room-area answers), storeys by their rooms' total area or by
+        an element count (the count answers' containment rule)."""
+        res = {"answer": None, "confidence": 0.0, "method": "ifc-compare", "cost_usd": 0.0, "evidence": [],
+               "comparison": cp["op"]}
+        by = M.storey_by_guid(m)
+        spaces = M.elements_of(m, ["IfcSpace"])
+        area = {}
+        srcs = set()
+        for e in spaces:
+            v, src = M.measure(e, "area_floor")
+            if v is not None:
+                area[e["guid"]] = v
+                srcs.add(src)
+        conf = 0.95 if "geometry" not in srcs else 0.9
+
+        def sname(st):
+            return st["name"] or st["long_name"] or "?"
+
+        def rname(e):
+            st = by.get(e.get("storey"))
+            return f"'{(M.space_labels(e) or [e.get('name') or e['guid']])[0]}'" + (f" on '{sname(st)}'" if st else "")
+
+        def is_kind(e, kind):
+            labs = M.space_labels(e)
+            lab = re.sub(r"\s*\([^)]*\)\s*$", "", (e.get("long_name") or e.get("name") or "")).strip()
+            toks = [lab] + re.split(r"[\s_/\-]+", lab)
+            return any(RK.matches(kind, t) for t in toks if t) or bool(C.kind_of(" ".join(labs)) and
+                                                                        C.kind_of(" ".join(labs))[0] == kind)
+
+        def storey_in(text):
+            """A storey named in the text (quoted or not), else None."""
+            for sl in re.findall(r"'([^']+)'|\"([^\"]+)\"|«\s*([^»]+?)\s*»", text):
+                name = next(x for x in sl if x)
+                st, sc = M.match_storey(m, name)
+                if st is not None and sc >= 1.0:
+                    return st
+            return _unquoted_storey(m, text)
+
+        def done(answer, c, expl, els, valf, spaces_=True):
+            return {**res, "answer": answer, "confidence": round(c, 3), "explanation": expl,
+                    "evidence": self._ev_items(rel, els, valf), "_spaces": spaces_}
+
+        def sheet_scope(text):
+            """Storey a superlative is about: a named one, "this floor" / a plan sheet's own storey, else None."""
+            st = storey_in(text)
+            if st is not None:
+                return st, ""
+            sh = sheet_storey(m, q["path"])
+            if sh is not None and not re.search(r"\b(?:building|model|house|whole|entire|geb(?:ä|a)ude|haus|"
+                                                r"modell|b(?:â|a)timent|edificio|rakennu\w*|talo\w*|gebouw|"
+                                                r"byggnad\w*|hela)\b", text):
+                return sh, " (the storey of this plan sheet)"
+            if re.search(HERE_FLOOR, text) and sh is None:
+                return None, None
+            return None, ""
+
+        storey_word = rf"(?<!\w)(?:{C.STOREY})(?!\w)"
+        cval = 1 if q.get("type") == "count" else None  # (a 1 on a text-typed answer would be drawn as "1 m²")
+        if cp["op"] in ("max", "min"):
+            best = max if cp["op"] == "max" else min
+            word = ("largest" if cp["op"] == "max" else "smallest") if cp["measure"] == "area" else \
+                ("most" if cp["op"] == "max" else "fewest")
+            subj = cp["subject"]
+            km = C.kind_of(subj)
+            storeys = [s for s in m["storeys"]]
+            if cp["measure"] == "count" or (re.search(storey_word, subj) and storey_in(subj) is None and km is None):
+                # storeys compared: by an element count, or by their rooms' total net floor area
+                if km is not None and cp["measure"] == "count" and not re.search(storey_word, subj):
+                    return {**res, "explanation": "'most' / 'fewest' compares storeys in a model, e.g. 'which floor "
+                            "has the most windows?'"}
+                if cp["measure"] == "count":
+                    what = _first_class(C._norm(cp["counted"]))
+                    if what is None:
+                        return {**res, "unparsed": True, "explanation": "could not tell what to count"}
+                    if what == "sanitary":
+                        per = {s["guid"]: M.sanitary(m, s) for s in storeys}
+                    else:
+                        per = {s["guid"]: M.elements_of(m, CLASSES[what][0], s) for s in storeys}
+                    vals = {g: len(v) for g, v in per.items()}
+                    unit, fmtv = _plural(what), str
+                else:
+                    per = {s["guid"]: [e for e in spaces if e.get("storey") == s["guid"] and e["guid"] in area]
+                           for s in storeys}
+                    vals = {g: round(sum(area[e["guid"]] for e in v), 2) for g, v in per.items()}
+                    unit, fmtv = "m² of rooms", lambda v: f"{v:.2f}"
+                if not storeys:
+                    return {**res, "explanation": "no storeys in this model"}
+                top = best(vals.values())
+                win = [s for s in storeys if vals[s["guid"]] == top]
+                expl = (f"{unit} per storey: " + ", ".join(f"'{sname(s)}' {fmtv(vals[s['guid']])}" for s in storeys)
+                        + f"; {word}: " + " and ".join(f"'{sname(s)}'" for s in win))
+                els = [e for s in win for e in per[s["guid"]]]
+                ans = " and ".join(f"'{sname(s)}'" for s in win) + f" ({fmtv(top)} {unit})"
+                return done(ans, conf if len(storeys) > 1 else 0.6, expl, els,
+                            lambda e: round(area.get(e["guid"], 1), 4) if cp["measure"] == "area" else cval,
+                            spaces_=cp["measure"] == "area" or what == "space")
+            st, note = sheet_scope(subj)
+            if note is None:
+                return _abstain("'this floor' needs a storey, and this file is the whole model: which storey? "
+                                + _no_storey(m, None), "ifc-compare")
+            cands = [e for e in spaces if e["guid"] in area and (st is None or e.get("storey") == st["guid"])]
+            kind = km[0] if km and km[0] != "room" else None
+            if kind:
+                cands = [e for e in cands if is_kind(e, kind)]
+            desc = f"{RK.kind_name(kind)} spaces" if kind else "rooms (IfcSpace)"
+            where = f" on '{sname(st)}'{note}" if st else " in the model"
+            if not cands:
+                return {**res, "explanation": f"no {desc}{where}"}
+            top = best(area[e["guid"]] for e in cands)
+            win = [e for e in cands if area[e["guid"]] == top]
+            rest = sorted((e for e in cands if e not in win), key=lambda e: -area[e["guid"]] if cp["op"] == "max"
+                          else area[e["guid"]])
+            expl = (f"{word} of {len(cands)} {desc}{where} by net floor area: "
+                    + " and ".join(f"{rname(e)} {area[e['guid']]:.2f} m²" for e in win))
+            if rest:
+                expl += "; next: " + ", ".join(f"{rname(e)} {area[e['guid']]:.2f} m²" for e in rest[:4])
+            if st is not None and note:
+                allc = [e for e in spaces if e["guid"] in area and (not kind or is_kind(e, kind))]
+                tb = best(allc, key=lambda e: area[e["guid"]])
+                if tb not in win:
+                    expl += f" (in the whole model: {rname(tb)} {area[tb['guid']]:.2f} m²)"
+            ans = " and ".join(rname(e) for e in win) + f" ({top:.2f} m²{' each' if len(win) > 1 else ''})"
+            out = done(ans, conf, expl, win + rest, lambda e: round(area[e["guid"]], 4))
+            for ev in out["evidence"][:len(win)] if len(cands) <= MAX_EVIDENCE else []:  # the winner(s) first, marked
+                ev["label"] = f"{word}: {ev['label']}"
+            return out
+
+        # comparatives: two rooms, or two storeys
+        def operand(text, count=False):
+            st = storey_in(text)
+            kmo = C.kind_of(text)
+            sl = re.findall(r"'([^']+)'|\"([^\"]+)\"|«\s*([^»]+?)\s*»", text)
+            names = [next(x for x in t if x) for t in sl]
+            if count or (st is not None and not [n for n in names if M.match_storey(m, n)[0] is None]
+                         and not (kmo and kmo[0] != "room")):
+                return ("storey", st) if st is not None else ("error", "could not tell which storeys to compare")
+            scope = st
+            room = next((n for n in names if M.match_storey(m, n)[0] is None), None)
+            if room is not None:
+                els, rs = M.match_space(m, room, scope)
+                if not els or rs < 1.0:
+                    return "error", f"no room named '{room}'" + (f" on '{sname(scope)}'" if scope else "")
+                return "room", els[0]
+            # a room's own name typed without quotes ("is the cafeteria bigger than ..."): one space only
+            pool = [e for e in spaces if scope is None or e.get("storey") == scope["guid"]]
+            byname = [e for e in pool if any(len(x) >= 3 and re.search(rf"(?<!\w){re.escape(x.casefold())}(?!\w)",
+                                                                      text) for x in (e.get("long_name"), e.get("name"))
+                                             if x)]
+            if len(byname) == 1:
+                return "room", byname[0]
+            if kmo and kmo[0] != "room":
+                cands = [e for e in spaces if is_kind(e, kmo[0]) and (scope is None or e.get("storey") == scope["guid"])]
+                if not cands:
+                    return "error", f"no {RK.kind_name(kmo[0])} space" + (f" on '{sname(scope)}'" if scope else "")
+                if len(cands) > 1:
+                    return "error", (f"{len(cands)} {RK.kind_name(kmo[0])} spaces (" + ", ".join(rname(e) for e in
+                                     cands[:8]) + "): name one in quotes")
+                return "room", cands[0]
+            return "error", "could not tell what to compare"
+
+        a, b = operand(cp["left"], cp["measure"] == "count"), operand(cp["right"], cp["measure"] == "count")
+        for x in (a, b):
+            if x[0] == "error":
+                return {**res, "unparsed": "could not tell" in x[1], "explanation": x[1]}
+        if a[0] != b[0]:
+            return {**res, "explanation": "compare two rooms or two storeys"}
+        if a[1]["guid"] == b[1]["guid"]:
+            return {**res, "explanation": "both sides of the comparison are the same"}
+        if cp["measure"] == "count":
+            what = _first_class(C._norm(cp["counted"]))
+            if what is None:
+                return {**res, "unparsed": True, "explanation": "could not tell what to count"}
+            f = (lambda s: M.sanitary(m, s)) if what == "sanitary" else (lambda s: M.elements_of(m, CLASSES[what][0], s))
+            ea, eb = f(a[1]), f(b[1])
+            unit = _plural(what)
+            na, nb, va, vb = f"'{sname(a[1])}'", f"'{sname(b[1])}'", len(ea), len(eb)
+            els, valf, sp = ea + eb, (lambda e: cval), what == "space"
+        elif a[0] == "storey":
+            ea = [e for e in spaces if e.get("storey") == a[1]["guid"] and e["guid"] in area]
+            eb = [e for e in spaces if e.get("storey") == b[1]["guid"] and e["guid"] in area]
+            na, nb = f"'{sname(a[1])}'", f"'{sname(b[1])}'"
+            va, vb = round(sum(area[e["guid"]] for e in ea), 2), round(sum(area[e["guid"]] for e in eb), 2)
+            unit, els, valf, sp = "m²", ea + eb, (lambda e: round(area[e["guid"]], 4)), True
+        else:
+            if a[1]["guid"] not in area or b[1]["guid"] not in area:
+                return {**res, "explanation": "no floor area for one of the rooms"}
+            na, nb, va, vb = rname(a[1]), rname(b[1]), area[a[1]["guid"]], area[b[1]["guid"]]
+            unit, els, valf, sp = "m²", [a[1], b[1]], (lambda e: round(area[e["guid"]], 4)), True
+        expl, d = C.verdict_text(na, va, nb, vb, unit)
+        if cp["op"] == "which2":
+            if abs(d) < 1e-9:
+                return done("equal", conf, expl, els, valf, sp)
+            win = (na, va) if (d > 0) == (cp["dir"] > 0) else (nb, vb)
+            return done(f"{win[0]} ({C.fmt(win[1], unit)})", conf, expl, els, valf, sp)
+        if cp["op"] == "diff":
+            ans = round(abs(d), 2) if cp["dir"] == 0 else round((1 if cp["dir"] > 0 else -1) * d, 2)
+            if unit != "m²":
+                ans = int(round(ans))
+            neg, ans = ans < 0, C.typed(ans, unit, q.get("type"))
+            return done(ans, conf, expl + (" (asked the other way round, so the difference is negative)"
+                                           if neg else ""), els, valf, sp)
+        if abs(d) < 1e-9:
+            return done("no, they are equal", conf, expl, els, valf, sp)
+        yes = d > 0 if cp["dir"] > 0 else d < 0
+        if unit == "m²":
+            ans = f"yes, by {C.fmt(abs(d), unit)}" if yes else \
+                f"no, {na} is {'smaller' if cp['dir'] > 0 else 'larger'} by {C.fmt(abs(d), unit)}"
+        else:
+            ans = f"yes, by {C.fmt(abs(d), unit)}" if yes else \
+                f"no, {na} has {C.fmt(abs(d), unit)} {'fewer' if cp['dir'] > 0 else 'more'}"
+        return done(ans, conf, expl, els, valf, sp)

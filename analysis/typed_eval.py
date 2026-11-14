@@ -1,7 +1,7 @@
 """Typed-question stress test: questions a judge might type themselves (not dataset templates).
 
-Set: analysis/typed_questions.jsonl (65 questions on 9 TEST-split drawings: 4 Swiss PDFs, 3 CubiCasa PNGs,
-2 IFC models). Each item carries the expected behaviour ("answer" with a gold derived from the dataset's answer
+Set: analysis/typed_questions.jsonl (84 questions on 9 TEST-split drawings: 4 Swiss PDFs, 3 CubiCasa PNGs,
+2 IFC models; n 65-83 are comparisons, bp/compare.py). Each item carries the expected behaviour ("answer" with a gold derived from the dataset's answer
 to the equivalent template question or from the IFC/DXF data checked with ifcopenshell, or "decline") and a
 category (casual, typo, units, language, yes/no, comparative, multi-part, out-of-scope).
 

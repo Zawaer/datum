@@ -194,7 +194,13 @@ class Router:
         if res is None:
             res = {"answer": None, "confidence": 0.0, "evidence": [], "cost_usd": 0.0, "method": "none",
                    "explanation": "no solver for this drawing type yet", "route": "-"}
-        if self.crosscheck:
+        if self.crosscheck and res.get("comparison"):
+            # a comparison (bp/compare.py) is computed from two or more of the solver's own readings; the second
+            # methods answer one count or area, which would be read against the difference or the yes/no
+            res["crosscheck"] = {"status": "single", "second": None,
+                                 "note": "no second method for comparisons (each compared value is the same reading "
+                                         "the area / count answers use)"}
+        elif self.crosscheck:
             from bp.crosscheck import crosscheck
 
             res["crosscheck"] = cc = crosscheck(q, res)

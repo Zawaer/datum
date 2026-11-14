@@ -67,6 +67,16 @@ TEMPLATES = {
         "How many washbasins are drawn on this floor plan?",
         "How many bathtubs are drawn on this floor plan?",
         "How many showers are drawn on this floor plan?",
+        # comparisons (bp/compare.py): smallest / fewest / smaller work the same way
+        "Which room is the largest on this floor?",
+        "Which room in apartment <LETTER> is the largest?",
+        "Which room labelled '<LABEL>' is the largest?",
+        "Which apartment is the largest?",
+        "Which apartment has the most rooms labelled '<LABEL>'?",
+        "Is apartment <LETTER> larger than apartment <LETTER>?",
+        "Is room <NUMBER> ('<LABEL>') larger than room <NUMBER> ('<LABEL>')?",
+        "How much larger is room <NUMBER> ('<LABEL>') than room <NUMBER> ('<LABEL>'), in m²?",
+        "How much larger is apartment <LETTER> than apartment <LETTER>, in m²?",
     ],
     "ifc": [
         "How many <ELEMENTS> are shown on the floor plan of '<STOREY>'?",
@@ -76,6 +86,13 @@ TEMPLATES = {
         "What is the total net volume of all <walls|slabs> on '<STOREY>', in m³?",
         "What is the total length of all walls on '<STOREY>', in metres?",
         "What is the total net side area of all walls on '<STOREY>', in m²?",
+        # comparisons (bp/compare.py): smallest / fewest / smaller work the same way
+        "Which room on '<STOREY>' is the largest?",
+        "Which room in the model is the largest?",
+        "Which storey has the most <ELEMENTS>?",
+        "Is the room '<ROOM>' on '<STOREY>' larger than the room '<ROOM>' on '<STOREY>'?",
+        "How much larger is the room '<ROOM>' on '<STOREY>' than the room '<ROOM>' on '<STOREY>', in m²?",
+        "Does '<STOREY>' have more <ELEMENTS> than '<STOREY>'?",
     ],
 }
 IFC_ELEMENTS = ("rooms (spaces), doors, windows, walls, columns, beams, stairs, slabs, railings, roofs, "
@@ -114,6 +131,9 @@ Examples (template lists and names vary by drawing; these only show the style):
 - "total floor area?" / "net area of the whole floor" (Swiss) -> What is the total net floor area in m² of all
   numbered indoor rooms on this floor (excluding balconies, loggias, terraces and other outdoor spaces, shafts and
   voids)?
+- "Kumpi on isompi, olohuone vai keittiö?" (one 'Wohnen' room 5.06, one 'Küche' room 5.09) -> Is room 5.06
+  ('Wohnen') larger than room 5.09 ('Küche')?
+- "which flat is the biggest?" -> Which apartment is the largest?
 - "who is the architect?" / "what does it cost?" / "energy rating?" -> NONE"""
 
 
@@ -148,6 +168,10 @@ def _cache_put(rec):
 def understood(route: str, q: dict) -> bool:
     """False when the routed solver's question parser finds no intent (the only case we normalise)."""
     question, qtype = q["question"], q.get("type")
+    if route in ("swiss", "ifc") and q.get("source") != "ifc_bench":
+        from bp.compare import parse as compare
+        if compare(question) is not None:
+            return True  # a comparison the solver read; it flags "unparsed" itself when an operand is unclear
     if route == "swiss":
         from bp.solvers.swiss import parse_question
         it = parse_question(question, qtype)
@@ -216,13 +240,13 @@ def _valid(route, rewrite, allowed) -> str | None:
     for s in slots(rewrite):
         if s not in allowed["names"]:
             return f"name '{s}' is not on this drawing"
-    if route == "swiss":
-        m = re.search(r"\broom ([A-Z]?\d+(?:\.\d+)*) \(", rewrite)
-        if m and m.group(1) not in allowed["tokens"]:
-            return f"room {m.group(1)} is not on this drawing"
-        m = re.search(r"\bapartment ([A-Z]{1,2}\d*)\b", rewrite)
-        if m and m.group(1) not in allowed["tokens"]:
-            return f"apartment {m.group(1)} is not on this drawing"
+    if route == "swiss":  # every room number and apartment letter (comparison templates name two)
+        for m in re.finditer(r"\broom ([A-Z]?\d+(?:\.\d+)*) \(", rewrite):
+            if m.group(1) not in allowed["tokens"]:
+                return f"room {m.group(1)} is not on this drawing"
+        for m in re.finditer(r"\bapartment ([A-Z]{1,2}\d*)\b", rewrite):
+            if m.group(1) not in allowed["tokens"]:
+                return f"apartment {m.group(1)} is not on this drawing"
     if "<" in rewrite and ">" in rewrite:
         return "placeholder left unfilled"
     return None
@@ -238,10 +262,14 @@ def normalize(route: str, q: dict) -> dict:
     """-> {"question": rewrite or None, "cost_usd", "why"}. One Haiku call per (question, drawing), cached."""
     if route not in TEMPLATES:
         return {"question": None, "cost_usd": 0.0, "why": "no templates for this drawing type"}
-    # Swiss prompts carry the room-word map since v2; v4: any-language rule, examples, a second call on NONE.
-    # Earlier cached NONEs are not reused
-    k = _key(q["question"] + "\x00v4", q.get("path", ""))
+    # Swiss prompts carry the room-word map since v2; v4: any-language rule, examples, a second call on NONE;
+    # v5: comparison templates. Earlier cached NONEs are not reused; earlier rewrites still are (v5 only adds
+    # templates), so a warmed cache stays warm
+    k = _key(q["question"] + "\x00v5", q.get("path", ""))
     hit = _cache_get(k)
+    if hit is None:
+        old = _cache_get(_key(q["question"] + "\x00v4", q.get("path", "")))
+        hit = old if old is not None and old.get("rewrite") else None
     if hit is not None:
         return {"question": hit["rewrite"], "cost_usd": 0.0, "why": hit.get("why", ""), "cached": True}
     try:
