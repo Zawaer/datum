@@ -517,3 +517,5 @@ svg .ping.model { stroke: var(--chk); }
 .voice[data-state="error"] .vtext { font-size: 13px; color: var(--text); }
 @keyframes vpulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
 @media (max-width: 860px) { .voice { margin-top: 0; } .ask .mic { width: 44px; } }
+
+.voice .vnote { font-size: 11px; color: var(--muted, #6b7280); margin-top: 4px; }

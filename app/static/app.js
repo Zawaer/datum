@@ -1237,14 +1237,15 @@ const voice = {rec: null, lang: null, final: '', timer: 0};
   };
   voice.lang = pick();
   const mic = document.createElement('button');
-  mic.id = 'mic'; mic.type = 'button'; mic.className = 'mic'; mic.setAttribute('aria-label', 'Ask by voice'); mic.title = 'Ask by voice';
+  mic.id = 'mic'; mic.type = 'button'; mic.className = 'mic'; mic.setAttribute('aria-label', 'Ask by voice'); mic.title = 'Ask by voice: your browser turns speech into text (Chrome and Edge send the audio to Google or Microsoft, Safari to Apple); we only receive the text';
   mic.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4M8.5 21h7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
   $('#go').before(mic);
   const strip = document.createElement('div'); strip.id = 'voice'; strip.className = 'voice'; strip.hidden = true; strip.setAttribute('aria-live', 'polite');
   strip.innerHTML = `<div class="vrow"><span class="vdot"></span><b class="vstate">Listening</b>
       <select class="vlang" aria-label="Language to listen for">${VOICE_LANGS.map(([c, n]) => `<option value="${c}">${n} · ${c}</option>`).join('')}</select>
       <span class="grow"></span><button type="button" class="linkish vstop">stop</button></div>
-    <div class="vtext"><span class="vfin"></span><span class="vint"></span></div>`;
+    <div class="vtext"><span class="vfin"></span><span class="vint"></span></div>
+    <div class="vnote">Speech-to-text is done by your browser's provider (Google in Chrome, Microsoft in Edge, Apple in Safari); we only receive the text.</div>`;
   $('.ask').after(strip);
   const sel = strip.querySelector('.vlang'); sel.value = voice.lang;
   const show = (state, msg) => {
