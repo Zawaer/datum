@@ -804,10 +804,7 @@ def _clean_item(e: dict) -> dict:
     return out
 
 
-@app.post("/api/feedback")
-def feedback(fb: Feedback, request: Request):
-    """A visitor's correction (items dropped / added on the drawing) -> one JSON line in cache/corrections.jsonl,
-    to be reviewed and folded into the next training run. No IP, no upload file name, no free-form notes."""
+def _feedback_limit(request: Request):
     ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() or \
         (request.client.host if request.client else "?")
     now = time.time()
@@ -818,6 +815,13 @@ def feedback(fb: Feedback, request: Request):
         if len(dq) >= FEEDBACK_N:
             raise HTTPException(429, "too many corrections from this visitor; please try again later")
         dq.append(now)
+
+
+@app.post("/api/feedback")
+def feedback(fb: Feedback, request: Request):
+    """A visitor's correction (items dropped / added on the drawing) -> one JSON line in cache/corrections.jsonl,
+    to be reviewed and folded into the next training run. No IP, no upload file name, no free-form notes."""
+    _feedback_limit(request)
     if fb.path.startswith("uploads/"):
         path = "/".join(fb.path.split("/")[:2])  # uploads/<content hash>: the file name may be personal
     elif fb.path in BY_PATH:
@@ -836,6 +840,45 @@ def feedback(fb: Feedback, request: Request):
            "session": re.sub(r"[^A-Za-z0-9]", "", fb.session or "")[:16] or None, "tour": bool(fb.tour)}
     CORRECTIONS.parent.mkdir(parents=True, exist_ok=True)
     with _fb_lock, open(CORRECTIONS, "a") as f:
+        f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    return {"ok": True}
+
+
+SIGNOFFS = Path("cache/signoffs.jsonl")
+
+
+class Signoff(BaseModel):
+    path: str
+    question: str
+    question_id: int | None = None
+    answer: float | str | None = None
+    corrected_answer: float | None = None
+    method: str | None = None
+    confidence: float | None = None
+    initials: str
+    session: str | None = None
+
+
+@app.post("/api/signoff")
+def signoff(so: Signoff, request: Request):
+    """A reviewer marked an answer as checked -> one line in cache/signoffs.jsonl (initials as typed, no IP)."""
+    _feedback_limit(request)
+    if so.path.startswith("uploads/"):
+        path = "/".join(so.path.split("/")[:2])
+    elif so.path in BY_PATH:
+        path = so.path
+    else:
+        raise HTTPException(404, "unknown drawing")
+    who = re.sub(r"[\x00-\x1f]", "", so.initials).strip()[:40]
+    if not who:
+        raise HTTPException(400, "initials required")
+    row = {"ts": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"), "path": path,
+           "question_id": so.question_id, "question": so.question[:500],
+           "answer": so.answer if not isinstance(so.answer, str) else so.answer[:500],
+           "corrected_answer": so.corrected_answer, "method": (so.method or "")[:60], "confidence": so.confidence,
+           "initials": who, "session": re.sub(r"[^A-Za-z0-9]", "", so.session or "")[:16] or None}
+    SIGNOFFS.parent.mkdir(parents=True, exist_ok=True)
+    with _fb_lock, open(SIGNOFFS, "a") as f:
         f.write(json.dumps(row, ensure_ascii=False) + "\n")
     return {"ok": True}
 

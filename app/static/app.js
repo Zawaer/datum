@@ -309,7 +309,8 @@ async function ask() {
     r = {answer: null, confidence: 0, evidence: [], explanation: 'could not reach the server: ' + err.message, method: 'error'};
   }
   if (seq !== askSeq) return;
-  res = r; res._seq = seq; res.question = question;
+  res = r; res._seq = seq; res.question = question; showSecond = false;
+  recordTakeoff(res);
   syncURL('replace');
   session.n++; session.ours += res.cost_usd || 0; session.base += res.baseline_cost_usd || 0;
   updateMeter();
@@ -367,7 +368,7 @@ function zoomToEvidence(only, maxK = 6) {
     for (const [x, y] of pts) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
   }
   const W = viewer.clientWidth, H = viewer.clientHeight - 20, w = img.naturalWidth, h = img.naturalHeight;
-  const pad = only ? 0.03 : 0.04; x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(1, x1 + pad); y1 = Math.min(1, y1 + pad);
+  const pad = only ? 0.12 : 0.04; x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(1, x1 + pad); y1 = Math.min(1, y1 + pad);
   const fitS = Math.min(W / w, H / h) * 0.97;
   const s = Math.min(W / ((x1 - x0) * w), H / ((y1 - y0) * h));
   view.s = Math.max(fitS, Math.min(s, fitS * maxK)); view.x = W / 2 - (x0 + x1) / 2 * w * view.s; view.y = H / 2 - (y0 + y1) / 2 * h * view.s;
@@ -485,6 +486,8 @@ function renderAnswer(shownSoFar) {
     <div class="big ${abst ? 'abstain' : ''} ${counting ? 'counting' : ''}">${abst ? 'Not sure, so no guess' : num ? fmt(val, t) : ''} <small>${abst ? '' : unitOf(t)}</small></div>
     ${typeof res.answer === 'string' ? `<div class="textans">${esc(res.answer)}</div>` : ''}
     ${(() => { const h = howOf(res); return `<div class="how ${h.cls}"><b>${h.cls === 'geo' ? '✓' : h.cls === 'vis' ? '◎' : h.cls === 'llm' ? '✦' : '–'} ${esc(h.t)}</b><span>${esc(h.how)}</span></div>`; })()}
+    ${res.rule ? `<div class="rule"><b>Rule</b> ${esc(res.rule)}</div>` : ''}
+    ${crossHTML(res)}
     ${calibHTML(res)}
     ${abst || !res.trace ? `<div class="expl">${esc(res.explanation || '')}</div>` : ''}
     <div class="row" style="margin-top:10px">${abst || res.calibration ? '' : `<span class="pill ${confCls}">confidence ${(conf * 100).toFixed(0)}%</span>`}
@@ -492,6 +495,7 @@ function renderAnswer(shownSoFar) {
     <div class="corr" id="corr"></div>
     ${hasVs ? frontierHTML(res, oursOk) : ''}
     ${traceHTML(res)}
+    ${abst ? '' : signHTML(res)}
     <div class="costcmp" ${hasVs ? 'hidden' : ''}>
       <span class="lab">this answer</span><span><span class="mbar" style="display:block"><i style="width:${Math.max(0.5, 100 * (res.cost_usd || 0) / Math.max(res.baseline_cost_usd || 1e-9, res.cost_usd || 0))}%"></i></span></span>
       <span class="v"><b>${money(res.cost_usd || 0)}</b> · ${latency(res.latency_s)}</span>
@@ -499,7 +503,92 @@ function renderAnswer(shownSoFar) {
       <span class="v">~${money(res.baseline_cost_usd || 0)} · ~${baseS.toFixed(0)} s</span>
     </div>`;
   const d = a.querySelector('details.trace'); if (d) d.ontoggle = () => { traceOpen = d.open; };
+  wireAnswerActions(a);
   if (!counting) recompute();
+}
+
+// ------------------------------------------------------------ cross-check (a second, independent method), when the router sends one
+let showSecond = false;
+function crossHTML(r) {
+  const c = r.crosscheck; if (!c || !c.status || c.status === 'single' || r.answer == null) return '';
+  const sec = c.second || {}, t = r.type;
+  const n2 = (sec.evidence || []).filter(e => e.bbox || e.points).length;
+  const btn = n2 ? `<button class="linkish" data-act="second">${showSecond ? 'hide' : 'show'} its ${n2} mark${n2 === 1 ? '' : 's'}</button>` : '';
+  const val = v => typeof v === 'number' ? fmt(v, t) : esc(String(v ?? '—'));
+  const meth = esc(ROUTE[String(sec.method || '').split('-')[0]] || sec.method || 'second method');
+  if (c.status === 'agree') return `<div class="xcheck agree"><b>✓ 2 independent methods agree</b><span>${meth} also says ${val(sec.answer)}${c.note ? ' · ' + esc(c.note) : ''} ${btn}</span></div>`;
+  return `<div class="xcheck conflict"><b>⚠ Conflict: ${val(r.answer)} vs ${val(sec.answer)}</b><span>${meth} disagrees${c.note ? ': ' + esc(c.note) : ''}; check the evidence before using this number. ${btn}</span></div>`;
+}
+function secondMarks() {
+  const ev = (showSecond && res && res.crosscheck && res.crosscheck.second && res.crosscheck.second.evidence) || [];
+  return ev.filter(e => (e.bbox || e.points) && (!e.file || e.file === cur.shown)).map(e => ({...e, mark: true, second: true}));
+}
+
+// ------------------------------------------------------------ sign-off and takeoff export
+// every answered question this session is a takeoff row; a reviewer can mark it checked (initials + time).
+const TAKEOFF_KEY = 'bp_takeoff';
+let takeoff = JSON.parse(localStorage.getItem(TAKEOFF_KEY) || '[]');
+const rowKey = (path, q) => path + '\u0000' + q;
+function saveTakeoff() { localStorage.setItem(TAKEOFF_KEY, JSON.stringify(takeoff.slice(-500))); }
+function takeoffRow(r) { return takeoff.find(x => x.key === rowKey(cur.path, r.question)); }
+function recordTakeoff(r) {
+  if (!cur || r.answer == null) return;
+  const key = rowKey(cur.path, r.question);
+  let row = takeoff.find(x => x.key === key);
+  if (!row) { row = {key}; takeoff.push(row); }
+  Object.assign(row, {drawing: cur.path, question: r.question, answer: r.answer, unit: unitOf(r.type), type: r.type,
+    method: r.method, confidence: r.confidence, track_record: r.calibration && r.calibration.measured ? +(100 * r.calibration.right / r.calibration.n).toFixed(2) : '',
+    rule: r.rule || '', credit: $('#credit').textContent.replace(/^© /, ''), cost_usd: r.cost_usd || 0, asked_at: new Date().toISOString()});
+  saveTakeoff();
+}
+function signHTML(r) {
+  const row = takeoffRow(r), n = takeoff.length;
+  const signed = row && row.signed_by ? `<span class="signed">✓ checked by ${esc(row.signed_by)} · ${new Date(row.signed_at).toLocaleString([], {dateStyle: 'short', timeStyle: 'short'})}</span>
+    <button class="linkish" data-act="unsign">undo</button>` : `<button class="btn ghost" data-act="sign">✓ Mark as checked</button>`;
+  return `<div class="signrow">${signed}<span class="grow"></span>
+    <button class="btn ghost" data-act="csv" title="Download every answer of this session as a CSV takeoff">⬇ Takeoff CSV${n ? ` (${n})` : ''}</button></div>`;
+}
+function wireAnswerActions(a) {
+  a.querySelectorAll('[data-act]').forEach(b => b.onclick = ev => { ev.stopPropagation(); answerAction(b.dataset.act, b); });
+}
+async function answerAction(act, b) {
+  if (act === 'second') { showSecond = !showSecond; draw(false); renderAnswer(null); return; }
+  if (act === 'csv') { exportTakeoff(); return; }
+  const row = takeoffRow(res); if (!row) return;
+  if (act === 'unsign') { delete row.signed_by; delete row.signed_at; saveTakeoff(); renderAnswer(null); return; }
+  if (act === 'sign') {  // inline initials field instead of a prompt() box
+    const wrap = b.parentElement;
+    wrap.innerHTML = `<input class="initials" maxlength="40" placeholder="your initials" value="${esc(localStorage.getItem('bp_initials') || '')}" aria-label="Your initials">
+      <button class="btn" data-act="signok">Sign</button><button class="linkish" data-act="signcancel">cancel</button>`;
+    wireAnswerActions(wrap);
+    const inp = wrap.querySelector('input'); inp.focus(); inp.select();
+    inp.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') answerAction('signok'); if (e.key === 'Escape') renderAnswer(null); };
+    return;
+  }
+  if (act === 'signcancel') { renderAnswer(null); return; }
+  if (act === 'signok') {
+    const who = ($('#answer .initials')?.value || '').trim().slice(0, 40); if (!who) return;
+    localStorage.setItem('bp_initials', who);
+    const corr = currentCorrection();
+    Object.assign(row, {signed_by: who, signed_at: new Date().toISOString(), corrected: corr == null ? '' : corr});
+    saveTakeoff(); renderAnswer(null);
+    fetch('/api/signoff', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
+      path: cur.path, question: res.question, question_id: res.question_id ?? null, answer: res.answer, corrected_answer: corr,
+      method: res.method, confidence: res.confidence, initials: who, session: FB_SESSION})}).catch(() => {});
+  }
+}
+function currentCorrection() {
+  if (!res || typeof res.answer !== 'number' || !items.some(e => !e.on || e.added)) return null;
+  return +items.filter(e => e.on).reduce((s, e) => s + (e.value ?? 1), 0).toFixed(3);
+}
+function exportTakeoff() {
+  const cols = ['drawing', 'question', 'answer', 'unit', 'corrected', 'method', 'confidence', 'track_record', 'rule', 'cost_usd', 'signed_by', 'signed_at', 'asked_at', 'credit'];
+  const head = ['drawing', 'question', 'answer', 'unit', 'corrected value', 'method', 'confidence', 'track record % (held-out test)', 'counting rule', 'cost USD', 'checked by', 'checked at', 'asked at', 'drawing credit'];
+  const cell = v => { const t = String(v ?? ''); return /[",\n;]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+  const csv = [head.join(','), ...takeoff.map(r => cols.map(c => cell(typeof r[c] === 'string' ? r[c].replace(/\s+/g, ' ') : r[c])).join(','))].join('\r\n');
+  const url = URL.createObjectURL(new Blob(['\ufeff' + csv], {type: 'text/csv;charset=utf-8'}));
+  const link = document.createElement('a'); link.href = url; link.download = `takeoff-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '')}.csv`;
+  document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
 function updateMeter() {
@@ -527,7 +616,7 @@ function draw(animate) {
   if (mode === '3d' || !img.naturalWidth) return;
   const W = img.naturalWidth, H = img.naturalHeight;
   ov.setAttribute('viewBox', `0 0 ${W} ${H}`);
-  for (const m of marks) ov.appendChild(shapeFor(m, -1, W, H));
+  for (const m of [...marks, ...secondMarks()]) ov.appendChild(shapeFor(m, -1, W, H));
   const list2d = items.map((e, i) => [e, i]).filter(([e]) => e.kind !== 'ifc');
   const step = animate ? Math.max(25, Math.min(110, 1800 / Math.max(1, list2d.length))) : 0;
   list2d.forEach(([e, i], k) => {
@@ -553,7 +642,7 @@ function shapeFor(e, i, W, H) {
     shape.setAttribute('x', x0 * W); shape.setAttribute('y', y0 * H);
     shape.setAttribute('width', Math.max(2, (x1 - x0) * W)); shape.setAttribute('height', Math.max(2, (y1 - y0) * H));
     shape.setAttribute('rx', 2);
-    const cls = e.mark ? (e.kind === 'text' ? 'bx txt' : 'bx mark') : 'bx appear' + (e.on ? '' : ' off') + (e.added ? ' added' : '') + (modelRead(e) ? ' model' : '');
+    const cls = e.second ? 'bx second' : e.mark ? (e.kind === 'text' ? 'bx txt' : 'bx mark') : 'bx appear' + (e.on ? '' : ' off') + (e.added ? ' added' : '') + (modelRead(e) ? ' model' : '');
     shape.setAttribute('class', cls); lx = x0 * W; ly = y0 * H;
     // a thin box (a text label, a wall): put the number just left of it so it does not cover what it marks
     if ((y1 - y0) * H < fs * 2.2) { lx = x0 * W - fs * 0.85; ly = (y0 + y1) / 2 * H; }
@@ -629,7 +718,7 @@ const modelRead = e => e.score != null && !e.added;
 function focusItem(i) {
   const e = items[i]; if (!e) return;
   if (mode === '3d' || e.kind === 'ifc') { hotItem(i, true); setTimeout(() => hotItem(i, false), 1200); return; }
-  zoomToEvidence([e], 4); flashRow(i);
+  zoomToEvidence([e], 3); flashRow(i);
   const s = ov.querySelector(`g[data-i="${i}"] rect, g[data-i="${i}"] polygon`);
   if (s) { s.classList.add('flash'); setTimeout(() => s.classList.remove('flash'), 1300); }
 }
@@ -664,6 +753,7 @@ function recompute() {
   el.innerHTML = changed ? `✎ corrected by you: <b>${fmt(v, res.type)} ${unitOf(res.type)}</b> (the solver said ${fmt(res.answer, res.type)})`
     + `<span class="fbnote" id="fbnote">${fb.res === res && fb.state ? fbText(fb.state) : ''}</span>` : '';
   queueFeedback(changed, v);
+  const row = takeoffRow(res); if (row) { const c = changed ? +v.toFixed(3) : ''; if (row.corrected !== c) { row.corrected = c; saveTakeoff(); } }
 }
 
 // ------------------------------------------------------------ corrections become training data
