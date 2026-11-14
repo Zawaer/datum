@@ -151,3 +151,28 @@ def test_too_coarse_guard():
     y["doors"] = [{"bbox": [0.1, 0.1, 0.11, 0.11]}] * 20  # 20 px: countable
     r = O._answer_yolo("doors", y, None, size=(2000, 1400))
     assert r["answer"] == 20 and r["low_res"] is True
+
+
+def test_room_scope():
+    assert O.room_scope("How many doors open into the Multi-Purpose Hall?") == "Multi-Purpose Hall"
+    assert O.room_scope("How many doors lead into the kitchen?") == "kitchen"
+    for q in ("How many doors are in this dormitory module?", "How many doors does the filter building have?",
+              "How many doors are shown on this floor plan?", "How many doors are there in total?"):
+        assert O.room_scope(q) is None
+
+
+def test_vision_closet_rule(monkeypatch, tmp_path):
+    """The vision read gives the smaller space's printed name and area; a closet name or < 25 SF (not a WC) is a
+    closet door."""
+    from PIL import Image
+
+    p = tmp_path / "plan.png"
+    Image.new("RGB", (400, 300), "white").save(p)
+    reply = '{"1": ["CLOSET", "18 SF"], "2": ["BATH", "51 SF"], "3": ["MECH", "9 SF"], "4": ["WC", "1.5 m2"], ' \
+            '"5": ["", ""], "6": ["Corridor", ""]}'
+    import bp.generic.llm as llm
+    monkeypatch.setattr(llm, "ask", lambda *a, **k: {"text": reply, "cost_usd": 0.001})
+    doors = [{"bbox": [0.1 * i, 0.1, 0.1 * i + 0.05, 0.2]} for i in range(1, 7)]
+    out, cost = O.vision_closets({"image": str(p)}, doors)
+    assert sorted(out) == [0, 2] and cost == 0.001
+    assert O._printed_m2("18 SF") == pytest.approx(1.672, abs=0.01) and O._printed_m2("4.5 m2") == 4.5

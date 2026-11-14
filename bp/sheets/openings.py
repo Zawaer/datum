@@ -933,6 +933,103 @@ def building_bbox(gray) -> list[float] | None:
     return [x0, y0, x1, y1]
 
 
+_ROOMWORD = re.compile(r"^(?:\d{1,4}\s*(?:sf|sq\.?\s*ft|m2|m²)|sf|m2|m²)$", re.I)
+
+
+def main_plan(meta) -> list[float] | None:
+    """Normalised bbox of the floor plan(s) a door / window count is about, when the sheet also carries other drawings
+    (a 3D / isometric view, a key plan, details, a title block): the large drawing blobs that carry room names or
+    area tags. None when that does not single anything out (one drawing, or no readable room names)."""
+    import cv2
+
+    from bp.sheets import rooms as rooms_mod
+
+    try:
+        g = _gray(meta["image"])
+    except Exception:  # noqa: BLE001
+        return None
+    s = 1500 / max(g.shape)
+    if s < 1:
+        g = cv2.resize(g, (round(g.shape[1] * s), round(g.shape[0] * s)), interpolation=cv2.INTER_AREA)
+    H, W = g.shape
+    paper = float(np.percentile(g[::3, ::3], 90))  # grey / yellowed scan paper is not ink
+    m = cv2.morphologyEx((g < min(235.0, paper - 20)).astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    m = cv2.dilate(m, np.ones((15, 15), np.uint8))
+    n, lab, st, _ = cv2.connectedComponentsWithStats(m, 8)
+    blobs = [i for i in range(1, n) if st[i, 2] >= 0.08 * W and st[i, 3] >= 0.08 * H]
+    if len(blobs) < 2:
+        return None
+
+    def ortho_frac(i, skew=False):  # a plan is drawn square; a 3D / isometric view is not
+        x, y, w, h = st[i, :4]
+        e = cv2.Canny(g[y:y + h, x:x + w], 50, 150)
+        ls = cv2.HoughLinesP(e, 1, np.pi / 180, 30, minLineLength=max(15, min(w, h) // 20), maxLineGap=3)
+        if ls is None:
+            return 1.0
+        ls = ls.reshape(-1, 4).astype(float)
+        L = np.hypot(ls[:, 2] - ls[:, 0], ls[:, 3] - ls[:, 1])
+        a = np.degrees(np.arctan2(np.abs(ls[:, 3] - ls[:, 1]), np.abs(ls[:, 2] - ls[:, 0])))
+        ok = (a < 4) | (a > 86)
+        if not skew:
+            return float(L[ok].sum() / max(1e-6, L.sum()))
+        # share of the line length along one oblique direction (an isometric's 30-degree edges)
+        h_, _ = np.histogram(a, bins=18, range=(0, 90), weights=L)
+        return float((h_[3:15] + h_[4:16]).max() / max(1e-6, L.sum()))
+
+    def oblique(i):  # an isometric / 3D view: few square lines, most along one slant
+        return ortho_frac(i) < 0.5 and ortho_frac(i, skew=True) >= 0.4
+
+    def _union(ids):
+        return [min(st[i, 0] for i in ids) / W, min(st[i, 1] for i in ids) / H,
+                max(st[i, 0] + st[i, 2] for i in ids) / W, max(st[i, 1] + st[i, 3] for i in ids) / H]
+
+    try:
+        words = meta.get("words") or rooms_mod._words(meta["image"], None, meta)
+    except Exception:  # noqa: BLE001
+        return None
+    names = []
+    for w in words:
+        t = str(w.get("text", "")).strip(" .,:;()").lower()
+        if (t in rooms_mod.ROOM_WORDS and len(t) >= 3 and t not in ("and", "of")) or _ROOMWORD.match(t) or \
+                re.fullmatch(r"(bed|bath|class|store|office|toilet|kitchen|corridor|closet|dorm|living|dining)\w*", t):
+            names.append(((w["bbox"][0] + w["bbox"][2]) / 2, (w["bbox"][1] + w["bbox"][3]) / 2))
+    score = {}
+    for i in blobs:
+        x, y, w, h = st[i, :4]
+        score[i] = sum(1 for cx, cy in names if x <= cx * W <= x + w and y <= cy * H <= y + h
+                       and lab[min(H - 1, int(cy * H)), min(W - 1, int(cx * W))] == i)
+    best = max(score.values())
+    if best < 4:
+        # no readable room names (a rough scan): keep the square-drawn drawings, drop big skewed ones (3D views)
+        area = {i: int(st[i, 2]) * int(st[i, 3]) for i in blobs}
+        bigs = [i for i in blobs if area[i] >= 0.3 * max(area.values())]
+        of = {i: (ortho_frac(i), ortho_frac(i, skew=True)) for i in bigs}
+        log.info("openings: main plan by drawing direction (square, oblique): %s",
+                 {int(i): (round(a, 2), round(b, 2)) for i, (a, b) in of.items()})
+        # only a clearly oblique drawing (an isometric: most lines along one slant) beside square ones is dropped
+        sq = {i: not (a < 0.5 and b >= 0.4) for i, (a, b) in of.items()}
+        if all(sq.values()) or not any(a >= 0.85 for a, _ in of.values()):
+            return None
+        top = max(area[i] for i in bigs if sq[i])
+        keep = [i for i in blobs if area[i] >= 0.1 * top and (sq[i] if i in sq else not oblique(i))]
+        return _union(keep)
+    keep = [i for i in blobs if score[i] >= max(2, 0.25 * best)]
+    big = max(int(st[i, 2]) * int(st[i, 3]) for i in keep)
+    keep += [i for i in blobs if i not in keep and int(st[i, 2]) * int(st[i, 3]) >= 0.3 * big and not oblique(i)]
+    if len(keep) == len(blobs):
+        return None
+    log.info("openings: main plan %s (room words per drawing %s)", [round(v, 3) for v in _union(keep)],
+             sorted(score.values(), reverse=True))
+    return _union(keep)
+
+
+def _in_plan(items, box):
+    if not box:
+        return items
+    return [d for d in items if box[0] <= (d["bbox"][0] + d["bbox"][2]) / 2 <= box[2]
+            and box[1] <= (d["bbox"][1] + d["bbox"][3]) / 2 <= box[3]]
+
+
 def yolo_openings(image, px_per_m=None) -> dict:
     """{"doors": [...], "windows": [...]} (normalised boxes, score) from the CubiCasa detector on the raster resampled
     to YOLO_PX_PER_M (without a scale: to 4800 px on the long side), limited to the building's bbox."""
@@ -1191,6 +1288,86 @@ def closet_mode(question: str) -> str:
     return "exclude"
 
 
+CLOSET_VLM_MAX = 40  # doors on the plan up to which a vision read of the room names beside each door is affordable
+CLOSET_NAME = re.compile(r"\b(closet|clo|clos|cl|wardrobe|ward|cupboard|cpd|cupbd|linen|lin|w\.?i\.?c|vh|var|"
+                         r"komero|vaatehuone|schrank)\b", re.I)
+WET_NAME = re.compile(r"\b(wc|toilet|bath|shower|lav|wash|restroom)", re.I)
+CLOSET_SF = 25.0  # a space printed smaller than this (2.3 m²) is a closet whatever its name (MECH 9 SF, LINEN 12 SF)
+VCLOSET_PROMPT = """This is an architectural floor plan. Red numbered boxes mark door symbols found on it (boxes 1..{n}).
+A door connects two spaces. For each box give the name of the SMALLER of the two spaces the door connects, as printed
+on the plan (e.g. "CLOSET", "MECH", "BATH", "Store", "Corridor"), and that space's printed area if one is printed
+next to its name (e.g. "18 SF", "4.5 m2"), else "". Use "" for a name you cannot read; do not guess.
+JSON only: {{"1": ["CLOSET", "18 SF"], "2": ["BATH", "51 SF"], ...}}"""
+
+
+def _printed_m2(t: str):
+    m = re.search(r"(\d+(?:[.,]\d+)?)\s*(sf|sq\.?\s*ft|ft2|ft²|m2|m²|sqm)", t or "", re.I)
+    if not m:
+        return None
+    v = float(m.group(1).replace(",", "."))
+    return v * 0.092903 if m.group(2).lower().startswith(("s", "f")) and "m" not in m.group(2).lower() else v
+
+
+def vision_closets(meta, doors, model="haiku") -> tuple[dict, float]:
+    """({index: why} for doors whose smaller side is a closet, cost): Claude reads, for each numbered door box on a
+    crop of the plan, the printed name (and area) of the smaller space it opens; a closet name (closet, wardrobe,
+    cupboard, linen, WIC) or a printed area under CLOSET_SF (not a WC / bath) makes it a closet door. Cached."""
+    from PIL import Image, ImageDraw
+
+    from bp.generic import llm
+
+    if not doors or len(doors) > CLOSET_VLM_MAX or not meta.get("image"):
+        return {}, 0.0
+    Image.MAX_IMAGE_PIXELS = None
+    im = Image.open(meta["image"]).convert("RGB")
+    W, H = im.size
+    bx = [min(d["bbox"][0] for d in doors), min(d["bbox"][1] for d in doors),
+          max(d["bbox"][2] for d in doors), max(d["bbox"][3] for d in doors)]
+    pad = 0.04 * max(bx[2] - bx[0], bx[3] - bx[1]) + 0.01
+    box = [max(0.0, bx[0] - pad) * W, max(0.0, bx[1] - pad) * H, min(1.0, bx[2] + pad) * W, min(1.0, bx[3] + pad) * H]
+    key = hashlib.sha1((f"{meta['image']}|{W}x{H}|" + json.dumps([[round(v, 4) for v in d["bbox"]] for d in doors])
+                        + model).encode()).hexdigest()[:12]
+    cf = Path(meta["image"]).with_name(f"openings_closets_{key}.json")
+    got, cost = None, 0.0
+    if cf.exists():
+        try:
+            got = json.loads(cf.read_text())
+        except json.JSONDecodeError:
+            got = None
+    if got is None:
+        c = im.crop([int(v) for v in box])
+        s = min(3.0, 1600 / max(c.size))
+        c = c.resize((max(1, int(c.width * s)), max(1, int(c.height * s))), Image.LANCZOS)
+        dr = ImageDraw.Draw(c)
+        for i, d in enumerate(doors, 1):
+            b = d["bbox"]
+            r = [(b[0] * W - box[0]) * s, (b[1] * H - box[1]) * s, (b[2] * W - box[0]) * s, (b[3] * H - box[1]) * s]
+            dr.rectangle(r, outline=(255, 0, 0), width=2)
+            dr.text((r[0] + 2, r[1] + 1), str(i), fill=(255, 0, 0), font_size=18)
+        res = llm.ask(VCLOSET_PROMPT.format(n=len(doors)), [c], model=model, tag="openings-closets", think=False)
+        cost = res.get("cost_usd", 0.0)
+        js = llm.parse_json(res.get("text", ""))
+        if not isinstance(js, dict):
+            return {}, cost
+        got = {k: v for k, v in js.items() if isinstance(v, list) and len(v) == 2}
+        try:
+            cf.write_text(json.dumps(got))
+        except OSError:
+            pass
+    out = {}
+    for i in range(len(doors)):
+        v = got.get(str(i + 1))
+        if not v:
+            continue
+        name, area = str(v[0] or "").strip(), str(v[1] or "").strip()
+        m2 = _printed_m2(area) or _printed_m2(name)
+        if name and CLOSET_NAME.search(name):
+            out[i] = f"opens a '{name}{' ' + area if area else ''}' (read by vision)"
+        elif m2 is not None and m2 < CLOSET_SF * 0.092903 and not WET_NAME.search(name):
+            out[i] = f"opens a {area} {name or 'space'} (smaller than {CLOSET_SF:.0f} SF; read by vision)"
+    return out, cost
+
+
 def _split_closets(meta, doors, px_per_m=None, mode="exclude"):
     """(counted doors, closet doors with "why", not counted), the closet check never failing the answer. mode (see
     closet_mode): include -> closets are counted (still marked), only -> only closets are counted."""
@@ -1201,6 +1378,14 @@ def _split_closets(meta, doors, px_per_m=None, mode="exclude"):
     except Exception as e:  # noqa: BLE001
         log.warning("closet check failed: %s", e)
         cl = {}
+    if os.environ.get("BP_OPENINGS_HAIKU", "1") == "1" and 0 < len(doors) <= CLOSET_VLM_MAX:
+        try:
+            vc, cost = vision_closets(meta, doors)
+            meta["_closet_cost"] = meta.get("_closet_cost", 0.0) + cost
+            for k, why in vc.items():
+                cl.setdefault(k, why)
+        except Exception as e:  # noqa: BLE001
+            log.warning("vision closet check failed: %s", e)
     if mode == "only":
         return [dict(doors[k], why=cl[k]) for k in sorted(cl)], [d for k, d in enumerate(doors) if k not in cl]
     return [d for k, d in enumerate(doors) if k not in cl], [dict(d, why=cl[k]) for k in sorted(cl) for d in [doors[k]]]
@@ -1217,19 +1402,112 @@ def _closet_ev(cs, mode="exclude"):
     return out
 
 
+_NOT_ROOM = re.compile(r"\b(this|these|whole|entire|each|every|all|floor|plan|level|sheet|drawing|building|module|"
+                       r"storey|story|house|unit|wing|project|page)\b", re.I)
+
+
+def room_scope(question: str) -> str | None:
+    """The room a door question is about ("doors into the Multi-Purpose Hall" -> "Multi-Purpose Hall"), or None."""
+    m = None
+    for m in re.finditer(r"\b(?:into|in|inside|to|of|for|from|serving|off|onto)\s+(?:the\s+)?([A-Za-z][\w\-' ]{2,60})",
+                         question):
+        pass
+    if not m:
+        return None
+    ph = re.split(r"[?.,;]| on | at | of this| in this", m.group(1))[0].strip()
+    if not ph or _NOT_ROOM.search(ph) or re.fullmatch(r"(?i)(total|all|them|it|there)", ph):
+        return None
+    return ph
+
+
+def _answer_room_doors(meta, question, name):
+    """Doors into one named room: the doorway openings on that room's outline (bp/sheets/rooms.py segmentation: wall
+    gaps closed by a drawn leaf / swing, a double door is one opening), with the door symbols at them as a check."""
+    from bp.sheets import rooms as rooms_mod
+
+    try:
+        sel, seg = rooms_mod.named_rooms(meta, name)
+    except Exception as e:  # noqa: BLE001
+        log.warning("openings: room scope failed: %s", e)
+        return None
+    if not sel:
+        if not seg.get("rooms"):
+            return None
+        names = sorted({r["label"] for r in seg["rooms"] if r["label"]}, key=str.lower)
+        # the whole sheet's count would answer another question: ask which room is meant
+        return {"answer": None, "confidence": 0.0, "method": f"{METHOD}-room-ask", "evidence": [],
+                "cost_usd": seg.get("cost_usd", 0.0),
+                "explanation": f"I found no room named '{name}' on this sheet, so I cannot count the doors into it. "
+                               f"Rooms I can read: {', '.join(names[:40]) or 'none'}. Which one do you mean, or should "
+                               f"I count every door on the sheet?"}
+    W, H = meta.get("w") or 0, meta.get("h") or 0
+    if not (W and H):
+        return None
+    room = max(sel, key=lambda r: r["area_m2"])
+    if len({r["label"] for r in sel}) > 1 and len(sel) > 1:
+        return None  # two different rooms answer to the name: let the whole-sheet reader ask
+    ops = [d for d in room.get("doors_all", room["doors"]) if d["width_m"] >= 0.5]
+    if (seg.get("wall_px") or 0) < 3:  # walls 1-2 px: blurred window gaps read as doorways; keep those with a door
+        ok = rooms_mod.symbol_confirmed(meta, seg, ops)
+        ops = ok if ok is not None else ops
+    if not ops:
+        return None
+    ev = [_ev([d["bbox"][0] / W, d["bbox"][1] / H, d["bbox"][2] / W, d["bbox"][3] / H],
+              f"door opening {i} ({d['width_m']:.2f} m)") for i, d in enumerate(ops, 1)]
+    pts = [[round(x / W, 5), round(y / H, 5)] for x, y in room["polygon"]]
+    ev.append({"kind": "polygon", "page": 0, "points": pts, "label": rooms_mod._name(room), "value": None})
+    nd = sum(1 for d in ops if d["width_m"] >= 1.4)
+    conf = 0.7 if not seg.get("scan") and (seg.get("wall_px") or 0) >= 3 else 0.55
+    return {"answer": len(ops), "confidence": conf, "method": f"{METHOD}-room", "cost_usd": seg.get("cost_usd", 0.0),
+            "explanation": f"{len(ops)} door openings on the outline of the {rooms_mod._name(room)} "
+                           f"({room['area_m2']:.0f} m²): "
+                           f"gaps in its walls closed by a drawn door leaf or swing ({nd} of them wide enough for a "
+                           f"pair of leaves, counted once each). Openings in a folding partition inside the room and "
+                           f"open archways without a door are not counted. Each opening is a numbered box.",
+            "evidence": ev, "counts": {"doors": len(ops), "double": nd}}
+
+
 def answer(path, question, meta):
     it = intent(question)
     if it is None:
         return None
+    if it == "doors" and closet_mode(question) == "exclude":
+        name = room_scope(question)
+        if name:
+            out = _answer_room_doors(meta, question, name)
+            if out is not None:
+                return out  # (an "-ask" result when the room is not on the sheet)
     r = analyse_meta(meta)
-    if not r.get("cv_ok", not r["low_res"]) and not r.get("yolo") and r.get("yolo_pending"):
-        # the swing reading looked usable at first (a scan PDF re-rendered to full size: a handful of swings) but did
-        # not stand, so the answer is the deferred detector's: wait for it rather than abstain
-        import time
+    import time
 
+    if "_main_plan" not in meta:
+        try:
+            meta["_main_plan"] = main_plan(meta)
+        except Exception as e:  # noqa: BLE001
+            log.warning("openings: main plan failed: %s", e)
+            meta["_main_plan"] = None
+    mp = meta["_main_plan"]
+    if mp and r.get("cv_ok", not r["low_res"]) and len(_in_plan(r["doors"], mp)) < 3 and r.get("yolo_pending"):
+        # the swings read stand outside the plan (letters of the title block, a 3D view): the detector decides
         t_end = time.monotonic() + YOLO_WAIT_S
         while r.get("yolo_pending") and time.monotonic() < t_end:
             time.sleep(0.5)
+    if not r.get("cv_ok", not r["low_res"]) and not r.get("yolo") and r.get("yolo_pending"):
+        # the swing reading looked usable at first (a scan PDF re-rendered to full size: a handful of swings) but did
+        # not stand, so the answer is the deferred detector's: wait for it rather than abstain
+        t_end = time.monotonic() + YOLO_WAIT_S
+        while r.get("yolo_pending") and time.monotonic() < t_end:
+            time.sleep(0.5)
+    if mp:  # count on the floor plan only: not in a 3D view, key plan, detail or the title block beside it
+        y = r.get("yolo")
+        ok = r.get("cv_ok", not r["low_res"])
+        r = dict(r, doors=_in_plan(r["doors"], mp), windows=_in_plan(r["windows"], mp),
+                 internal_glazing=_in_plan(r["internal_glazing"], mp),
+                 yolo=dict(y, doors=_in_plan(y.get("doors") or [], mp), windows=_in_plan(y.get("windows") or [], mp))
+                 if y else y)
+        yd = len((r.get("yolo") or {}).get("doors") or [])
+        if ok and not r.get("vector") and len(r["doors"]) < 3 and yd >= 3:
+            r["cv_ok"] = False  # no swings read on the plan itself (grey swings): the detector's boxes
     if not r.get("cv_ok", not r["low_res"]):
         y = r.get("yolo")
         closets = []
@@ -1264,6 +1542,7 @@ def answer(path, question, meta):
                 if it == "doors" and isinstance(out["answer"], int):
                     out["answer"] = f"{out['answer']} doors (+{len(closets)} closet doors not counted)"
         if out is not None:
+            out["cost_usd"] = out.get("cost_usd", 0.0) + meta.pop("_closet_cost", 0.0)
             _add_schedule_check(out, meta, it)
         return out
     ev, parts, conf = [], [], []
@@ -1329,7 +1608,8 @@ def answer(path, question, meta):
     expl = ("Found " + "; ".join(parts) + ". Every counted item is a numbered box: check the marked ones. "
             "Doors are read from their swing arcs (plus folding / ajar leaves); sliding doors and openings "
             "without a door symbol are not counted.")
-    out = {"answer": ans, "confidence": round(min(conf), 2), "method": f"{METHOD}-cv", "cost_usd": 0.0,
+    out = {"answer": ans, "confidence": round(min(conf), 2), "method": f"{METHOD}-cv",
+           "cost_usd": meta.pop("_closet_cost", 0.0),
            "explanation": expl, "evidence": ev,
            "counts": {"doors": len(r["doors"]), "windows": len(r["windows"]) + ig, "exterior_windows": len(r["windows"]),
                       "internal_glazing": len(r["internal_glazing"]), "closet_doors": len(r.get("closets") or [])}}

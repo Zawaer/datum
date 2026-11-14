@@ -150,3 +150,32 @@ def test_side_panel_beside_doorway():
     t3 = t.copy()
     t3[2, :] = t3[5, :] = True  # glazed all along: a window, not a side panel
     assert R._side_panel(t3, ppm) is None
+
+
+def test_room_phrase():
+    assert R.room_phrase("What is the floor area of the Multi-Purpose Hall?") == "Multi-Purpose Hall"
+    assert R.room_phrase("How many linear meters of baseboard are needed in the Library?") == "Library"
+    assert R.room_phrase("How many linear meters of baseboard does the Multi-Purpose Hall need?") == "Multi-Purpose Hall"
+
+
+def test_identify_room_takes_only_confident_hall_pick(monkeypatch, tmp_path):
+    """A VLM pick of an unreadable room is taken only at high confidence, and a hall must be the largest compact room."""
+    from PIL import Image
+
+    import bp.generic.llm as llm
+
+    p = tmp_path / "plan.png"
+    Image.new("RGB", (300, 200), "white").save(p)
+    lab = np.zeros((200, 300), np.int32)
+    lab[10:110, 10:110], lab[10:60, 150:290], lab[120:190, 10:30], lab[130:190, 150:200] = 1, 2, 3, 4
+    rooms = [{"id": 1, "bbox": [10, 10, 110, 110], "area_m2": 100.0, "label": ""},
+             {"id": 2, "bbox": [150, 10, 290, 60], "area_m2": 70.0, "label": ""},
+             {"id": 3, "bbox": [10, 120, 30, 190], "area_m2": 14.0, "label": ""},
+             {"id": 4, "bbox": [150, 130, 200, 190], "area_m2": 30.0, "label": ""}]
+    seg = {"rooms": rooms, "_lab": {"lab": lab, "f": 1.0}, "px_per_m": 10.0}
+    replies = iter(['{"room": 1, "confidence": "high", "why": "seats"}', '{"room": 4, "confidence": "medium"}',
+                    '{"room": 4, "confidence": "high", "why": "x"}'])
+    monkeypatch.setattr(llm, "ask", lambda *a, **k: {"text": next(replies), "cost_usd": 0.01})
+    assert R.identify_room(seg, str(p), "Multi-Purpose Hall")[0] is rooms[0]
+    assert R.identify_room(seg, str(p), "Kitchen")[0] is None  # medium: not taken
+    assert R.identify_room(seg, str(p), "Sports Hall")[0] is None  # room 4 is not the largest compact room

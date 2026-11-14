@@ -76,11 +76,9 @@ def _words(image, words=None, meta=None):
 
 
 # ------------------------------------------------------------------------------------------------- scale
-def scale_info(image, words=None, meta=None) -> dict | None:
-    """{"px_per_m", "how", "boxes": [normalised bboxes of the bar / labels]} or None."""
-    g = _gray(image)
+def _bar_from_words(g, ws):
+    """The scale bar from its printed numbers among OCR words (see scale_info), refined by the drawn bar; or None."""
     H, W = g.shape
-    ws = _words(image, words, meta)
     nums = []
     for w in ws:
         m = re.fullmatch(r"(\d{1,4}(?:\.\d+)?)\s*(m|M|'|’|ft)?", w["text"].strip())
@@ -138,7 +136,61 @@ def scale_info(image, words=None, meta=None) -> dict | None:
         cand = {"px_per_m": float(span / val_m), "how": how, "boxes": boxes, "_k": (len(row), val_m)}
         if best is None or cand["_k"] > best["_k"]:
             best = cand
-    out = best
+    return best
+
+
+def _scale_crop_words(image, ws, W, H, up=4.0):
+    """OCR words (normalised to the page) of the areas around the printed word SCALE, upscaled; [] if none."""
+    import shutil
+    import subprocess
+
+    from PIL import Image
+
+    if not shutil.which("tesseract"):
+        return []
+    sw = [w for w in ws if re.fullmatch(r"(?i)scale\W*", w["text"].strip())]
+    if not sw or len(sw) > 6:
+        return []
+    Image.MAX_IMAGE_PIXELS = None
+    im = Image.open(image).convert("L")
+    out = []
+    for w in sw:
+        x0, y0, x1, y1 = w["bbox"][0] * W, w["bbox"][1] * H, w["bbox"][2] * W, w["bbox"][3] * H
+        h = max(4.0, y1 - y0)
+        box = (int(max(0, x0 - 6 * h)), int(max(0, y0 - 7 * h)), int(min(W, x0 + 0.22 * W)), int(min(H, y1 + 7 * h)))
+        if box[2] - box[0] < 10 or box[3] - box[1] < 10:
+            continue
+        c = im.crop(box)
+        c = c.resize((int(c.width * up), int(c.height * up)), Image.LANCZOS)
+        with tempfile.NamedTemporaryFile(suffix=".png") as tf:
+            c.save(tf.name)
+            try:
+                tsv = subprocess.run(["tesseract", tf.name, "-", "--psm", "11", "tsv"], capture_output=True,
+                                     text=True, timeout=30).stdout
+            except subprocess.TimeoutExpired:
+                continue
+        for line in tsv.splitlines()[1:]:
+            p = line.split("\t")
+            if len(p) < 12 or not p[11].strip() or float(p[10]) < 30:
+                continue
+            lx, ty, wd, ht = (int(v) / up for v in p[6:10])
+            out.append({"text": p[11].strip(), "conf": float(p[10]),
+                        "bbox": [(box[0] + lx) / W, (box[1] + ty) / H, (box[0] + lx + wd) / W, (box[1] + ty + ht) / H]})
+    return out
+
+
+def scale_info(image, words=None, meta=None) -> dict | None:
+    """{"px_per_m", "how", "boxes": [normalised bboxes of the bar / labels]} or None."""
+    g = _gray(image)
+    H, W = g.shape
+    ws = _words(image, words, meta)
+    out = _bar_from_words(g, ws)
+    if out is None and not isinstance(image, np.ndarray) and not (meta or {}).get("words"):
+        # small raster: the bar's numbers ("0' 4' 8' 16' 32'") are too small for the page OCR; read the area around
+        # the printed word SCALE again, upscaled
+        extra = _scale_crop_words(image, ws, W, H)
+        if extra:
+            out = _bar_from_words(g, extra)
     # printed ratio + paper size (fallback, or a cross-check)
     txt = " ".join(w["text"] for w in ws) + " " + ((meta or {}).get("scale") or "")
     rm = re.search(r"\b1\s*:\s*(\d{2,4})\b", txt)
@@ -885,6 +937,178 @@ def match_rooms(rooms, question):
     return [r for s, r in scored if s == top], qw
 
 
+IDENT_PROMPT = """This is a floor plan with its rooms numbered in red (1..{n}). The printed room names are too small to read
+reliably at this resolution. Which numbered room is the "{name}"? Judge from the layout, the furniture and fittings drawn
+in each room, the room's size and shape, and the shape / length of the printed name text. Answer only if you are sure.
+JSON only: {{"room": <number or null>, "confidence": "high" | "medium" | "low", "why": "<short>"}}"""
+IDENT_MODEL = "sonnet"
+
+
+def identify_room(seg, image, name: str, model: str = IDENT_MODEL):
+    """(room, why, cost) for a room whose printed name is unreadable (a ~2000 px screenshot): a VLM picks the numbered
+    room that is `name` from the plan's layout, furniture and the shape of the printed text; only a "high" confidence
+    pick is taken. A hall-type name must also be the largest compact room. Cached next to the image."""
+    import hashlib
+    import json
+    import os
+
+    import cv2
+    from PIL import Image, ImageDraw
+
+    from bp.generic import llm
+
+    x = seg.get("_lab") or {}
+    rooms = [r for r in seg["rooms"] if r["area_m2"] >= 4][:60]
+    if not x or isinstance(image, np.ndarray) or len(rooms) < 3:
+        return None, "", 0.0
+    lab, f = x["lab"], x["f"]
+    key = hashlib.sha1((name.lower() + model + json.dumps([[round(v) for v in r["bbox"]] for r in rooms]))
+                       .encode()).hexdigest()[:12]
+    cache = f"{image}.rooms_ident_{key}.json"
+    js, cost = None, 0.0
+    if os.path.exists(cache):
+        try:
+            js = json.load(open(cache))
+        except (OSError, ValueError):
+            js = None
+    if js is None:
+        Image.MAX_IMAGE_PIXELS = None
+        im = Image.open(image).convert("RGB")
+        W, H = im.size
+        x0, y0 = max(0, min(r["bbox"][0] for r in rooms) - 20), max(0, min(r["bbox"][1] for r in rooms) - 20)
+        x1, y1 = min(W, max(r["bbox"][2] for r in rooms) + 20), min(H, max(r["bbox"][3] for r in rooms) + 20)
+        c = im.crop((int(x0), int(y0), int(x1), int(y1)))
+        s = min(4.0, 1800 / max(c.size))
+        c = c.resize((max(1, int(c.width * s)), max(1, int(c.height * s))), Image.LANCZOS)
+        d = ImageDraw.Draw(c)
+        sh, sw = lab.shape
+        for i, r in enumerate(rooms, 1):
+            bx0, by0, bx1, by1 = (int(v * f) for v in r["bbox"])
+            m = (lab[max(0, by0):min(sh, by1 + 1), max(0, bx0):min(sw, bx1 + 1)] == r["id"]).astype(np.uint8)
+            if m.any():  # the most interior point of the room, where a number cannot fall outside it
+                dt = cv2.distanceTransform(np.pad(m, 1), cv2.DIST_L2, 3)[1:-1, 1:-1]
+                py, px = np.unravel_index(int(np.argmax(dt)), dt.shape)
+                cx, cy = (bx0 + px) / f, (by0 + py) / f
+            else:
+                cx, cy = (r["bbox"][0] + r["bbox"][2]) / 2, (r["bbox"][1] + r["bbox"][3]) / 2
+            tx, ty = (cx - x0) * s, (cy - y0) * s
+            d.rectangle([tx - 13, ty - 12, tx + 13, ty + 12], fill=(255, 255, 255))
+            d.text((tx - 11, ty - 11), str(i), fill=(230, 0, 0), font_size=20)
+        res = llm.ask(IDENT_PROMPT.format(n=len(rooms), name=name), [c], model=model, tag="rooms-identify")
+        cost = res.get("cost_usd", 0.0)
+        js = llm.parse_json(res.get("text", "")) or {}
+        if not isinstance(js, dict):
+            js = {}
+        try:
+            json.dump(js, open(cache, "w"))
+        except OSError:
+            pass
+    k = js.get("room")
+    if not (isinstance(k, int) and 1 <= k <= len(rooms)) or str(js.get("confidence", "")).lower() != "high":
+        return None, str(js.get("why") or ""), cost
+    room = rooms[k - 1]
+    if "hall" in {SYN.get(w, w) for w in query_words(name)}:
+        # an assembly hall is the sheet's largest compact room (corridors are long and thin)
+        def compact(r):
+            bw, bh = r["bbox"][2] - r["bbox"][0], r["bbox"][3] - r["bbox"][1]
+            return max(bw, bh) <= 2.5 * max(1e-6, min(bw, bh)) and \
+                r["area_m2"] * seg["px_per_m"] ** 2 >= 0.6 * bw * bh
+        comp = sorted((r for r in rooms if compact(r)), key=lambda r: -r["area_m2"])
+        if not comp or comp[0] is not room or (len(comp) > 1 and comp[1]["area_m2"] > 0.75 * room["area_m2"]):
+            return None, "the pick is not clearly the largest hall-like room", cost
+    return room, str(js.get("why") or ""), cost
+
+
+def named_rooms(meta, name: str):
+    """(rooms whose label matches `name`, seg) for other modules (doors into a named room): the same reading as a room
+    area question, incl. the per-room vision crops on coarse sheets; ([], seg) when no room matches."""
+    seg = _cached(meta)
+    rooms = seg["rooms"]
+    if not rooms or not query_words(name):
+        return [], seg
+    coarse = seg.get("px_per_m", 100) < COARSE_PPM or (seg.get("wall_px") or 0) < 3 or seg.get("scan", False)
+    if coarse:
+        with _lock:
+            lk = seg.setdefault("_crop_lock", threading.Lock())
+        with lk:
+            if not seg.get("_crop_read"):
+                try:
+                    seg["cost_usd"] = seg.get("cost_usd", 0.0) + crop_labels(seg, meta["image"], rooms)
+                except Exception:  # noqa: BLE001
+                    import logging
+
+                    logging.getLogger(__name__).exception("room crop labels failed")
+                seg["_crop_read"] = True
+    sel, qw = match_rooms(rooms, name)
+    if sel and seg.get("_crop_read") and len(qw) >= 2:
+        lw = lambda r: {SYN.get(w, w) for w in _norm(r["label"])}  # noqa: E731
+        sel = [r for r in sel if all(any(_close(w, x) for x in lw(r)) for w in set(qw))]
+    if not sel and not seg.get("_crop_read"):
+        cand = [r for r in rooms if r["area_m2"] >= 1.5]
+        if relabel(seg, meta["image"], cand, budget_s=30.0):
+            sel, qw = match_rooms(rooms, name)
+    if not sel and coarse:
+        sel = _identified(meta, seg, name)
+    return sel, seg
+
+
+def symbol_confirmed(meta, seg, openings_list):
+    """The doorway bands (room["doors"] items, image px) that a drawn door symbol (bp/sheets/openings.py: swings or the
+    detector's boxes) touches. For very coarse sheets (walls < 3 px), where window gaps whose glazing lines blurred
+    away read as doorways; None when no door symbols are available."""
+    try:
+        from bp.sheets import openings
+
+        o = openings.analyse_meta(meta)
+    except Exception:  # noqa: BLE001
+        return None
+    boxes = o["doors"] if o.get("cv_ok", not o.get("low_res")) else ((o.get("yolo") or {}).get("doors") or [])
+    if not boxes:
+        return None
+    W, H = meta.get("w") or seg["_lab"]["W"], meta.get("h") or seg["_lab"]["H"]
+    g = 0.25 * seg["px_per_m"]
+    bx = [[b["bbox"][0] * W - g, b["bbox"][1] * H - g, b["bbox"][2] * W + g, b["bbox"][3] * H + g] for b in boxes]
+    return [d for d in openings_list
+            if any(d["bbox"][0] <= b[2] and b[0] <= d["bbox"][2] and d["bbox"][1] <= b[3] and b[1] <= d["bbox"][3]
+                   for b in bx)]
+
+
+def room_phrase(question: str) -> str:
+    """The room named in a question ("What is the floor area of the Multi-Purpose Hall?" -> "Multi-Purpose Hall")."""
+    rx = re.compile(r"(?:the\s+)?([A-Za-z][\w\-' ()]{2,60}?)(?=\s+(?:need|needs|have|has|require|requires|get)\b|"
+                    r"\s*[?.]|$)")
+    best = None
+    for p in re.finditer(r"\b(?:of|in|for|into|does|do)\s+", question):
+        m = rx.match(question, p.end())
+        if m:
+            best = m.group(1).strip()
+    return best or question
+
+
+def _identified(meta, seg, name):
+    """[room] picked by identify_room (names unreadable), marked on the room; [] when not confident."""
+    try:
+        room, why, cost = identify_room(seg, meta["image"], name)
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).exception("room identification failed")
+        return []
+    seg["cost_usd"] = seg.get("cost_usd", 0.0) + cost
+    if room is None:
+        return []
+    room.setdefault("label", "")
+    room["identified_as"] = name
+    room["identified_why"] = why
+    return [room]
+
+
+def _name(r):
+    if r["label"]:
+        return r["label"]
+    return f"{r['identified_as']} (identified by layout)" if r.get("identified_as") else "unlabelled"
+
+
 def _ev_poly(r, W, H, label, value):
     return {"kind": "polygon", "page": 0, "points": [[round(x / W, 5), round(y / H, 5)] for x, y in r["polygon"]],
             "label": label, "value": value, "unit": "m²"}
@@ -968,6 +1192,13 @@ def answer(path, question, meta):
             except Exception:  # noqa: BLE001
                 pass
             sel, qw = match_rooms(rooms, question)
+    if not sel and qw and coarse and seg.get("_crop_read") and not re.search(ALL_RX, ql):
+        # names unreadable even on the per-room crops (a ~2000 px screenshot): a confident pick by layout / furniture
+        sel = _identified(meta, seg, room_phrase(question))
+        if sel:
+            cf *= 0.8
+            low_res = (low_res + "; " if low_res else "") + \
+                f"the room was identified by its layout and furnishing, not its (unreadable) name: {sel[0]['identified_why']}"
     named = bool(sel)
     if any(r.get("label_source") == "vision" for r in sel):
         # names read by a VLM off an unreadable raster may be wrong (one crop per room is the surer read)
@@ -999,12 +1230,12 @@ def answer(path, question, meta):
                     "explanation": f"Gross footprint to the outside face of the outer walls = {seg['footprint_m2']} m² "
                                    f"(net room areas sum to {net:.1f} m² over {len(rooms)} rooms); {scale_txt}."}
         tot = sum(r["area_m2"] for r in sel)
-        ev = [_ev_poly(r, W, H, f"{r['label'] or 'unlabelled'} {r['area_m2']:.1f} m²", r["area_m2"]) for r in sel]
+        ev = [_ev_poly(r, W, H, f"{_name(r)} {r['area_m2']:.1f} m²", r["area_m2"]) for r in sel]
         if named and len(sel) == 1:
             r = sel[0]
             return {**base, "answer": r["area_m2"], "confidence": round(0.7 * cf, 2),
                     "method": "sheets-rooms-area", "evidence": ev + ev_scale,
-                    "explanation": f"{r['label']}: {round(r['area_m2'] * sc['px_per_m'] ** 2):.0f} px² / "
+                    "explanation": f"{_name(r)}: {round(r['area_m2'] * sc['px_per_m'] ** 2):.0f} px² / "
                                    f"({sc['px_per_m']:.1f} px/m)² = {r['area_m2']:.1f} m² (net, to wall faces); "
                                    f"{scale_txt}."}
         groups: dict[str, list] = {}
@@ -1033,6 +1264,14 @@ def answer(path, question, meta):
                 "explanation": f"Each room = its enclosed pixels / ({sc['px_per_m']:.1f} px/m)²; gross footprint "
                                f"{seg['footprint_m2']} m²; {unl} rooms carry no readable label; {scale_txt}."}
     # baseboard: evidence values add up to the answer (outlines + minus each door opening once per room side)
+    if wpx < 3 and named:
+        # walls 1-2 px: window gaps whose glazing blurred away read as doorways; only gaps with a door symbol count
+        for r in sel:
+            if "doors_all" not in r:
+                ok = symbol_confirmed(meta, seg, r["doors"])
+                if ok is not None:
+                    r["doors_all"], r["doors"] = r["doors"], ok
+                    r["baseboard_m"] = round(max(0.0, r["perimeter_m"] - sum(d["width_m"] for d in ok)), 2)
     nd = sum(len(r["doors"]) for r in sel)
     dw = sum(d["width_m"] for r in sel for d in r["doors"])
     per = sum(r["perimeter_m"] for r in sel)
@@ -1041,7 +1280,7 @@ def answer(path, question, meta):
     for r in sel:
         pts = [[round(x / W, 5), round(y / H, 5)] for x, y in r["polygon"]]
         ev.append({"kind": "polyline", "page": 0, "points": pts + pts[:1], "closed": True, "unit": "m",
-                   "label": f"{r['label'] or 'unlabelled'}: outline {r['perimeter_m']:.1f} m − doors "
+                   "label": f"{_name(r)}: outline {r['perimeter_m']:.1f} m − doors "
                             f"{sum(d['width_m'] for d in r['doors']):.1f} m = {r['baseboard_m']:.1f} m",
                    "value": r["perimeter_m"]})
     sides: dict = {}
@@ -1054,7 +1293,7 @@ def answer(path, question, meta):
                    "bbox": [d["bbox"][0] / W, d["bbox"][1] / H, d["bbox"][2] / W, d["bbox"][3] / H],
                    "label": f"door opening {d['width_m']:.2f} m" + (f" × {n} sides" if n > 1 else ""),
                    "value": round(-d["width_m"] * n, 2)})
-    what = (" / ".join(sorted({r["label"] for r in sel})) if named else f"all {len(sel)} rooms") + \
+    what = (" / ".join(sorted({_name(r) for r in sel})) if named else f"all {len(sel)} rooms") + \
         (" (wet rooms excluded)" if excl else "")
     return {**base, "answer": round(tot, 1), "confidence": round((0.6 if named else 0.55) * cf, 2),
             "method": "sheets-rooms-baseboard", "evidence": ev + ev_scale,
