@@ -32,8 +32,10 @@ WORK_PPM = 50.0      # geometry resolution (px per metre)
 DARK = 110           # gray level below which a (resampled) pixel is ink
 MAX_WALL_M = 0.7     # thickest wall band considered a wall line
 MAX_DOOR_M = 2.1     # widest unglazed gap closed as a doorway (double doors ~1.8 m)
+MAX_WIDE_M = 3.6     # widest unglazed gap closed when door swings are drawn along it (pairs of doors)
 MAX_WINDOW_M = 6.0   # widest glazed gap closed as a window
 MIN_ROOM_M2 = 0.8
+MIN_WIDTH_M = 0.7    # narrower spaces are niches / recesses
 LINE_M = 0.25        # wall pieces shorter than this along an axis don't bridge gaps along it
 FT = 0.3048
 PAPER_MM = {"A0": 1189, "A1": 841, "A2": 594, "A3": 420, "A4": 297}
@@ -179,7 +181,10 @@ def _gaps(wall, thin, axis, ppm):
     band = (closed > 0) & (wall == 0)
     if axis == 0:  # work on rows: transpose vertical walls into horizontal ones
         band, thin, wall = band.T, thin.T, wall.T
-    leafy = thin & (wall == 0)
+    leafy = thin & (cv2.dilate(wall, np.ones((3, 3), np.uint8)) == 0)  # not the anti-aliased rim of a wall
+    leafy_d = cv2.dilate(leafy.astype(np.uint8), np.ones((1, 3), np.uint8)) > 0  # leaves drawn a little off square
+    # glazing lines, allowed to wander by a pixel across rows after resampling
+    thin_d = cv2.dilate(thin.astype(np.uint8), np.ones((3, 1), np.uint8)) > 0
     # gap runs per row; a gap is a stack of runs in consecutive rows with (nearly) the same ends. Grouping runs
     # instead of taking connected components keeps a doorway apart from slivers along ragged wall edges.
     pad = np.zeros((band.shape[0], 1), bool)
@@ -210,18 +215,33 @@ def _gaps(wall, thin, axis, ppm):
         length = int(np.median(g["lens"]))
         if thick > MAX_WALL_M * ppm or thick < 2 or length < 2:
             continue
-        t = thin[g["r0"]:g["r1"] + 1, g["c0"]:g["c1"] + 1]
-        glazed = bool(t.size) and t.mean(axis=1).max() >= 0.85
+        t = thin_d[g["r0"]:g["r1"] + 1, g["c0"]:g["c1"] + 1]
+        glazed = bool(t.size) and t.mean(axis=1).max() >= 0.8
         if not glazed and length > MAX_DOOR_M * ppm:
-            continue  # too wide for a door
+            # wider than one door: a pair / run of doors when the swings are drawn next to it, else an open bay
+            if length > MAX_WIDE_M * ppm or not _has_swing(leafy, g, length, ppm):
+                continue
         # an unglazed gap with no door leaf drawn at either jamb is an open niche / archway: kept as "open",
         # closed only when it lets a room leak to the outside (a door drawn half open, a bifold, a missing leaf)
-        leaf = glazed or _has_leaf(leafy, g, length, ppm)
+        leaf = glazed or _has_leaf(leafy_d, g, length, ppm) or _has_swing(leafy, g, length, ppm)
         x, y, w, h = g["c0"], g["r0"], g["c1"] - g["c0"] + 1, thick
         if axis == 0:
             x, y, w, h = y, x, h, w
         out.append(((x, y, w, h), length / ppm, glazed, leaf))
     return out
+
+
+def _has_swing(leafy, g, length, ppm):
+    """Door swings drawn along a gap: enough thin linework within 0.5 m of the gap, on one side, between its
+    jambs (arcs of a pair of doors, double-acting doors drawn as arcs only). Open niches have none that close."""
+    d = int(0.5 * ppm)
+    e = max(1, int(0.1 * ppm))
+    H, W = leafy.shape
+    cols = slice(g["c0"] + e, max(g["c0"] + e + 1, g["c1"] - e))
+    for rows in (slice(max(0, g["r0"] - d), g["r0"]), slice(g["r1"] + 1, min(H, g["r1"] + 1 + d))):
+        if leafy[rows, cols].sum() >= 0.4 * length:
+            return True
+    return False
 
 
 def _has_leaf(leafy, g, length, ppm):
@@ -320,6 +340,8 @@ def segment(image, px_per_m=None, words=None, meta=None, with_labels=True) -> di
         # pad by 3 px to see the adjacent doorway bands
         x0, y0, x1, y1 = max(0, x - 3), max(0, y - 3), min(sw, x + w + 3), min(sh, y + h + 3)
         m = (lab[y0:y1, x0:x1] == i).astype(np.uint8)
+        if 2 * cv2.distanceTransform(m, cv2.DIST_L2, 3).max() < MIN_WIDTH_M * ppm:
+            continue  # a sliver (wall niche, door recess), not a room
         cs, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         c = max(cs, key=cv2.contourArea)
         poly = cv2.approxPolyDP(c, 0.03 * ppm, True)[:, 0, :].astype(float)
@@ -361,27 +383,29 @@ def segment(image, px_per_m=None, words=None, meta=None, with_labels=True) -> di
         cs, _ = cv2.findContours((clab == c).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         big.append(max(cs, key=cv2.contourArea))
     footprint = sum(cv2.contourArea(c) for c in big) / ppm ** 2
+    seg_extra = {"lab": lab, "f": f, "W": W, "H": H, "src_ppm": px_per_m,
+                 "vector": bool(words is None and meta and meta.get("words"))}
     if with_labels:
         _label(rooms, lab, f, W, H, _words(image, words, meta), image, src_ppm=px_per_m,
                vector=bool(words is None and meta and meta.get("words")))
     if wall_px < 3:  # low resolution: tiny unlabelled pockets are mostly fragments between door swings
         rooms = [r for r in rooms if r["label"] or r["area_m2"] >= 1.5]
     for r in rooms:
-        r.pop("_i", None)
+        r["id"] = int(r.pop("_i"))
         r.pop("_c", None)
     rooms.sort(key=lambda r: -r["area_m2"])
     return {"rooms": rooms, "scale": sc or {"px_per_m": px_per_m, "how": "given"}, "px_per_m": px_per_m,
-            "wall_px": round(wall_px, 1),
+            "wall_px": round(wall_px, 1), "_lab": seg_extra,
             "doors": doors, "footprint_m2": round(footprint, 1),
             "footprint_polys": [[[round(p[0][0] / f, 1), round(p[0][1] / f, 1)] for p in c] for c in big]}
 
 
-_LABEL_OK = re.compile(r"[A-Za-z]{2,}")
+_LABEL_OK = re.compile(r"[A-Za-z]{2,}|\b[A-Z]?\d{2,4}[A-Z]?\b")
 
 
 def _label(rooms, lab, f, W, H, words, image=None, src_ppm=100.0, vector=False):
-    """Label each room with the OCR words whose centre lies in it (stacked lines joined top to bottom). Rooms
-    the page-wide OCR left unlabelled get a second, upscaled OCR pass on their own crop."""
+    """Label each room with the page words whose centre lies in it (stacked lines joined top to bottom).
+    Crop OCR of single rooms is left to relabel(), run lazily for the rooms a question needs."""
     by_i = {r["_i"]: r for r in rooms}
     sh, sw = lab.shape
 
@@ -395,15 +419,10 @@ def _label(rooms, lab, f, W, H, words, image=None, src_ppm=100.0, vector=False):
         i = room_of(w["bbox"])
         if i in by_i:
             per.setdefault(i, []).append(w)
-    if image is not None and not isinstance(image, np.ndarray) and not vector:
-        cscale = min(6.0, max(2.0, 240.0 / src_ppm))
-        for r in rooms:
-            if (r["_i"] in per and src_ppm >= 40) or r["area_m2"] < 1.5:
-                continue
-            ws = _crop_words(image, r["bbox"], W, H, scale=cscale)
-            ws = [w for w in ws if room_of(w["bbox"]) == r["_i"]]
-            if ws:
-                per[r["_i"]] = ws
+    _join_labels(by_i, per, vector)
+
+
+def _join_labels(by_i, per, vector):
     for i, ws in per.items():
         lns = [ln for ln in sheets.ocr_lines(ws) if _LABEL_OK.search(ln["text"])]
         lns.sort(key=lambda ln: ln["bbox"][1])
@@ -433,7 +452,9 @@ def _clean(t):
     ws = []
     for w in t.split():
         core = re.sub(r"[^A-Za-z'-]", "", w)
-        if core.lower().strip("'s") in ROOM_WORDS or core.lower() in ROOM_WORDS or \
+        if re.fullmatch(r"[A-Z]?\d{2,4}[A-Z]?", w.strip(".,")):  # room numbers ("214", "B12", "214A")
+            ws.append(w.strip(".,"))
+        elif core.lower().strip("'s") in ROOM_WORDS or core.lower() in ROOM_WORDS or \
                 (len(core) >= 5 and core.replace("-", "").replace("'", "").isalpha()
                  and re.search(r"[aeiouy]", core.lower())):
             ws.append(w.strip(".,"))
@@ -571,41 +592,94 @@ def _cached(meta) -> dict:
     with _lock:
         if "_rooms_seg" not in meta:
             seg = segment(meta["image"], meta=meta)
-            rs = [r for r in seg["rooms"] if r["area_m2"] >= 1.5]
             seg["cost_usd"] = 0.0
-            if rs and sum(1 for r in rs if not r["label"]) > 0.4 * len(rs):
-                try:
-                    seg["cost_usd"] = vision_labels(meta["image"], seg["rooms"])
-                except Exception:  # noqa: BLE001
-                    pass
             meta["_rooms_seg"] = seg
         return meta["_rooms_seg"]
 
 
+def relabel(seg, image, rooms, budget_s: float = 30.0) -> int:
+    """Upscaled crop OCR of the given rooms (largest first) until the time budget is spent; returns how many
+    rooms got a new label. Only for raster text (a PDF text layer is already exact)."""
+    import time
+
+    x = seg.get("_lab") or {}
+    if not x or x.get("vector") or isinstance(image, np.ndarray):
+        return 0
+    lab, f, W, H = x["lab"], x["f"], x["W"], x["H"]
+    sh, sw = lab.shape
+    cscale = min(6.0, max(2.0, 240.0 / x["src_ppm"]))
+    t0, n = time.time(), 0
+    for r in sorted(rooms, key=lambda r: -r["area_m2"]):
+        if r.get("_crop_ocr") or time.time() - t0 > budget_s:
+            continue
+        r["_crop_ocr"] = True
+        ws = []
+        for w in _crop_words(image, r["bbox"], W, H, scale=cscale):
+            cx = (w["bbox"][0] + w["bbox"][2]) / 2 * W * f
+            cy = (w["bbox"][1] + w["bbox"][3]) / 2 * H * f
+            if int(lab[min(sh - 1, int(cy)), min(sw - 1, int(cx))]) == r["id"]:
+                ws.append(w)
+        if ws:
+            old = r["label"]
+            tmp = {r["id"]: r}
+            _join_labels(tmp, {r["id"]: ws}, False)
+            if r["label"] and r["label"] != old:
+                n += 1
+            elif not r["label"]:
+                r["label"] = old
+    return n
+
+
 def _norm(s):
     s = re.sub(r"\(.*?\)", " ", s.lower())
-    return [re.sub(r"(?<=[a-z]{3})s$", "", w) for w in re.findall(r"[a-z]+", s)]
+    return [re.sub(r"(?<=[a-z]{3})s$", "", w) for w in re.findall(r"[a-z0-9]+", s)]
 
 
 SYN = {"wc": "toilet", "lavatory": "toilet", "restroom": "toilet", "bathroom": "toilet", "classe": "classroom",
-       "storage": "store", "storeroom": "store", "office": "office", "corridors": "corridor"}
+       "storage": "store", "storeroom": "store", "corridors": "corridor", "hallway": "corridor",
+       # halls: "Multi-Purpose Hall", "Main hall", "Sports hall", "Assembly", "Gymnasium" all answer "the hall"
+       "purpose": "hall", "assembly": "hall", "gymnasium": "hall", "gym": "hall", "auditorium": "hall",
+       "dining": "hall", "multipurpose": "hall", "bedroom": "bed", "dorm": "dormitory"}
 STOP = {"the", "of", "what", "is", "area", "areas", "floor", "room", "in", "on", "a", "an", "all", "total", "sum",
         "how", "much", "many", "metre", "meter", "linear", "baseboard", "skirting", "board", "for", "and", "this",
-        "plan", "drawing", "sheet", "level", "square", "m", "sq", "give", "me", "list", "each", "per", "net",
+        "plan", "drawing", "sheet", "level", "square", "m", "m2", "sq", "give", "me", "list", "each", "per", "net",
         "gross", "excluding", "except", "without", "wet", "different", "do", "need", "we", "are", "there",
-        "length", "lengths", "find", "calculate", "compute", "approximately", "size", "space", "spaces"}
+        "length", "lengths", "find", "calculate", "compute", "approximately", "size", "space", "spaces", "main",
+        "metres", "meters", "base", "boards", "skirtings", "inside", "within", "by", "to", "be", "should",
+        "rooms", "every", "whole", "building", "overall", "footprint", "much", "big", "large", "required", "needed"}
+
+
+def _close(a, b):
+    """Word match tolerant of OCR slips: equal, one letter dropped (4+ letters), or one edit (5+ letters)."""
+    if a == b:
+        return True
+    if abs(len(a) - len(b)) > 1 or a.isdigit() or b.isdigit() or max(len(a), len(b)) < 4:
+        return False
+    if min(len(a), len(b)) < 5 and len(a) == len(b):  # short words: only a dropped letter ("Hal" for "Hall")
+        return False
+    if len(a) == len(b):
+        return sum(x != y for x, y in zip(a, b)) <= 1
+    if len(a) > len(b):
+        a, b = b, a
+    return any(b[:i] + b[i + 1:] == a for i in range(len(b)))
+
+
+def query_words(question):
+    stop = STOP | {x for w in STOP for x in _norm(w)}
+    qw = [SYN.get(w, w) for w in _norm(question) if w not in stop]
+    return [w for w in qw if len(w) > 1 and not re.fullmatch(r"\d+(m|m2)?", w) or re.fullmatch(r"[a-z]?\d{2,4}[a-z]?", w)]
 
 
 def match_rooms(rooms, question):
-    """(rooms whose label matches the question's room words, the words) - [] when the question names no room."""
-    qw = [SYN.get(w, w) for w in _norm(question) if w not in STOP]
-    qw = [w for w in qw if len(w) > 1]
+    """(rooms whose label matches the question's room words, the words) - [] when the question names no room.
+    Words match after synonyms (WC = toilet, Multi-Purpose / Sports / Main hall = hall) and one OCR slip."""
+    qw = query_words(question)
     if not qw:
         return [], []
     scored = []
     for r in rooms:
         lw = {SYN.get(w, w) for w in _norm(r["label"])}
-        hit = sum(1 for w in qw if w in lw)
+        hit = sum(1 for w in qw if any(_close(w, x) for x in lw))
         if hit:
             scored.append((hit, r))
     if not scored:
@@ -616,7 +690,10 @@ def match_rooms(rooms, question):
 
 def _ev_poly(r, W, H, label, value):
     return {"kind": "polygon", "page": 0, "points": [[round(x / W, 5), round(y / H, 5)] for x, y in r["polygon"]],
-            "label": label, "value": value}
+            "label": label, "value": value, "unit": "m²"}
+
+
+ALL_RX = r"\b(different|each|every|all|total|whole|overall|building|footprint|gross|rooms|list|per room|sum)\b"
 
 
 def answer(path, question, meta):
@@ -635,13 +712,40 @@ def answer(path, question, meta):
     cf = 1.0 if wpx >= 3 else 0.75 if wpx >= 2 else 0.5  # thin walls: openings and faces are less certain
     if "drawn" not in sc.get("how", "") and "printed" not in sc.get("how", ""):
         cf *= 0.9
+    vector = bool((seg.get("_lab") or {}).get("vector"))
+    small_text = not vector and seg.get("px_per_m", 100) < 40
+    low_res = None
+    if wpx < 3 or small_text:
+        low_res = (f"walls ~{wpx:.1f} px thick" if wpx < 3 else "") + \
+            ("; " if wpx < 3 and small_text else "") + ("room names too small to read reliably" if small_text else "")
     scale_txt = f"scale {sc['px_per_m']:.1f} px/m ({sc['how']}{'; ' + sc['check'] if sc.get('check') else ''})"
     ql = question.lower()
     sel, qw = match_rooms(rooms, question)
+    if qw and not sel:
+        # the question names a room we have no label for: read the unlabelled / larger rooms' own crops (budgeted)
+        cand = [r for r in rooms if r["area_m2"] >= 1.5]
+        if relabel(seg, meta["image"], cand, budget_s=30.0):
+            sel, qw = match_rooms(rooms, question)
+        if not sel and sum(1 for r in cand if not r["label"]) > 0.4 * max(1, len(cand)):
+            try:
+                seg["cost_usd"] = seg.get("cost_usd", 0.0) + vision_labels(meta["image"], rooms)
+            except Exception:  # noqa: BLE001
+                pass
+            sel, qw = match_rooms(rooms, question)
     named = bool(sel)
+    if any(r.get("label_source") == "vision" for r in sel):
+        cf *= 0.6  # names read by a VLM off an unreadable raster may be wrong
+    base = {"unit": "m²" if it == "area" else "m", "cost_usd": seg.get("cost_usd", 0.0), "scale": sc.get("how", "")}
+    if low_res:
+        base["low_res"] = low_res
     if not named:
-        if qw and not re.search(r"different|each|every|all|total|whole|overall|building|footprint|gross|room", ql):
-            return None  # names something we don't have a label for: let the generic path try
+        if qw and not re.search(ALL_RX, ql):
+            names = sorted({r["label"] for r in rooms if r["label"]}, key=lambda t: t.lower())
+            return {**base, "answer": None, "confidence": 0.0, "method": "sheets-rooms-ask",
+                    "evidence": [],
+                    "explanation": f"I found no room named '{' '.join(qw)}' on this sheet. Rooms I can read: "
+                                   f"{', '.join(names[:40]) or 'none'}. Which one do you mean, or should I total "
+                                   f"all rooms?"}
         sel = list(rooms)
     excl = re.search(r"exclud|except|without|not .*wet|dry rooms?", ql) is not None
     if excl and re.search(r"wet|toilet|wc|bath|shower|kitchen", ql):
@@ -653,20 +757,19 @@ def answer(path, question, meta):
             ev = [{"kind": "polygon", "page": 0, "points": [[x / W, y / H] for x, y in p], "label": "footprint",
                    "value": None} for p in seg["footprint_polys"]]
             net = sum(r["area_m2"] for r in rooms)
-            return {"answer": seg["footprint_m2"], "unit": "m²", "confidence": round(0.6 * cf, 2),
-                    "method": "sheets-rooms-footprint",
-                    "cost_usd": seg.get("cost_usd", 0.0), "evidence": ev + ev_scale,
-                    "explanation": f"Gross footprint inside the outer wall line's outside face = {seg['footprint_m2']} m² "
+            return {**base, "answer": seg["footprint_m2"], "confidence": round(0.6 * cf, 2),
+                    "method": "sheets-rooms-footprint", "evidence": ev + ev_scale,
+                    "explanation": f"Gross footprint to the outside face of the outer walls = {seg['footprint_m2']} m² "
                                    f"(net room areas sum to {net:.1f} m² over {len(rooms)} rooms); {scale_txt}."}
         tot = sum(r["area_m2"] for r in sel)
         ev = [_ev_poly(r, W, H, f"{r['label'] or 'unlabelled'} {r['area_m2']:.1f} m²", r["area_m2"]) for r in sel]
         if named and len(sel) == 1:
             r = sel[0]
-            return {"answer": r["area_m2"], "unit": "m²", "confidence": round(0.7 * cf, 2),
-                    "method": "sheets-rooms-area",
-                    "cost_usd": seg.get("cost_usd", 0.0), "evidence": ev + ev_scale,
+            return {**base, "answer": r["area_m2"], "confidence": round(0.7 * cf, 2),
+                    "method": "sheets-rooms-area", "evidence": ev + ev_scale,
                     "explanation": f"{r['label']}: {round(r['area_m2'] * sc['px_per_m'] ** 2):.0f} px² / "
-                                   f"({sc['px_per_m']:.1f} px/m)² = {r['area_m2']:.1f} m² (net, to wall faces); {scale_txt}."}
+                                   f"({sc['px_per_m']:.1f} px/m)² = {r['area_m2']:.1f} m² (net, to wall faces); "
+                                   f"{scale_txt}."}
         groups: dict[str, list] = {}
         for r in sel:
             groups.setdefault(r["label"] or "unlabelled", []).append(r["area_m2"])
@@ -678,38 +781,39 @@ def answer(path, question, meta):
             parts.append(f"{len(un)} unlabelled spaces {sum(un):.1f} m²")
         if named:
             txt = f"{len(sel)} rooms: " + " + ".join(f"{r['area_m2']:.1f}" for r in sel) + f" = {tot:.1f} m²"
-            return {"answer": round(tot, 1), "unit": "m²", "confidence": round(0.6 * cf, 2),
-                    "method": "sheets-rooms-area-sum",
-                    "cost_usd": seg.get("cost_usd", 0.0), "evidence": ev + ev_scale,
+            return {**base, "answer": round(tot, 1), "confidence": round(0.6 * cf, 2),
+                    "method": "sheets-rooms-area-sum", "evidence": ev + ev_scale,
                     "explanation": f"{' / '.join(sorted(groups))}: {txt}; {scale_txt}."}
         listing = "; ".join(parts[:40])
-        return {"answer": f"Total {tot:.0f} m² net over {len(sel)} rooms. " + listing, "value": round(tot, 1),
-                "unit": "m²", "confidence": round(0.55 * cf, 2), "method": "sheets-rooms-area-list",
-                "cost_usd": seg.get("cost_usd", 0.0),
-                "evidence": ev + ev_scale,
+        return {**base, "answer": f"Total {tot:.0f} m² net over {len(sel)} rooms. " + listing, "value": round(tot, 1),
+                "confidence": round(0.55 * cf, 2), "method": "sheets-rooms-area-list", "evidence": ev + ev_scale,
                 "explanation": f"Each room = its enclosed pixels / ({sc['px_per_m']:.1f} px/m)²; gross footprint "
                                f"{seg['footprint_m2']} m²; {unl} rooms carry no readable label; {scale_txt}."}
-    # baseboard
-    tot = sum(r["baseboard_m"] for r in sel)
+    # baseboard: evidence values add up to the answer (outlines + minus each door opening once per room side)
     nd = sum(len(r["doors"]) for r in sel)
     dw = sum(d["width_m"] for r in sel for d in r["doors"])
     per = sum(r["perimeter_m"] for r in sel)
-    ev = [_ev_poly(r, W, H, f"{r['label'] or 'unlabelled'}: {r['perimeter_m']:.1f} m outline − "
-                            f"{sum(d['width_m'] for d in r['doors']):.1f} m doors = {r['baseboard_m']:.1f} m",
-                   r["baseboard_m"]) for r in sel]
-    seen = set()
+    tot = per - dw
+    ev = []
+    for r in sel:
+        pts = [[round(x / W, 5), round(y / H, 5)] for x, y in r["polygon"]]
+        ev.append({"kind": "polyline", "page": 0, "points": pts + pts[:1], "closed": True, "unit": "m",
+                   "label": f"{r['label'] or 'unlabelled'}: outline {r['perimeter_m']:.1f} m − doors "
+                            f"{sum(d['width_m'] for d in r['doors']):.1f} m = {r['baseboard_m']:.1f} m",
+                   "value": r["perimeter_m"]})
+    sides: dict = {}
     for r in sel:
         for d in r["doors"]:
             k = tuple(round(v) for v in d["bbox"])
-            if k in seen:
-                continue
-            seen.add(k)
-            ev.append({"kind": "box", "page": 0, "bbox": [d["bbox"][0] / W, d["bbox"][1] / H, d["bbox"][2] / W,
-                                                          d["bbox"][3] / H],
-                       "label": f"door opening {d['width_m']:.2f} m", "value": -d["width_m"]})
+            sides.setdefault(k, [d, 0])[1] += 1
+    for d, n in sides.values():
+        ev.append({"kind": "box", "page": 0, "unit": "m",
+                   "bbox": [d["bbox"][0] / W, d["bbox"][1] / H, d["bbox"][2] / W, d["bbox"][3] / H],
+                   "label": f"door opening {d['width_m']:.2f} m" + (f" × {n} sides" if n > 1 else ""),
+                   "value": round(-d["width_m"] * n, 2)})
     what = (" / ".join(sorted({r["label"] for r in sel})) if named else f"all {len(sel)} rooms") + \
         (" (wet rooms excluded)" if excl else "")
-    return {"answer": round(tot, 1), "unit": "m", "confidence": round((0.6 if named else 0.55) * cf, 2),
-            "method": "sheets-rooms-baseboard", "cost_usd": seg.get("cost_usd", 0.0), "evidence": ev + ev_scale,
+    return {**base, "answer": round(tot, 1), "confidence": round((0.6 if named else 0.55) * cf, 2),
+            "method": "sheets-rooms-baseboard", "evidence": ev + ev_scale,
             "explanation": f"{what}: room outlines {per:.1f} m − {nd} door openings {dw:.1f} m = {tot:.1f} m of "
                            f"baseboard (windows not deducted, door openings measured on the wall line); {scale_txt}."}

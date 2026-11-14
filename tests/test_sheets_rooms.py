@@ -93,9 +93,19 @@ def test_answer_contract(plan, tmp_path):
     assert r["evidence"][0]["kind"] == "polygon" and all(0 <= v <= 1 for pt in r["evidence"][0]["points"] for v in pt)
     b = R.answer(str(p), "Linear meters for baseboards", meta)
     assert b["unit"] == "m" and b["answer"] > 20
+    # baseboard evidence: closed outline polylines (full length) and door openings (negative) add up to the answer
+    assert {e["kind"] for e in b["evidence"]} >= {"polyline", "box"}
+    parts = sum(e["value"] for e in b["evidence"] if e["kind"] in ("polyline", "box") and e["value"] is not None)
+    assert parts == pytest.approx(b["answer"], abs=0.1)
     b2 = R.answer(str(p), "Baseboard length excluding wet rooms", meta)
     assert b2["answer"] < b["answer"]
+    one = R.answer(str(p), "Baseboard length in the office?", meta)
+    assert one["answer"] == pytest.approx(13.1, rel=0.05)
+    # a room the sheet does not have: ask, never total everything
+    ask = R.answer(str(p), "Baseboard length in the Hall?", meta)
+    assert ask["answer"] is None and ask["method"] == "sheets-rooms-ask" and "Office" in ask["explanation"]
     assert R.answer(str(p), "How many doors are there?", meta) is None
+    assert "low_res" not in b
 
 
 def test_intent_and_match():
@@ -104,3 +114,10 @@ def test_intent_and_match():
     rs = [{"label": "Secondary Classroom"}, {"label": "Group Room"}, {"label": "Secondary Classroom (Severe Needs)"}]
     sel, _ = R.match_rooms(rs, "total classroom area")
     assert len(sel) == 2
+    halls = [{"label": "Multi-Purpose Hall"}, {"label": "Sports Hal"}, {"label": "Kitchen"}, {"label": "214"},
+             {"label": "Dorm 216"}]
+    assert [r["label"] for r in R.match_rooms(halls, "Baseboard length in the Hall?")[0]] == \
+        ["Multi-Purpose Hall", "Sports Hal"]
+    assert [r["label"] for r in R.match_rooms(halls, "area of room 214")[0]] == ["214"]
+    assert R.match_rooms(halls, "area of the gym")[0][0]["label"] == "Multi-Purpose Hall"
+    assert R._clean("|| 214 ee") == "214"
