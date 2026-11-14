@@ -24,6 +24,22 @@
       "usd_per_h": 0.048,
       "start": "2026-11-13T21:10:00Z",
       "stop": null
+    },
+    {
+      "name": "stoa-live-gpu",
+      "provider": "Verda",
+      "what": "1x RTX PRO 6000 96GB (CC): live VLM second opinion for the demo (Qwen3-VL-8B LoRA, transformers), Sat window",
+      "usd_per_h": 2.89,
+      "start": "2026-11-14T10:26:44Z",
+      "stop": "2026-11-14T12:30:00Z"
+    },
+    {
+      "name": "stoa-live-gpu (Sun)",
+      "provider": "Verda",
+      "what": "1x RTX PRO 6000 96GB (CC): live VLM second opinion during judging, scheduled window",
+      "usd_per_h": 2.89,
+      "start": "2026-11-15T07:30:00Z",
+      "stop": "2026-11-15T13:00:00Z"
     }
   ]
 }
