@@ -35,6 +35,12 @@ def post(url, data, ctype, timeout=300):
         return json.load(r)
 
 
+def sheet_file(name: str, lowres: bool = False) -> Path:
+    """The sheet as uploaded: the full-resolution original (<stem>_hires.png) when we have it."""
+    hi = SHEETS_DIR / (Path(name).stem + "_hires.png")
+    return hi if hi.exists() and not lowres else SHEETS_DIR / name
+
+
 def upload(server, f: Path):
     return post(f"{server}/api/upload?name={urllib.parse.quote(f.name)}", f.read_bytes(), "application/octet-stream")
 
@@ -141,6 +147,7 @@ def main():
     ap.add_argument("--jobs", type=int, default=3)
     ap.add_argument("--rescore", default="")
     ap.add_argument("--no-png", action="store_true")
+    ap.add_argument("--lowres", action="store_true", help="upload the ~2000 px screenshots, not the *_hires.png")
     a = ap.parse_args()
     qs = [json.loads(line) for line in QFILE.read_text().splitlines() if line.strip()]
     if a.rescore:
@@ -162,7 +169,7 @@ def main():
     paths = {}
     for s in sorted({q["sheet"] for q in qs}):
         t0 = time.time()
-        u = upload(a.server, SHEETS_DIR / s)
+        u = upload(a.server, sheet_file(s, a.lowres))
         paths[s] = u["path"]
         print(f"uploaded {s} -> {u['path']} ({time.time() - t0:.1f}s) notes={u.get('notes')}", file=sys.stderr)
     out = ROOT / f"runs/stoa_examples_{a.name}.jsonl"
@@ -180,7 +187,7 @@ def main():
                   f"(gold {r['gold']}, conf {res.get('confidence')}, {res.get('route')}/{res.get('method')}, "
                   f"{res.get('latency_s')}s)", file=sys.stderr, flush=True)
             if not a.no_png:
-                overlay(SHEETS_DIR / r["sheet"], res, ROOT / f"runs/stoa_examples_{a.name}/{r['id']}.png",
+                overlay(sheet_file(r["sheet"], a.lowres), res, ROOT / f"runs/stoa_examples_{a.name}/{r['id']}.png",
                         f"{r['id']}: {r['question']}  (gold {r['gold']})")
     out.write_text("".join(json.dumps(r) + "\n" for r in rows))
     out.with_suffix(".summary.md").write_text(summary(rows, a.name))

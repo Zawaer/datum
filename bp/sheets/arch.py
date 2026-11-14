@@ -26,7 +26,7 @@ FT = 0.3048
 PAPER_MM = {"A0": (1189, 841), "A1": (841, 594), "A2": (594, 420), "A3": (420, 297), "A4": (297, 210),
             "ANSI D": (864, 559), "ANSI E": (1118, 864), "ARCH D": (914, 610), "ARCH E": (1219, 914)}
 DET_PX_PER_M = 53.0  # resample to this before the detector (CubiCasa training plans are ~40-80 px/m)
-_lock = threading.Lock()
+_lock = threading.RLock()
 _model = None
 
 
@@ -241,7 +241,6 @@ def rooms(meta):
     if "_arch_rooms" in meta:
         return meta["_arch_rooms"]
     import cv2
-    from scipy import ndimage as ndi
 
     dark, f, ppm = _work(meta)
     if ppm is None:
@@ -272,14 +271,15 @@ def rooms(meta):
                         and (y + h) / H <= ext[3] + 0.01):
             continue
         m = lab[y:y + h, x:x + w] == i
-        filled = ndi.binary_fill_holes(m)
-        holes = filled & ~m
+        cs0, _ = cv2.findContours(m.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        filled = np.zeros_like(m, np.uint8)
+        cv2.drawContours(filled, cs0, -1, 1, -1)
+        filled = filled.astype(bool) | m
+        holes = (filled & ~m).astype(np.uint8)
         # big enclosed holes (a core inside a hall) are not floor; text and symbols are
-        hl, hn = ndi.label(holes)
-        area_px = filled.sum()
-        if hn:
-            sizes = ndi.sum(holes, hl, range(1, hn + 1))
-            area_px -= sum(s for s in sizes if s > 2.0 * ppm * ppm)
+        hn, _, hst, _ = cv2.connectedComponentsWithStats(holes, 4)
+        area_px = int(filled.sum())
+        area_px -= sum(int(hst[j, cv2.CC_STAT_AREA]) for j in range(1, hn) if hst[j, cv2.CC_STAT_AREA] > 2.0 * ppm * ppm)
         # label = OCR words inside the filled region
         lw = []
         for wd in lab_words:
@@ -419,8 +419,37 @@ def _fmt_area(m2, is_metric):
     return int(round(m2 / FT ** 2)), "SF"
 
 
+SUBMODULES = {  # intent -> specialist modules (bp/sheets/<name>.py, each answer(path, question, meta)), in order
+    "doors": ["openings"], "windows": ["openings"], "doors_windows": ["openings"],
+    "area": ["zones", "rooms"], "rooms_count": ["zones", "rooms"], "baseboard": ["rooms"], "text": ["zones"],
+}
+
+
 def answer(path, question, meta):
+    """Dispatcher: the specialist modules for the question's intent first (openings / rooms / zones), then the
+    printed text (textqa), then this module's own fallback implementation below."""
+    import importlib
+
     it = intent(question)
+    tried = []
+    for name in SUBMODULES.get(it, []):
+        try:
+            mod = importlib.import_module(f"bp.sheets.{name}")
+        except ImportError:
+            continue
+        r = mod.answer(path, question, meta)
+        if r is not None and r.get("answer") is not None:
+            r.setdefault("method", f"sheets-{name}")
+            return r
+        if r is not None:
+            tried.append(r)
+    r = _answer_builtin(path, question, meta, it)
+    if (r is None or r.get("answer") is None) and tried:
+        return max(tried, key=lambda x: bool(x.get("not_found")))  # keep a specialist's "not on this drawing"
+    return r
+
+
+def _answer_builtin(path, question, meta, it):
     if it in ("doors", "windows", "doors_windows"):
         return _answer_count(meta, it)
     if it == "area" or it == "text" or it == "rooms_count":
