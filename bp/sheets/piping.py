@@ -1175,7 +1175,8 @@ RECHECK_PROMPT = """This is a zoomed crop of a piping plan, {w}x{h} pixels. List
 Write the numbers themselves, never the letters x0,y0,x1,y1. Only labels you can actually read. No other output."""
 
 
-def _family_scan(sheet: dict, fams: list[str], cost: list) -> list[dict]:
+def _family_scan(sheet: dict, fams: list[str], cost: list, bare: bool = False,
+                 max_tiles: int | None = None) -> list[dict]:
     """The asked family read nowhere (a faded / blurred scan): the whole sheet once more in small tiles upscaled ~x3,
     asking Haiku only for labels of these families. Cached per image + families. Returns tag instances."""
     from PIL import Image
@@ -1185,7 +1186,9 @@ def _family_scan(sheet: dict, fams: list[str], cost: list) -> list[dict]:
     img = sheet.get("image")
     if not img:
         return []
-    key = hashlib.sha1(f"{img}|{os.path.getsize(img)}|{','.join(sorted(fams))}".encode()).hexdigest()[:16]
+    max_tiles = max_tiles or FAMSCAN_TILES
+    key = hashlib.sha1(f"{img}|{os.path.getsize(img)}|{','.join(sorted(fams))}|v2|{bare}|{max_tiles}"
+                       .encode()).hexdigest()[:16]
     cf = CACHE / "famscan" / f"{key}.json"
     Image.MAX_IMAGE_PIXELS = None
     im = Image.open(img).convert("RGB")
@@ -1196,15 +1199,16 @@ def _family_scan(sheet: dict, fams: list[str], cost: list) -> list[dict]:
         t = SEND_PX // 3
         while True:  # ~x3 zoom on small scans; at most FAMSCAN_TILES calls
             nx, ny = math.ceil((W - t * 0.12) / (t * 0.88)), math.ceil((H - t * 0.12) / (t * 0.88))
-            if nx * ny <= FAMSCAN_TILES:
+            if nx * ny <= max_tiles:
                 break
             t = int(t * 1.15)
         t = min(t, W, H)
         tiles = [(round(i * (W - t) / max(1, nx - 1)), round(j * (H - t) / max(1, ny - 1))) for j in range(ny)
                  for i in range(nx)]
         f = SEND_PX / t
-        ex = ", ".join(f"{fm}-1" for fm in fams)
-        fam_txt = " or ".join(f"{fm}-<number>" for fm in fams)
+        ex = fams[0] if bare else f"{fams[0]}-1"
+        fam_txt = (" or ".join(fams) + " (the abbreviation alone, no number)") if bare else \
+            " or ".join(f"{fm}-<number>" for fm in fams)
 
         def one(xy):
             crop = im.crop((xy[0], xy[1], xy[0] + t, xy[1] + t)).resize((SEND_PX, SEND_PX), Image.LANCZOS)
@@ -1260,7 +1264,7 @@ def _recheck(sheet: dict, fam: str, found: list[dict], cost: list, avoid: list[d
     pieces = [[r[0] + (r[2] - r[0]) * i / n - (0.01 if i else 0), r[1],
                r[0] + (r[2] - r[0]) * (i + 1) / n + (0.01 if i < n - 1 else 0), r[3]] for i in range(n)]
     def piece(pc):
-        key = hashlib.sha1(f"{sheet['image']}|{os.path.getsize(sheet['image'])}|{fam}|{[round(x, 4) for x in pc]}"
+        key = hashlib.sha1(f"{sheet['image']}|{os.path.getsize(sheet['image'])}|{fam}|{[round(x, 4) for x in pc]}|v2"
                            .encode()).hexdigest()[:16]
         cf = CACHE / "recheck" / f"{key}.json"
         if cf.exists():
@@ -1345,6 +1349,7 @@ def _count(q: str, sheet: dict, insts: list[dict], base: dict, cost: list) -> di
                                   "absent or unreadable.")
     n_ocr = len({_src_kind(it["src"]) for it in sheet["items"]})
     rechecked = []
+    bare_note = None
     for f in fams:
         nums = sorted({t["num"] for t in sel if t["family"] == f and t["num"] is not None})
         unconfirmed = n_ocr > 1 and nums and len(nums) <= 12 and not any(
@@ -1357,6 +1362,21 @@ def _count(q: str, sheet: dict, insts: list[dict], base: dict, cost: list) -> di
             if new is not None:
                 rechecked.append((f, new))
                 sel += new
+    # a family printed without numbers (PG): nothing tells a missed label, so on a raster the whole sheet is looked
+    # at once more, zoomed, for that label alone (cached; ~$0.01), and labels at new places are added
+    bare = [f for f in fams if f not in missing and any(t["family"] == f and t["num"] is None for t in sel)
+            and not any(t["family"] == f and t["num"] is not None for t in sel)]
+    if bare and sheet.get("image") and "pdf text layer" not in sheet["readers"] and \
+            os.environ.get("BP_PIPING_BARE_SCAN", "1") == "1":
+        extra = [t for t in _family_scan(sheet, bare, cost, bare=True, max_tiles=48) if t["num"] is None]
+        add = []
+        for t in extra:
+            if not any(o["family"] == t["family"] and _near(t["bbox"], o["bbox"]) for o in sel + add):
+                t.update(seen_by=["vision-famscan"], conf=70.0)
+                add.append(t)
+        bare_note = f"{len(add)} more {'/'.join(bare)} label(s) found by a zoomed look at the whole sheet" if add \
+            else f"a zoomed look at the whole sheet found no more {'/'.join(bare)} labels"
+        sel += add
     numbered = [t for t in sel if t["num"] is not None]
     unnum = [t for t in sel if t["num"] is None]
     ev, parts = [], []
@@ -1401,6 +1421,8 @@ def _count(q: str, sheet: dict, insts: list[dict], base: dict, cost: list) -> di
                 f"{f} ({FAMILIES[f][1]}, {len({t['tag'] for t in insts if t['family'] == f})})" for f in others))
     if famscan:
         parts.append(f"found only by a closer whole-sheet look for these labels (the first reading had none)")
+    if bare_note:
+        parts.append(bare_note)
     for f, new in rechecked:
         parts.append(f"{f} re-checked on a zoomed crop: " +
                      (f"found {', '.join(t['tag'] for t in new)}" if new else "nothing more found"))
