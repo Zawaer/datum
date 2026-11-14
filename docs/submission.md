@@ -19,7 +19,7 @@ _(181 characters)_
 
 ## Short version (~600 chars, for quick paste)
 
-Blueprints That Talk answers questions about construction drawings and BIM models, in any language, and draws the proof: counted doors numbered on the plan, rooms outlined with their m², walls lit up in 3D, adding up to the answer. A router picks the cheapest exact method: CAD geometry, IfcOpenShell, a small detector. On all 25,420 held-out test questions: 89.5 % at $0.014 per 1,000, vs 69.8 % for Claude Sonnet 5.5 given the same files at $25.76. Each answer carries a calibrated confidence and an independent cross-check. The evaluation was audited: no leakage, recount reproduces.
+Blueprints That Talk answers questions about construction drawings and BIM models, in any language, and draws the proof: counted doors numbered on the plan, rooms outlined with their m², walls lit up in 3D, adding up to the answer. A router picks the cheapest exact method: CAD geometry, IfcOpenShell, a small detector. On all 25,420 held-out test questions (every one, not a sample): 89.5 % at $0.014 per 1,000, vs 69.8 % for Claude Sonnet 5.5 given the same files at $25.76. Each answer carries a calibrated confidence and an independent cross-check. The evaluation was audited: no leakage, recount reproduces.
 
 _(586 characters)_
 

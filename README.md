@@ -3,7 +3,7 @@
 **Ask a construction drawing or a BIM model a question, in any language, and get the answer with its proof
 drawn on the drawing.** Our Junction 2026 entry for Stoa's *Make Blueprints Talk* challenge.
 
-On **all 25,420 questions of a held-out test split** we are right **89.5 %** of the time
+On **all 25,420 questions of a held-out test split** (every question in every language, not a sample) we are right **89.5 %** of the time
 [95 % CI 89.1–89.8], for **$0.014 per 1,000 questions** in API fees and 0.17 s per question.
 The fair frontier comparison, **Claude Sonnet 5.5 given the drawing *and* its sibling CAD / IFC files** (the
 same inputs our solvers read), gets **69.8 %** [60.9–78.4] at **$25.76 per 1,000**. That is +20 points at
