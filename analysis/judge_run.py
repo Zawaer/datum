@@ -339,7 +339,7 @@ def main():
                   f"(gold {str(r['gold'])[:20]}; {r['res'].get('method')}, {r['res'].get('latency_s')}s)",
                   file=sys.stderr, flush=True)
     if "hires" in forms:
-        ui = asyncio.run(ui_all(a.server, by_sheet, SHOTS / a.name, a.jobs))
+        ui = asyncio.run(ui_all(a.server, by_sheet, SHOTS / a.name, 1))  # hi-res uploads one at a time (memory)
         for k, recs in ui.items():
             for q, rec in zip(by_sheet[k], recs):
                 r = scrub({**q, "form": "hires", **rec}, secret)
