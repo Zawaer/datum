@@ -429,8 +429,9 @@ def _tables(rows, ws):
 VISION_ROWS = """This is a crop of a construction drawing sheet ({w}x{h} px). List every row of every table / schedule
 in it that gives an AREA or a COUNT (e.g. "WEST WING DORMITORY = 6,095 SF", "TOTAL = 144 DORMS"). JSON only:
 {{"rows": [{{"table": "<table heading>", "label": "<row label as printed>", "value": <number>, "unit": "<unit as
-printed, e.g. SF, m2, DORMS>", "bbox": [x0, y0, x1, y1]}}]}} with bbox in pixels of this crop around the whole row.
-Empty list if there is no such table."""
+printed, e.g. SF, m2, DORMS>", "bbox": [<left>, <top>, <right>, <bottom>]}}]}} with bbox as integer pixels of this crop
+around the whole row, e.g. "bbox": [812, 140, 1190, 162] (numbers, never the words). Empty list if there is no such
+table."""
 
 
 def _vision_rows(meta) -> tuple[list[dict], float]:
