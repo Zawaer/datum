@@ -666,8 +666,11 @@ def rule_for(res: dict, q: dict) -> str | None:
             "the model's base quantities (Qto_*), measured from geometry where an element has none"
         if m.startswith("ifc-area"):
             return f"Net floor area of each space (IfcSpace) from {src}."
-        meas = IFC_MEASURE.get(q.get("type"), "the quantity")
-        return f"Sum of {meas} per element, from {src}."
+        meas = IFC_MEASURE.get(q.get("type"), "quantity")
+        cls = re.search(r"(Ifc\w+)", expl)
+        st = re.search(r"storey '([^']+)'", expl)
+        return (f"Sum of each {cls.group(1) if cls else 'element'}'s {meas}" + (f" on storey '{st.group(1)}'" if st else "")
+                + f", from {src}.")
     if m.startswith("ifctext"):
         return "Composed only from the cited fact lines of the model; anything not in the facts is left out."
     if m.startswith("generic-ground"):
