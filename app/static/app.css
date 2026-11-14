@@ -131,6 +131,7 @@ main { flex: 1; display: grid; grid-template-columns: 264px 1fr 424px; min-heigh
 .capnav { display: flex; gap: 8px; margin-top: 12px; justify-content: flex-end; }
 .capnav button { background: transparent; color: #fff; border: 1px solid #59616b; border-radius: var(--r1); padding: 4px 12px; cursor: pointer; font-size: 13px; }
 .capnav button:disabled { color: #6f7781; cursor: default; }
+.capmore { display: none; }
 .capnav button.primary { background: #fff; color: var(--ink); border-color: #fff; font-weight: 600; }
 
 /* ------------------------------------------------------------ side panel (right): ask, answer, measurement list */
@@ -338,10 +339,22 @@ svg .appear { animation: pop .25s ease-out; transform-box: fill-box; transform-o
   body.drawer .scrim { display: block; }
   .ask input { font-size: 16px; }  /* < 16px makes iOS zoom the page on focus */
   .card { padding: 12px; }
-  .caption { position: fixed; left: 0; right: 0; bottom: 0; width: auto; transform: none; border-radius: var(--r2) var(--r2) 0 0; padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); z-index: 25; }
-  .captitle { font-size: 16px; } .captext { font-size: 13px; line-height: 1.35; }
-  .capnav { margin-top: 8px; } .capnav button { padding: 6px 12px; }
-  body.touring #side { padding-bottom: 190px; }
+  /* tour caption: a compact bottom sheet (step + buttons on one row, two lines of text, tap for more) so the answer
+     card stays in view; the drawing gives up some height while touring, and the side panel pads by the sheet's height */
+  .caption { position: fixed; left: 0; right: 0; bottom: 0; width: auto; transform: none; border-radius: var(--r2) var(--r2) 0 0; padding: 6px 12px calc(8px + env(safe-area-inset-bottom)); z-index: 25;
+             display: grid; grid-template-columns: 1fr auto; grid-template-areas: "step nav" "title title" "text text"; align-items: center; column-gap: 8px; }
+  .caption[hidden] { display: none; }
+  .capstep { grid-area: step; font-size: 10px; }
+  .captitle { grid-area: title; font-size: 15px; margin: 0 0 2px; }
+  .captext { grid-area: text; font-size: 13px; line-height: 1.35; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; cursor: pointer; }
+  .caption.open .captext { display: block; max-height: 40vh; max-height: 40svh; overflow: auto; }
+  .capmore { grid-area: text; align-self: end; justify-self: end; background: var(--ink); color: #9ccbea; border: 0; padding: 0 0 0 4px; font: inherit; font-size: 13px; line-height: 1.35; cursor: pointer; }
+  .capmore::before { content: '… '; color: #d6dbe1; }
+  .capmore { display: block; } .capmore[hidden], .caption.open .capmore { display: none; }
+  .capnav { grid-area: nav; margin: 0; gap: 6px; } .capnav button { padding: 0 10px; min-height: 32px; font-size: 13px; }
+  #texit { font-size: 0; width: 32px; padding: 0; } #texit::before { content: '✕'; font-size: 14px; }
+  body.touring #viewer { height: 40vh; height: 40svh; min-height: 240px; }
+  body.touring #side { padding-bottom: calc(var(--caph, 120px) + 12px); }
   .zoom { bottom: 40px; }
   .big { font-size: 36px; }
   .ev div { min-height: 36px; }  /* touch targets */

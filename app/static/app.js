@@ -903,6 +903,7 @@ async function runStep() {
   $('#caption').hidden = false; document.body.classList.add('touring');
   $('#capstep').textContent = `Demo tour · ${tourI + 1} / ${tour.length}`;
   $('#captitle').textContent = s.title; $('#captext').textContent = s.caption || '';
+  capFit();
   $('#tnext').textContent = tourI === tour.length - 1 ? 'finish ✓' : 'next ›';
   $('#tprev').disabled = tourI === 0;
   const myI = tourI;
@@ -957,7 +958,25 @@ async function doAction(act) {
   }
   else if (k === 'hover') { const i = +arg; hotItem(i, true); rowHot(i, true, true); await sleep(1400); hotItem(i, false); rowHot(i, false); }
 }
-function endTour() { tour = null; $('#caption').hidden = true; document.body.classList.remove('touring'); }
+function endTour() { tour = null; $('#caption').hidden = true; document.body.classList.remove('touring'); capFit(); }
+// phone: the caption is a compact bottom sheet; the text shows two lines and opens on a tap ("more")
+const capMore = document.createElement('button');
+capMore.className = 'capmore'; capMore.textContent = 'more'; capMore.hidden = true;
+$('#captext').after(capMore);
+const capToggle = () => { $('#caption').classList.toggle('open'); capFit(); };
+capMore.onclick = capToggle;
+$('#captext').onclick = () => { if (PHONE.matches) capToggle(); };
+function capFit() {  // after the text or the layout changed: show "more" only if the text is cut, pad the side panel by the sheet
+  requestAnimationFrame(() => {
+    const t = $('#captext'), c = $('#caption');
+    capMore.hidden = c.classList.contains('open') || t.scrollHeight <= t.clientHeight + 1;
+    document.body.style.setProperty('--caph', c.offsetHeight + 'px');
+    const vh = $('#viewer').clientHeight;  // the drawing is shorter while touring on a phone: refit it once
+    if (vh !== capVH) { capVH = vh; if (mode === '2d') fit(); }
+  });
+}
+let capVH = 0;
+PHONE.addEventListener('change', capFit);
 $('#tourbtn').onclick = () => startTour(false);
 $('#ctatour').onclick = () => startTour(false);
 $('#tnext').onclick = () => { if (!tour) return; if (tourI < tour.length - 1) { tourI++; runStep(); } else { endTour(); if (!PHONE.matches) { $('#q').focus(); $('#q').select(); } } };

@@ -43,13 +43,34 @@ export function init(el, callbacks = {}) {
     if (e.buttons || !cbs.onHover) return;
     cbs.onHover(pick(e));
   });
-  (function loop() { requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
+  controls.addEventListener('change', () => { if (!inFrame) requestRender(); });  // user input; update() in a frame decides itself
+  controls.addEventListener('start', () => { held = true; });
+  controls.addEventListener('end', () => { held = false; released = performance.now(); });
+  requestRender();
+}
+
+// render on demand: one frame per request, and more frames only while the orbit controls are still damping
+// the damping tail is capped in time: it decays per frame, so on a slow (software) renderer it would crawl on for a minute
+let pending = false, inFrame = false, held = false, released = -1e9;
+const DAMP_MS = 2500;
+window.__v3renders = 0;  // debug counter (headless tests check that the view idles)
+export function requestRender() {
+  if (pending || !renderer) return;
+  pending = true;
+  requestAnimationFrame(() => {
+    pending = false;
+    inFrame = true; const moving = controls.update(); inFrame = false;
+    if (moving && (held || performance.now() - released < DAMP_MS)) requestRender();  // still easing out after a drag
+    renderer.render(scene, camera);
+    window.__v3renders++;
+  });
 }
 
 function resize() {
   if (!host) return;
   const w = host.clientWidth, h = host.clientHeight;
   renderer.setSize(w, h); camera.aspect = w / Math.max(1, h); camera.updateProjectionMatrix();
+  requestRender();
 }
 
 // a mesh over a subset of elements, remembering which faces belong to which element (for picking)
@@ -103,7 +124,7 @@ export async function load(path, onStatus) {
   model = subMesh(elements.filter(e => !CONTEXT_SKIP.has(e.type)), new THREE.MeshLambertMaterial({
     color: 0xc9d1dc, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false, clippingPlanes: [clip] }));
   scene.add(model);
-  setClip(null);
+  setClip(null); requestRender();
   frame(model.geometry);
   onStatus && onStatus('', '');
   return { storeys, n: elements.length };
@@ -120,12 +141,14 @@ function frame(geom, steep = false) {
   camera.position.copy(c.clone().add(dir.multiplyScalar(dist)));
   camera.near = dist / 200; camera.far = dist * 20; camera.updateProjectionMatrix();
   controls.target.copy(c); controls.update();
+  requestRender();
 }
 
 export function clear() {
   if (anim) { clearInterval(anim); anim = null; const d = animDone; animDone = null; if (d) d(); }  // never leave a count half-way
   for (const m of [hl, offMesh, hotMesh]) if (m) { scene.remove(m); m.geometry.dispose(); }
   hl = offMesh = hotMesh = null;
+  requestRender();
 }
 
 // storey index -> clip just under the next storey's floor; null = no clipping
@@ -137,8 +160,9 @@ export function getStoreys() { return storeys; }
 export function focusStorey(si, reframe = true) {
   setClip(si);
   if (reframe && model) frame(hl ? hl.geometry : model.geometry, si != null && si >= 0);
+  requestRender();
 }
-export function setCut(y) { clip.constant = y; }
+export function setCut(y) { clip.constant = y; requestRender(); }
 
 // which storey to focus so the evidence is visible: the highest storey holding evidence, if the evidence sits
 // on one or two adjacent storeys; else none
@@ -167,6 +191,7 @@ export function highlight(items, animate = true, onStep = null, reframe = true, 
       side: THREE.DoubleSide, clippingPlanes: [clip] }));
     scene.add(offMesh);
   }
+  requestRender();
   if (!on.length) { onDone && onDone(); return; }
   // rooms are volumes: draw them see-through so what's inside (and the rooms behind) stays visible
   const volumes = on.filter(e => e.type === 'IfcSpace').length > on.length / 2;
@@ -175,29 +200,30 @@ export function highlight(items, animate = true, onStep = null, reframe = true, 
     transparent: volumes, opacity: volumes ? 0.42 : 1, depthWrite: !volumes }));
   hl.renderOrder = 2;
   scene.add(hl);
+  requestRender();
   if (reframe) frame(hl.geometry, clip.constant < 1e8);
   if (!animate) { onDone && onDone(); return; }
-  hl.geometry.setDrawRange(0, 0);
+  hl.geometry.setDrawRange(0, 0); requestRender();
   // time-based, so a slow GPU (or a software renderer) skips steps instead of stretching the count out
   const step = Math.max(20, Math.min(120, 1800 / Math.max(1, items.length))), dur = step * items.length, t0 = performance.now();
   let i = 0;
   animDone = onDone;
   anim = setInterval(() => {
     i = Math.min(ends.length, Math.max(i + 1, Math.floor((performance.now() - t0) / dur * ends.length)));
-    hl.geometry.setDrawRange(0, ends[i - 1]); onStep && onStep(i);
+    hl.geometry.setDrawRange(0, ends[i - 1]); requestRender(); onStep && onStep(i);
     if (i >= ends.length) { clearInterval(anim); anim = null; animDone = null; hl.geometry.setDrawRange(0, Infinity); onDone && onDone(); }
   }, step);
 }
 
 // hover glow for one evidence item
 export function hot(guids) {
-  if (hotMesh) { scene.remove(hotMesh); hotMesh.geometry.dispose(); hotMesh = null; }
+  if (hotMesh) { scene.remove(hotMesh); hotMesh.geometry.dispose(); hotMesh = null; requestRender(); }
   const list = (guids || []).map(g => byGuid.get(g)).filter(Boolean);
   if (!list.length || !model) return;
   hotMesh = subMesh(list, new THREE.MeshLambertMaterial({ color: 0xf0e442, emissive: 0x5a5200, side: THREE.DoubleSide,
     polygonOffset: true, polygonOffsetFactor: -2, clippingPlanes: [clip], depthTest: false, transparent: true, opacity: 0.9 }));
   hotMesh.renderOrder = 3;
-  scene.add(hotMesh);
+  scene.add(hotMesh); requestRender();
 }
 
 export function hasModel() { return !!model; }
