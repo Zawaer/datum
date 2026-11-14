@@ -27,8 +27,8 @@ Demo: `<DEMO_URL>` · Code: `<REPO_URL>`
 ## 2. Discord post
 
 Blueprints That Talk (Stoa track) on Verda: two H100s overnight, 14.9 GPU-hours, about $77. We LoRA
-fine-tuned Qwen3-VL-8B to count symbols on floor plans with one box per item: 42.6 % zero-shot to 73.0 % on
-held-out test questions. It is weaker than our detector, so it ships as a second opinion: when both agree,
+fine-tuned Qwen3-VL-8B to count symbols on floor plans with one box per item: 42.6 % zero-shot to 76 % on dev drawings,
+73.0 % on held-out test questions. It is weaker than our detector, so it ships as a second opinion: when both agree,
 answers are 94.6 % right. A PaliGemma 2 attempt reached 52 % and stayed out. The demo lives on a Verda
 CPU.4V.16G VM for $0.048/h. Whole system: 89.5 % on 25,420 test questions at $0.013 per 1,000.
 Demo: `<DEMO_URL>` · Code: `<REPO_URL>`
