@@ -945,8 +945,8 @@ function renderAnswer(shownSoFar) {
   const how = `<details class="sec" data-sec="how" ${secOpen.how ? 'open' : ''}><summary><span>How it was worked out</span><span class="sv">${abst && cur.not_drawing ? '' : `${money(res.cost_usd || 0)} · ${latency(res.latency_s)}`}</span></summary><div class="secbody">
       ${corrected ? `<div class="mut">How the solver reached its ${fmt(res.answer, t)}, before your correction:</div>` : ''}
       <div class="how ${h.cls}"><b>${h.cls === 'geo' ? '✓ ' : ''}${esc(h.t)}</b><span>${esc(h.how)}</span></div>
-      ${calibHTML(res)}
       ${rpLinkHTML()}
+      ${calibHTML(res)}
       ${crossHTML(res)}
       ${res.rule ? `<div class="rule"><b>Rule</b> ${esc(res.rule)}</div>` : ''}
       ${unlocHTML(res)}
@@ -987,9 +987,9 @@ function crossHTML(r) {
   const btn = n2 ? `<button class="linkish" data-act="second">${showSecond ? 'hide' : 'show'} its ${n2} mark${n2 === 1 ? '' : 's'}</button>` : '';
   const val = v => typeof v === 'number' ? fmt(v, t) : esc(String(v ?? '—'));
   // plain-language name of the second method, and what agreement has meant on held-out test questions
-  // (runs/crosscheck_vlm_test_v7.summary.md, runs/crosscheck_test.summary.md)
+  // (runs/crosscheck_vlm_test_v8.summary.md, runs/crosscheck_test.summary.md)
   const m = String(sec.method || '');
-  const [name, track] = /VLM/i.test(m) ? ['Our fine-tuned vision model', 'When both agree, answers were right 94.9 % of the time (12,178 held-out raster questions).']
+  const [name, track] = /VLM/i.test(m) ? ['Our fine-tuned vision model', 'When both agree, answers were right 94.9 % of the time (12,197 held-out raster questions).']
     : /swiss|pdf/i.test(m) ? ['Reading the PDF itself (not the CAD file)', 'When both agree, answers were right 99.97 % of the time on held-out Swiss plans (7,750 of 7,752).']
     : /svg|sheet|ifc/i.test(m) ? ['The rendered plan sheet', 'When both agree, answers were right on all 432 held-out IFC questions.']
     : /yolo|cubicasa/i.test(m) ? ['A second, separately trained detector', '']
