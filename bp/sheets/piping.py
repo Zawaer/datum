@@ -42,6 +42,10 @@ FAMILIES = {
     "FP": ("fuel pump", "fuel pumps"),
     "P": ("pump", "pumps"),
     "CV": ("check valve", "check valves"),
+    "NSCV": ("non-surge check valve", "non-surge check valves"),
+    "FTP": ("fuel transfer pump", "fuel transfer pumps"),
+    "PCV": ("pressure control valve", "pressure control valves"),
+    "HLV": ("high level valve", "high level valves"),
     "FSCV": ("filter separator control valve", "filter separator control valves"),
     "BPCV": ("back-pressure control valve", "back-pressure control valves"),
     "FSI": ("issue filter separator", "issue filter separators"),
@@ -74,12 +78,14 @@ UNNUMBERED = {"PG", "MAV", "IF", "BPCV"}
 GLOSSARY = [
     (r"filter[- ]?separator control valve|fscv", ["FSCV"]),
     (r"back[- ]?pressure control valve|bpcv", ["BPCV"]),
-    (r"control valve", ["FSCV"]),
-    (r"check valve|non[- ]?surge", ["CV"]),
+    (r"pressure control valve|pcv\b", ["PCV"]),
+    (r"control valve", ["FSCV", "PCV"]),
+    (r"check valve|non[- ]?surge", ["CV", "NSCV"]),
     (r"issue filter|fsi\b", ["FSI"]),
     (r"receipt filter|fsr\b", ["FSR"]),
     (r"filter[- ]?separator|filter vessel|filters?\b", ["FSI", "FSR"]),
-    (r"fuel pump|pump", ["FP"]),
+    (r"fuel transfer pump", ["FTP"]),
+    (r"fuel pump|pump", ["FP", "FTP", "P"]),
     (r"pipe support|support|hanger", ["PS"]),
     (r"differential pressure|dpt\b", ["DPT"]),
     (r"pressure (?:indicating )?transmitter|pit\b|transmitter", ["PIT"]),
@@ -92,6 +98,8 @@ GLOSSARY = [
 ]
 NPS = {"1/2", "3/4", "1", "1-1/4", "1-1/2", "2", "2-1/2", "3", "3-1/2", "4", "5", "6", "8", "10", "12", "14", "16",
        "18", "20", "24", "30", "36", "42", "48"}
+DN = {15, 20, 25, 32, 40, 50, 65, 80, 100, 125, 150, 200, 250, 300, 350, 400, 450, 500, 600, 700, 750, 800, 900}
+_SIZE_MM = re.compile(r"(?<![\d.])(\d{2,3})\s?mm\b", re.I)
 DISCIPLINES = r"MS|ME|FP|FA|M|S|A|E|P|C|G|L|T|I"
 
 # ============================================================================================ reading the sheet
@@ -240,22 +248,26 @@ pixel coordinates of that text line in this tile image. Text exactly as printed 
 off at the tile edge. No other output."""
 
 
+SEND_PX = 1072  # tile side sent to the model: <= ~1.15 MP, so the API never resizes it (boxes stay in our frame)
+
+
 def _vision_tiles(W: int, H: int):
-    """Tile grid in source pixels: ~700 px tiles on small (~2000 px) screenshots, upscaled x2 for reading."""
-    up = 2.0 if max(W, H) <= 3500 else 1.0
-    t = 700 if up > 1 else 1300
+    """Tile grid in source pixels and the resize factor to SEND_PX: ~536 px tiles upscaled x2 on small (~2000 px)
+    screenshots; on large renders bigger tiles scaled down so the sheet fits in MAX_TILES calls."""
+    t = SEND_PX // 2
     while True:
         nx, ny = max(1, math.ceil((W - t * 0.12) / (t * 0.88))), max(1, math.ceil((H - t * 0.12) / (t * 0.88)))
         if nx * ny <= MAX_TILES:
             break
-        t = int(t * 1.25)
+        t = int(t * 1.15)
+    t = min(t, max(W, H))
     out = []
     for j in range(ny):
         for i in range(nx):
             x0 = 0 if nx == 1 else round(i * (W - t) / (nx - 1))
             y0 = 0 if ny == 1 else round(j * (H - t) / (ny - 1))
             out.append((max(0, x0), max(0, y0), min(W, x0 + t), min(H, y0 + t)))
-    return out, up
+    return out, SEND_PX / t
 
 
 def _vision_items(image_path: str) -> tuple[list[dict], float]:
@@ -403,6 +415,15 @@ def read_sheet(path: str, meta: dict | None = None, vision: bool | None = None) 
             readers.append("pdf text layer")
         else:
             items = []
+    if not items and len(meta.get("words") or []) >= 30:  # the caller's exact vector words (bp.sheets.build_meta)
+        from bp.sheets import ocr_lines
+
+        ws = [dict(w, conf=w.get("conf", 100.0)) for w in meta["words"]]
+        # rotated title-block text would be glued onto the horizontal lines next to it: keep those words apart
+        vert = [w for w in ws if len(w["text"]) > 2 and (w["bbox"][3] - w["bbox"][1]) > 1.5 * (w["bbox"][2] - w["bbox"][0])]
+        for ln in ocr_lines([w for w in ws if w not in vert]) + [{"text": w["text"], "bbox": w["bbox"]} for w in vert]:
+            items.append({"text": ln["text"], "bbox": list(ln["bbox"]), "src": "pdf", "conf": 100.0})
+        readers.append("pdf text layer")
     if not items:
         img = _image_of(path, meta)
         if img:
@@ -655,12 +676,22 @@ def sizes_in(text: str) -> list[tuple[str, int, int]]:
             continue
         s = m.group(1).replace(" ", "-")
         if s in NPS:
-            out.append((s, m.start(), m.end()))
+            out.append((s + '"', m.start(), m.end()))
+    for m in _SIZE_MM.finditer(t):  # metric sheets: '200mm RETURN LINE', '250mm x 300mm REDUCER'
+        tail = t[m.end():m.end() + 14].upper()
+        if re.match(r"\s*(DIA\.?\s+BOLT|THICK|MIN|MAX|CLEAR|O\.?C|GAP|BELOW|ABOVE|HIGH|TALL)", tail):
+            continue
+        if int(m.group(1)) in DN:
+            out.append((f"{int(m.group(1))}mm", m.start(), m.end()))
+    out.sort(key=lambda x: x[1])
     return out
 
 
 def _size_key(s: str) -> float:
-    w, _, fr = s.partition("-")
+    """Sort key in inches ('8"' -> 8, '200mm' -> 7.9, '1-1/2"' -> 1.5)."""
+    if s.endswith("mm"):
+        return int(s[:-2]) / 25.4
+    w, _, fr = s.rstrip('"').partition("-")
     if "/" in w:
         a, b = w.split("/")
         return int(a) / int(b)
@@ -760,6 +791,8 @@ def notes(items: list[dict]) -> dict | None:
         for ln in col:
             if ln["bbox"][1] - last > 4 * max(lh, ln["bbox"][3] - ln["bbox"][1]):
                 break
+            if any(ln is o for o in heads):  # the next notes block starts here
+                break
             body.append(ln)
             last = ln["bbox"][3]
         if body and (best is None or len(body) > len(best[1])):
@@ -770,6 +803,9 @@ def notes(items: list[dict]) -> dict | None:
     # paragraphs: a new note starts at a printed number ('4.' / a lone '4') or after a wider line gap
     hs = sorted(ln["bbox"][3] - ln["bbox"][1] for ln in body)
     med_h = hs[len(hs) // 2]
+    n_num = sum(bool(re.match(r"\s*\d{1,2}\s*[.)]?(\s|$)", ln["text"])) for ln in body)
+    n_gap = 1 + sum(b["bbox"][1] - a["bbox"][3] > 0.6 * med_h for a, b in zip(body, body[1:]))
+    by_number = n_num >= 2 and n_num >= 0.8 * n_gap  # every note carries its number: split on numbers only
     paras: list[dict] = []
     pending_num = None
     last_y1 = None
@@ -781,7 +817,7 @@ def notes(items: list[dict]) -> dict | None:
             continue
         m = re.match(r"(\d{1,2})\s*[.)]\s+(.*)", t)
         gap = None if last_y1 is None else ln["bbox"][1] - last_y1
-        start = m is not None or pending_num is not None or gap is None or gap > 0.6 * med_h
+        start = m is not None or pending_num is not None or gap is None or (gap > 0.6 * med_h and not by_number)
         if start:
             num = int(m.group(1)) if m else pending_num
             paras.append({"num": num, "text": (m.group(2) if m else t), "lines": [ln]})
@@ -810,11 +846,33 @@ def grid(items: list[dict]):
             cols[t].append(cx)
         elif re.fullmatch(r"[A-HJ-N]", t) and (cx < 0.05 or cx > 0.95):
             rows[t].append(cy)
-    cols = {k: sorted(v)[len(v) // 2] for k, v in cols.items()}
-    rows = {k: sorted(v)[len(v) // 2] for k, v in rows.items()}
-    if len(cols) < 3 or len(rows) < 3:
+    def fit(d, idx):
+        """Theil-Sen line position = a + b * index over every reading: a misplaced or misread margin label
+        (vision boxes on single characters are the weakest) cannot shift the grid."""
+        pts = [(idx(k), v) for k, vs in d.items() for v in vs]
+        if len({p[0] for p in pts}) < 3:
+            return None
+        sl = sorted((v2 - v1) / (i2 - i1) for (i1, v1) in pts for (i2, v2) in pts if i2 > i1)
+        b = sl[len(sl) // 2]
+        a = sorted(v - b * i for i, v in pts)[len(pts) // 2]
+        return {k: a + b * idx(k) for k in d}, b
+
+    fc = fit(cols, int)
+    fr = fit(rows, lambda k: ord(k))
+    if not fc or not fr:
         return None
-    return cols, rows
+    (cpos, _), (rpos, _) = fc, fr
+    # fill the labels nobody read (column 7 missing still has a square)
+    lo, hi = min(int(k) for k in cpos), max(int(k) for k in cpos)
+    b = fc[1]
+    a = cpos[str(lo)] - b * lo
+    cpos = {str(k): a + b * k for k in range(1, hi + 3) if 0 < a + b * k < 1 and (k <= hi or a + b * k < 0.97)}
+    letters = sorted(rpos)
+    rb = fr[1]
+    ra = rpos[letters[0]] - rb * ord(letters[0])
+    rpos = {chr(k): ra + rb * k for k in range(ord("A"), ord(letters[-1]) + 1)
+            if chr(k) not in "IO" and 0.0 < ra + rb * k < 1.0}
+    return cpos, rpos
 
 
 def where(bbox, g) -> str:
@@ -896,6 +954,65 @@ def _tag_list(fam: str, nums: list[int]) -> str:
                      if "-" in r else f"{fam}-{r}" for r in _ranges(nums).split(", "))
 
 
+RECHECK_PROMPT = """This is a zoomed crop of a piping plan, {w}x{h} pixels. List every label of the form {fam}-<number>
+(e.g. {ex}) printed in it. One line per label, format exactly:
+x0,y0,x1,y1|LABEL
+pixel coordinates in this image. Only labels you can actually read. No other output."""
+
+
+def _recheck(sheet: dict, fam: str, found: list[dict], cost: list) -> list[dict] | None:
+    """A family's numbering has a gap (FSCV-1..5, 7): one Haiku look at a zoomed crop around the labels found,
+    asking only for that family. Returns the new labels (maybe []), or None when the crop would not be a zoom."""
+    from PIL import Image
+
+    from bp.generic import llm
+
+    b = _union([t["bbox"] for t in found])
+    w, h = b[2] - b[0], b[3] - b[1]
+    Image.MAX_IMAGE_PIXELS = None
+    im = Image.open(sheet["image"]).convert("RGB")
+    W, H = im.size
+    pad_x, pad_y = max(0.04, 0.15 * w), max(0.05, 0.3 * h)
+    r = [max(0.0, b[0] - pad_x), max(0.0, b[1] - pad_y), min(1.0, b[2] + pad_x), min(1.0, b[3] + pad_y)]
+    cw, ch = (r[2] - r[0]) * W, (r[3] - r[1]) * H
+    f = min(3.0, SEND_PX / max(cw, ch))
+    if f < 1.0:  # spread over the whole sheet: a crop would not be any sharper than the tiles were
+        return None
+    key = hashlib.sha1(f"{sheet['image']}|{os.path.getsize(sheet['image'])}|{fam}|{[round(x, 4) for x in r]}".encode()
+                       ).hexdigest()[:16]
+    cf = CACHE / "recheck" / f"{key}.json"
+    if cf.exists():
+        lines = json.loads(cf.read_text())["lines"]
+    else:
+        crop = im.crop((round(r[0] * W), round(r[1] * H), round(r[2] * W), round(r[3] * H)))
+        crop = crop.resize((round(crop.width * f), round(crop.height * f)), Image.LANCZOS)
+        res = llm.ask(RECHECK_PROMPT.format(w=crop.width, h=crop.height, fam=fam, ex=found[0]["tag"]), [crop],
+                      model="haiku", system="You read drawings exactly. Output only the requested lines.",
+                      timeout=120, tag="sheets-piping-recheck")
+        cost.append(float(res.get("cost_usd") or 0.0))
+        lines = (res.get("text") or "").splitlines()
+        if res.get("text"):
+            cf.parent.mkdir(parents=True, exist_ok=True)
+            cf.write_text(json.dumps({"fam": fam, "lines": lines}))
+    ink = _inked(sheet["image"])
+    have = {t["tag"] for t in found}
+    new = []
+    for line in lines:
+        m = re.match(r"\s*(-?\d+(?:\.\d+)?)[\s,]+(-?\d+(?:\.\d+)?)[\s,]+(-?\d+(?:\.\d+)?)[\s,]+(-?\d+(?:\.\d+)?)"
+                     r"\s*[|:]\s*(.+?)\s*$", line)
+        if not m:
+            continue
+        a_, b_, c_, d_ = (float(m.group(k)) / f for k in range(1, 5))
+        bb = [r[0] + min(a_, c_) / W, r[1] + min(b_, d_) / H, r[0] + max(a_, c_) / W, r[1] + max(b_, d_) / H]
+        for t in tags_in({"text": m.group(5), "bbox": bb}):
+            if t["family"] != fam or t["tag"] in have or (ink and ink(bb) < 0.03):
+                continue
+            t.update(src="vision-recheck", seen_by=["vision-recheck"], conf=70.0)
+            have.add(t["tag"])
+            new.append(t)
+    return new
+
+
 def _ranges(nums: list[int]) -> str:
     nums = sorted(set(nums))
     out, i = [], 0
@@ -927,6 +1044,14 @@ def _count(q: str, sheet: dict, insts: list[dict], base: dict, cost: list) -> di
                    explanation=f"No {names} tag found on this sheet by {', '.join(sheet['readers']) or 'the readers'}"
                                f". Tag families found: {', '.join(sorted(present)) or 'none'}.")
         return res
+    rechecked = []
+    for f in fams:
+        nums = sorted({t["num"] for t in sel if t["family"] == f and t["num"] is not None})
+        if nums and [k for k in range(1, nums[-1] + 1) if k not in nums] and sheet.get("image"):
+            new = _recheck(sheet, f, [t for t in sel if t["family"] == f], cost)
+            if new is not None:
+                rechecked.append((f, new))
+                sel += new
     numbered = [t for t in sel if t["num"] is not None]
     unnum = [t for t in sel if t["num"] is None]
     ev, parts = [], []
@@ -962,6 +1087,9 @@ def _count(q: str, sheet: dict, insts: list[dict], base: dict, cost: list) -> di
         parts.append(f"{n} {'/'.join(fams)} labels on the sheet" +
                      (" (every printed label counted, repeats included)" if numbered else ""))
         conf = 0.55 if unnum else 0.7
+    for f, new in rechecked:
+        parts.append(f"numbering gap in {f} re-checked on a zoomed crop: " +
+                     (f"found {', '.join(t['tag'] for t in new)}" if new else "nothing more found"))
     agreed = sum(1 for t in sel if len(t.get("seen_by", [])) > 1)
     expl = f"{'; '.join(parts)}. Counted {names} tags read from the sheet text"
     if len(sheet["readers"]) > 1:
@@ -987,17 +1115,18 @@ def _sizes_answer(q, sheet, base) -> dict:
         return dict(base, explanation="No pipe-size text (like 8\") read on this sheet.")
     cnt = Counter(c["size"] for c in cands)
     order = sorted(cnt, key=_size_key)
-    ans = ", ".join(f'{s}"' for s in order)
-    ev = [_ev(c["bbox"], f'{order.index(c["size"]) + 1}: {c["size"]}" ({c["context"][:40]})') for c in
+    ans = ", ".join(order)
+    ev = [_ev(c["bbox"], f'{order.index(c["size"]) + 1}: {c["size"]} ({c["context"][:40]})') for c in
           sorted(cands, key=lambda c: _size_key(c["size"]))]
     expl = (f"{len(order)} nominal sizes on the sheet: " +
-            "; ".join(f'{s}" x{cnt[s]}' for s in order) +
-            ". Read from every size callout (inch marks); letter heights (4\" TALL) and the scale are excluded.")
+            "; ".join(f'{s} x{cnt[s]}' for s in order) +
+            ". Read from every size callout (inch marks / mm); letter heights (4\" TALL) and the scale are excluded.")
     biggest = order[-1]
     ctx = [c["context"] for c in cands if c["size"] == biggest and len(c["context"]) > 6][:1]
     if ctx:
-        expl += f' Largest: {biggest}" ({ctx[0]}).'
-    return dict(base, answer=ans, confidence=0.7, evidence=ev, explanation=expl, unit="inch")
+        expl += f' Largest: {biggest} ({ctx[0]}).'
+    unit = "mm" if all(o.endswith("mm") for o in order) else "inch" if all(o.endswith('"') for o in order) else None
+    return dict(base, answer=ans, confidence=0.7, evidence=ev, explanation=expl, unit=unit)
 
 
 def _keywords(q: str) -> list[str]:
@@ -1055,8 +1184,8 @@ def _named_size(q, sheet, base) -> dict | None:
     expl = f'Read from the callout "{found[0][1]["text"]}"'
     if len(sizes) > 1:
         expl += "; other matching callouts: " + "; ".join(f'"{b["text"]}"' for s, b in found[1:4])
-    return dict(base, answer=f'{s0}"', confidence=0.8 if len(sizes) == 1 else 0.55, evidence=ev,
-                explanation=expl + ".", unit="inch")
+    return dict(base, answer=s0, confidence=0.8 if len(sizes) == 1 else 0.55, evidence=ev,
+                explanation=expl + ".", unit="mm" if s0.endswith("mm") else "inch")
 
 
 def _where(q, sheet, insts, base) -> dict | None:
@@ -1258,7 +1387,8 @@ def answer(path, question, meta) -> dict | None:
         pass
     if res is None:
         return None
-    if "pdf text layer" in sheet["readers"] and res.get("answer") is not None and res.get("unit") == "count":
+    if "pdf text layer" in sheet["readers"] and res.get("answer") is not None and res.get("unit") == "count" \
+            and res["confidence"] >= 0.8:
         res["confidence"] = max(res["confidence"], 0.9)  # exact vector text: misses come only from the parsing
     res["cost_usd"] = round(sum(cost), 5)
     res["readers"] = sheet["readers"]
