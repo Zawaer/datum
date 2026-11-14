@@ -123,7 +123,7 @@ def answer(path, question, meta):
         except Exception:  # noqa: BLE001  a failed warm-up: the module reads the sheet itself
             pass
         deadline = max(deadline, min(t0 + ANSWER_MAX_S, time.monotonic() + ANSWER_AFTER_WARM_S))
-    fut = _pool.submit(m.answer, path, question, meta)
+    fut = _pool.submit(_gated_answer, m, path, question, meta)
     try:
         res = fut.result(timeout=max(1.0, deadline - time.monotonic()))
     except cf.TimeoutError:
@@ -139,6 +139,24 @@ def answer(path, question, meta):
         res["sheet_type"] = n
         res["sheet_score"] = round(s, 3)
     return res
+
+
+def sheet_pixels(meta) -> int:
+    """Pixels of the largest raster a module may load for this sheet (the working image or its full-size copy)."""
+    return max(int(meta.get("w") or 0) * int(meta.get("h") or 0),
+               int(meta.get("full_w") or 0) * int(meta.get("full_h") or 0))
+
+
+def _gated_answer(m, path, question, meta):
+    """m.answer inside the process-wide memory budget (bp/memgate.py): on a burst of big sheets it waits its turn."""
+    from bp import memgate
+
+    with memgate.hold(memgate.cost(sheet_pixels(meta), "answer"), tag=memgate.tag_for(meta.get("image") or path),
+                      label=f"answer {os.path.basename(str(path))}"):
+        try:
+            return m.answer(path, question, meta)
+        finally:
+            _trim_meta_mem()  # what the module cached on the meta counts from now on
 
 
 def _timeout_result(n, warming=False):
@@ -323,6 +341,7 @@ def build_meta(path: str, page: int = 0, cache_dir: str | Path | None = None, do
     key = (path, page)
     with _meta_lock:
         if key in _meta_mem:
+            _meta_mem[key] = _meta_mem.pop(key)  # most recently used last (_trim_meta_mem drops from the front)
             return _meta_mem[key]
     f = cache_dir / f"sheet_meta_p{page}.json"
     meta = None
@@ -360,7 +379,47 @@ def build_meta(path: str, page: int = 0, cache_dir: str | Path | None = None, do
     _copies(meta)
     with _meta_lock:
         _meta_mem[key] = meta
+    _trim_meta_mem()
     return meta
+
+
+# the metas above also carry what the modules cached on them (masks, segmentations, OCR words): kept for the next
+# question on the sheet, but within this many bytes in all (oldest sheets dropped first; they reload from disk)
+META_MEM_BYTES = int(float(os.environ.get("BP_SHEET_META_MB", "1200")) * (1 << 20))
+
+
+def _nbytes(x, depth=0) -> int:
+    """Rough bytes held by arrays / images / big containers inside a meta (strings and numbers counted lightly)."""
+    nb = getattr(x, "nbytes", None)
+    if isinstance(nb, int):
+        return nb
+    if hasattr(x, "getbands") and hasattr(x, "size"):  # a PIL image (RGB is held at 4 bytes a pixel)
+        return x.size[0] * x.size[1] * (4 if len(x.getbands()) > 1 else 1)
+    if depth > 4:
+        return 0
+    if isinstance(x, dict):
+        return 64 * len(x) + sum(_nbytes(v, depth + 1) for v in list(x.values()))
+    if isinstance(x, (list, tuple)):
+        if len(x) > 2000:  # word / item lists: sample
+            return int(len(x) / 200 * sum(_nbytes(v, depth + 1) for v in x[:200])) + 8 * len(x)
+        return 8 * len(x) + sum(_nbytes(v, depth + 1) for v in x)
+    if isinstance(x, (str, bytes)):
+        return len(x)
+    return 32
+
+
+def _trim_meta_mem():
+    """Drop the least recently built / used sheets' metas (and what modules cached on them) over META_MEM_BYTES.
+    A question already running keeps its own reference; the next one rebuilds the meta from sheet_meta_p<n>.json."""
+    with _meta_lock:
+        keys = list(_meta_mem)
+        sizes = {k: _nbytes(_meta_mem[k]) for k in keys}
+        total = sum(sizes.values())
+        for k in keys[:-1]:  # oldest first; the newest stays
+            if total <= META_MEM_BYTES:
+                break
+            total -= sizes[k]
+            _meta_mem.pop(k, None)
 
 
 def _copies(meta):
@@ -412,6 +471,10 @@ def ocr_words(meta, region=None, scale: float = 1.0, psm: int = 11, min_conf: fl
     return [w for w in cache[ck] if w["conf"] >= min_conf]
 
 
+# tesseract processes across every OCR in flight: one per core (four sheets OCRing at once ran 16 on the 4-core VM)
+_tess_sem = threading.BoundedSemaphore(max(1, os.cpu_count() or 2))
+
+
 def _ocr_run(meta, region, scale, psm):
     from PIL import Image
 
@@ -422,7 +485,8 @@ def _ocr_run(meta, region, scale, psm):
     W, H = im.size
     x0, y0, x1, y1 = region or (0, 0, 1, 1)
     box = (round(x0 * W), round(y0 * H), round(x1 * W), round(y1 * H))
-    crop = im.crop(box)
+    crop = im.crop(box) if box != (0, 0, W, H) else im
+    del im  # the full page is not needed past the crop (139 MB for a 139 MP sheet)
     if scale != 1.0:
         crop = crop.resize((round(crop.width * scale), round(crop.height * scale)), Image.LANCZOS)
     T = 4000
@@ -434,8 +498,9 @@ def _ocr_run(meta, region, scale, psm):
         with tempfile.NamedTemporaryFile(suffix=".png") as tf:
             tile.save(tf.name)
             try:  # one thread per tesseract: the tiles run side by side instead
-                out = subprocess.run(["tesseract", tf.name, "-", "--psm", str(psm), "tsv"], capture_output=True,
-                                     text=True, timeout=180, env={**os.environ, "OMP_THREAD_LIMIT": "1"}).stdout
+                with _tess_sem:
+                    out = subprocess.run(["tesseract", tf.name, "-", "--psm", str(psm), "tsv"], capture_output=True,
+                                         text=True, timeout=180, env={**os.environ, "OMP_THREAD_LIMIT": "1"}).stdout
             except subprocess.TimeoutExpired:
                 return []
         res = []
@@ -501,11 +566,17 @@ def _warm_run(meta):
     n, m, _ = best(meta)
     if m is None:
         return None  # the generic reader answers: nothing of ours to prepare
-    if n == "arch":  # rooms / zones / textqa share the default OCR (ocr_words at this signature)
-        warm(meta, background=False)
+    from bp import memgate
+
     fn = m.warm if callable(getattr(m, "warm", None)) else _default_warm(n)
-    if fn is not None:
-        fn(meta)
+    # in the process-wide memory budget: a burst of big uploads warms in turn instead of all at once
+    with memgate.hold(memgate.cost(sheet_pixels(meta), "warm"), tag=memgate.tag_for(meta.get("image") or ""),
+                      label=f"warm {os.path.basename(str(meta.get('path')))}"):
+        if n == "arch":  # rooms / zones / textqa share the default OCR (ocr_words at this signature)
+            warm(meta, background=False)
+        if fn is not None:
+            fn(meta)
+    _trim_meta_mem()
     log.info("sheet warm-up %s (%s) done in %.1f s", n, os.path.basename(str(meta.get("path"))), time.monotonic() - t0)
     return n
 

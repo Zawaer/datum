@@ -21,6 +21,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
+from bp import memgate
 from bp.data import data_root, load_questions
 from bp.router import Router, guess_type
 
@@ -153,8 +154,45 @@ def _heavy_limit(request: Request):
     _bucket(_heavy_hits, request, HEAVY_N, RATE_S, "too many drawing requests from this visitor; please wait a minute")
 
 
-# CPU-heavy work that one request can make expensive (upload preparation, IFC tessellation): at most 2 at a time
+# CPU-heavy work that one request can make expensive (upload preparation, IFC tessellation): at most 2 at a time.
+# Memory is gated separately (bp/memgate.py): preparation, warm-ups, specialist answers and /api/walls take their
+# estimated peak from one ~8 GB budget and queue while it is full; GET /api/queue tells the UI it is queued
 _heavy_sem = threading.BoundedSemaphore(2)
+HEAVY_WAIT_S = 600  # a job admitted by the memory gate waits this long for a CPU slot before giving up (503)
+
+
+def _pixels_of(p: Path, page: int = 0) -> int:
+    """Pixels a heavy job on this file decodes: a raster's own size (from its header), a PDF page as the sheet
+    readers render it (~300 dpi, <= 9000 px), a raster's bigger full-size copy if it has one; 0 when unknown."""
+    try:
+        ext = p.suffix.lower()
+        if ext == ".pdf":
+            import pymupdf
+
+            with pymupdf.open(p) as doc:
+                r = doc[min(page, len(doc) - 1)].rect
+            z = min(300 / 72, 9000 / max(r.width, r.height, 1))
+            return int(r.width * z * r.height * z)
+        if ext in (".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".bmp", ".gif", ".heic", ".heif"):
+            from PIL import Image
+
+            n = 0
+            for f in (p, p.with_name(p.name + ".full.png")):
+                if f.is_file():
+                    with Image.open(f) as im:
+                        n = max(n, im.width * im.height)
+            return n
+    except Exception:  # noqa: BLE001  unreadable: the job itself reports that
+        return 0
+    return 0
+
+
+@app.get("/api/queue")
+def queue(key: str = "", rid: str = ""):
+    """Is work for this upload (`key`, the folder in its path) or this pending upload (`rid`, sent with it) waiting
+    for memory behind other uploads? The UI polls it while an upload or a question runs long."""
+    tags = [t for t in (key[:12], f"rid:{rid[:40]}" if rid else "") if t]
+    return memgate.status(tags)
 
 
 def spent_today() -> float:
@@ -322,7 +360,41 @@ def questions(path: str):
 
 # ---------------------------------------------------------------- rendering
 
-@functools.lru_cache(maxsize=128)
+def _bytes_cache(max_bytes: int, maxsize: int = 256):
+    """functools.lru_cache for a function returning bytes, bounded by their total size as well as by count (a page
+    render of a big sheet is several MB: 128 of them were most of a GB)."""
+    def deco(fn):
+        mem: collections.OrderedDict = collections.OrderedDict()
+        lock = threading.Lock()
+        tot = [0]
+
+        @functools.wraps(fn)
+        def wrapper(*a):
+            with lock:
+                if a in mem:
+                    mem.move_to_end(a)
+                    return mem[a]
+            v = fn(*a)
+            with lock:
+                if a not in mem and len(v) <= max_bytes // 4:
+                    mem[a] = v
+                    tot[0] += len(v)
+                    while mem and (tot[0] > max_bytes or len(mem) > maxsize):
+                        tot[0] -= len(mem.popitem(last=False)[1])
+            return v
+
+        def cache_clear():
+            with lock:
+                mem.clear()
+                tot[0] = 0
+
+        wrapper.cache_clear = cache_clear
+        wrapper.cache_bytes = lambda: tot[0]
+        return wrapper
+    return deco
+
+
+@_bytes_cache(192 << 20, maxsize=128)
 def _render(path: str, page: int, dpi: int) -> bytes:
     p = resolve(path)
     if not p.exists():
@@ -367,7 +439,7 @@ def render(request: Request, path: str, page: int = 0, dpi: int = 130):
 # view at screen resolution, read from the full-size raster (decoded once, kept for the next crops) or the PDF itself
 CROP_MAX_SIDE = 4096
 CROP_PDF_DPI = 600           # a PDF page is cropped at most at this resolution
-_CROP_SRC_PIXELS = 300_000_000  # decoded full-size rasters kept in memory (one 260 MP sheet, or several smaller)
+_CROP_SRC_BYTES = 400_000_000  # decoded full-size rasters kept in memory (PIL holds RGB at 4 bytes a pixel)
 _crop_src: collections.OrderedDict = collections.OrderedDict()
 _crop_lock = threading.Lock()
 
@@ -399,9 +471,13 @@ def _decoded(src: Path):
         im.load()
         im = im if im.mode in ("L", "RGB") else _flatten(im)
         _crop_src[key] = im
-        while len(_crop_src) > 1 and sum(x.width * x.height for x in _crop_src.values()) > _CROP_SRC_PIXELS:
+        while len(_crop_src) > 1 and sum(_im_bytes(x) for x in _crop_src.values()) > _CROP_SRC_BYTES:
             _crop_src.popitem(last=False)
         return im
+
+
+def _im_bytes(im) -> int:
+    return im.width * im.height * (1 if im.mode == "L" else 4)
 
 
 def _source_size(path: str, page: int) -> tuple[int, int]:
@@ -421,7 +497,7 @@ def _source_size(path: str, page: int) -> tuple[int, int]:
         return im.size
 
 
-@functools.lru_cache(maxsize=48)
+@_bytes_cache(96 << 20, maxsize=48)
 def _crop(path: str, page: int, box: tuple, w: int) -> bytes:
     import io
 
@@ -643,17 +719,19 @@ def walls(request: Request, path: str, page: int = 0):
             except (OSError, ValueError):
                 out = None
         if out is None:
-            if not _heavy_sem.acquire(timeout=60):
-                raise HTTPException(503, "the server is busy; please try again in a minute")
-            try:
-                out, final = walls3d.for_upload(str(p.resolve()), page)
-            except HTTPException:
-                raise
-            except Exception as e:  # noqa: BLE001
-                print(f"walls failed for {path!r} page {page}: {e!r}", flush=True)
-                raise HTTPException(422, "could not read walls from this page") from e
-            finally:
-                _heavy_sem.release()
+            with memgate.hold(memgate.cost(_pixels_of(p, page), "walls"), tag=memgate.tag_for(p),
+                              label=f"walls {p.name}"):
+                if not _heavy_sem.acquire(timeout=HEAVY_WAIT_S):
+                    raise HTTPException(503, "the server is busy; please try again in a minute")
+                try:
+                    out, final = walls3d.for_upload(str(p.resolve()), page)
+                except HTTPException:
+                    raise
+                except Exception as e:  # noqa: BLE001
+                    print(f"walls failed for {path!r} page {page}: {e!r}", flush=True)
+                    raise HTTPException(422, "could not read walls from this page") from e
+                finally:
+                    _heavy_sem.release()
             out["src"] = [st.st_mtime_ns, st.st_size]
             if not final:
                 return out
@@ -1265,7 +1343,7 @@ def _render_dxf(src: Path, out: Path):
 
 
 @app.post("/api/upload")
-async def upload(request: Request, name: str):
+async def upload(request: Request, name: str, rid: str = ""):
     """Raw-body upload (no multipart dependency): POST /api/upload?name=plan.pdf with the file as body.
     The file is validated and normalised once (see _prepare): damaged files get a clear 4xx, phone photos are
     rectified, sideways scans turned, huge images downscaled, and every page gets a one-line description."""
@@ -1316,13 +1394,16 @@ async def upload(request: Request, name: str):
     if prepared:
         safe, kind = m["name"], m["kind"]  # the same file again: prepared already
     else:
-        def _prepare_limited(*a):
-            if not _heavy_sem.acquire(timeout=120):
-                raise UploadError(503, "the server is busy preparing other uploads; please try again in a minute")
-            try:
-                return _prepare(*a)
-            finally:
-                _heavy_sem.release()
+        def _prepare_limited(d, p, m):
+            # memory first (queued, shown in the UI as "Queued behind other uploads…"), then one of 2 CPU slots
+            tag = f"rid:{rid[:40]}" if rid else d.name
+            with memgate.hold(memgate.cost(_pixels_of(p), "prep"), tag=tag, label=f"prep {p.name}"):
+                if not _heavy_sem.acquire(timeout=HEAVY_WAIT_S):
+                    raise UploadError(503, "the server is busy preparing other uploads; please try again in a minute")
+                try:
+                    return _prepare(d, p, m)
+                finally:
+                    _heavy_sem.release()
 
         try:
             p, kind = await run_in_threadpool(_prepare_limited, d, p, m)

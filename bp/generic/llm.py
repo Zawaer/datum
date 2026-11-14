@@ -19,6 +19,10 @@ from pathlib import Path
 CLI = os.environ.get("CLAUDE_CLI") or os.environ.get("CLAUDE_CODE_EXECPATH") or "claude"
 SPEND_LOG = Path("cache/generic/spend.jsonl")
 _lock = threading.Lock()
+# each CLI call is a ~220 MB process: a piping sheet's tile reads started 16 at once, and four sheets read in parallel
+# put several GB of them next to the server. At most this many run at a time (the rest wait their turn)
+MAX_PROCS = int(os.environ.get("BP_LLM_MAX_PROCS", "8") or 8)
+_procs = threading.BoundedSemaphore(MAX_PROCS)
 
 
 def _img_block(img) -> dict:
@@ -114,7 +118,7 @@ def ask(prompt: str, images=(), model: str = "haiku", system: str = "Reply with 
     t0 = time.time()
     res = {"text": "", "cost_usd": 0.0}
     try:
-        with tempfile.TemporaryDirectory(prefix="bpgen_") as d:
+        with _procs, tempfile.TemporaryDirectory(prefix="bpgen_") as d:
             out = run_killable(cmd, json.dumps(msg) + "\n", timeout, cwd=d)
         for line in out.stdout.splitlines():
             try:

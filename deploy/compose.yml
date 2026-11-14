@@ -12,6 +12,12 @@ services:
       BP_XCHECK_CC_TAG: v3s
       # fine-tuned VLM second opinion: precomputed answers for the bundle's CubiCasa questions (no GPU here)
       BP_XCHECK_VLM: /srv/bundle/xcheck/demo_secondopinion.jsonl
+      # heavy image work takes its estimated peak from this budget and queues when it is full (bp/memgate.py);
+      # with the server's own ~1.5 GB and at most 8 model-CLI processes (~220 MB each) it stays under mem_limit
+      BP_MEM_BUDGET_GB: "8"
+      BP_MEMGATE_LOG: "1"
+      # few malloc arenas: freed image buffers go back to the OS (memgate also trims after each job)
+      MALLOC_ARENA_MAX: "2"
     volumes:
       - /opt/bp/bundle/dataset:/srv/bundle/dataset:ro
       - /opt/bp/bundle/runs:/app/runs:ro

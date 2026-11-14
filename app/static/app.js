@@ -525,10 +525,28 @@ window.addEventListener('drop', e => {
   e.preventDefault(); dragDepth = 0; $('#dropzone').hidden = true;
   const f = e.dataTransfer?.files?.[0]; if (f) upload(f);
 });
+// heavy work waits for memory on the server when several big sheets arrive at once (bp/memgate.py): while a request
+// runs long, ask whether it is queued, and say so instead of a clock that just keeps counting
+function watchQueue(qs, onQueued) {
+  let stop = false, was = false;
+  const poll = async () => {
+    if (stop) return;
+    try {
+      const j = await (await fetch('/api/queue?' + qs)).json();
+      if (!stop && j.queued !== was) { was = j.queued; onQueued(j.queued, j); }
+    } catch (e) { /* the request itself reports a dead server */ }
+    if (!stop) setTimeout(poll, 2000);
+  };
+  setTimeout(poll, 3000);
+  return () => { stop = true; };
+}
 async function upload(f) {
-  loading(`Uploading ${f.name} (${(f.size / 1e6).toFixed(1)} MB)…`);
+  const msg0 = `Uploading ${f.name} (${(f.size / 1e6).toFixed(1)} MB)…`;
+  loading(msg0);
+  const rid = Math.random().toString(36).slice(2, 14);
+  const unwatch = watchQueue('rid=' + rid, q => loading(q ? 'Queued behind other uploads…' : msg0));
   try {
-    const r = await fetch('/api/upload?name=' + encodeURIComponent(f.name), {method: 'POST', body: f});
+    const r = await fetch('/api/upload?name=' + encodeURIComponent(f.name) + '&rid=' + rid, {method: 'POST', body: f}).finally(unwatch);
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || r.statusText);
     uploads = [d, ...uploads.filter(u => u.path !== d.path)].slice(0, 30);
@@ -552,10 +570,14 @@ async function ask() {
   if (PHONE.matches) $('#q').blur();  // drop the phone keyboard so the answer is visible
   const steps = THINK[cur.source || cur.split] || THINK[cur.path.startsWith('uploads/') ? 'upload' : ''] || ['reading the drawing'];
   const t0 = performance.now();
+  let queued = false;
+  const upKey = (cur.path.match(/^uploads\/([0-9a-f]{12})\//) || [])[1];
+  const unwatch = upKey ? watchQueue('key=' + upKey, q => { queued = q; }) : () => {};
   const tick = () => {
-    if (seq !== askSeq || res?._seq === seq) return;
+    if (seq !== askSeq || res?._seq === seq) { unwatch(); return; }
     const s = (performance.now() - t0) / 1000;
-    $('#ahead').innerHTML = `<div class="qecho">${esc(question)}</div><div class="thinking"><div><span class="spin"></span> ${esc(cap1(steps[Math.min(steps.length - 1, Math.floor(s / 1.5))]))}…</div>
+    const step = queued ? 'Queued behind other uploads' : cap1(steps[Math.min(steps.length - 1, Math.floor(s / 1.5))]);
+    $('#ahead').innerHTML = `<div class="qecho">${esc(question)}</div><div class="thinking"><div><span class="spin"></span> ${esc(step)}…</div>
       <small>${s.toFixed(1)} s${s > 6 ? ' · the first load of a big model is slow' : ''}</small></div>`;
     setTimeout(tick, 100);
   };
