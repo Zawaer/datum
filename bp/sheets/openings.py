@@ -1305,6 +1305,7 @@ VCLOSET_PROMPT = """This is an architectural floor plan. Red numbered boxes mark
 A door connects two spaces. For each box give the name of the SMALLER of the two spaces the door connects, as printed
 on the plan (e.g. "CLOSET", "MECH", "BATH", "Store", "Corridor"), and that space's printed area if one is printed
 next to its name (e.g. "18 SF", "4.5 m2"), else "". Use "" for a name you cannot read; do not guess.
+If a box clearly holds no door at all (a piece of equipment, furniture, a symbol or text), give ["NOT A DOOR", ""].
 JSON only: {{"1": ["CLOSET", "18 SF"], "2": ["BATH", "51 SF"], ...}}"""
 
 
@@ -1369,7 +1370,9 @@ def vision_closets(meta, doors, model="haiku") -> tuple[dict, float]:
             continue
         name, area = str(v[0] or "").strip(), str(v[1] or "").strip()
         m2 = _printed_m2(area) or _printed_m2(name)
-        if name and CLOSET_NAME.search(name):
+        if re.fullmatch(r"(?i)not\s*a\s*door", name):
+            out[i] = "not a door (equipment or a symbol, read by vision)"
+        elif name and CLOSET_NAME.search(name):
             out[i] = f"opens a '{name}{' ' + area if area else ''}' (read by vision)"
         elif m2 is not None and m2 < CLOSET_SF * 0.092903 and not WET_NAME.search(name):
             out[i] = f"opens a {area} {name or 'space'} (smaller than {CLOSET_SF:.0f} SF; read by vision)"
@@ -1391,9 +1394,19 @@ def _split_closets(meta, doors, px_per_m=None, mode="exclude"):
             vc, cost = vision_closets(meta, doors)
             meta["_closet_cost"] = meta.get("_closet_cost", 0.0) + cost
             for k, why in vc.items():
-                cl.setdefault(k, why)
+                if why.startswith("not a door"):
+                    cl[k] = why
+                else:
+                    cl.setdefault(k, why)
         except Exception as e:  # noqa: BLE001
             log.warning("vision closet check failed: %s", e)
+    # boxes that are no door at all (equipment arcs, a detector's half box) leave the count and the closet list
+    nd = {k for k, w in cl.items() if w.startswith("not a door")}
+    if nd:
+        meta["_not_doors"] = [dict(doors[k], why=cl[k]) for k in sorted(nd)]
+        keep = [k for k in range(len(doors)) if k not in nd]
+        cl = {keep.index(k): w for k, w in cl.items() if k not in nd}
+        doors = [doors[k] for k in keep]
     if mode == "only":
         return [dict(doors[k], why=cl[k]) for k in sorted(cl)], [d for k, d in enumerate(doors) if k not in cl]
     return [d for k, d in enumerate(doors) if k not in cl], [dict(d, why=cl[k]) for k in sorted(cl) for d in [doors[k]]]
@@ -1551,6 +1564,7 @@ def answer(path, question, meta):
                     out["answer"] = f"{out['answer']} doors (+{len(closets)} closet doors not counted)"
         if out is not None:
             out["cost_usd"] = out.get("cost_usd", 0.0) + meta.pop("_closet_cost", 0.0)
+            _note_not_doors(out, meta)
             _add_schedule_check(out, meta, it)
         return out
     ev, parts, conf = [], [], []
@@ -1621,8 +1635,23 @@ def answer(path, question, meta):
            "explanation": expl, "evidence": ev,
            "counts": {"doors": len(r["doors"]), "windows": len(r["windows"]) + ig, "exterior_windows": len(r["windows"]),
                       "internal_glazing": len(r["internal_glazing"]), "closet_doors": len(r.get("closets") or [])}}
+    _note_not_doors(out, meta)
     _add_schedule_check(out, meta, it)
     return out
+
+
+def _note_not_doors(out, meta):
+    """Boxes the vision check found to hold no door (equipment arcs, a half box): marked, not counted."""
+    nd = meta.pop("_not_doors", None)
+    if not nd:
+        return
+    for i, d in enumerate(nd, 1):
+        e = _ev(d["bbox"], f"not a door {i}: not counted ({d['why']})")
+        e["value"] = None
+        e["on"] = False
+        out["evidence"].append(e)
+    out["explanation"] += f" {len(nd)} found symbol(s) hold no door (equipment or a symbol) and are not counted."
+    out.setdefault("counts", {})["not_doors"] = len(nd)
 
 
 def _agree(a, b, tol=0.15):

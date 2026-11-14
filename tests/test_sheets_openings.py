@@ -169,10 +169,10 @@ def test_vision_closet_rule(monkeypatch, tmp_path):
     p = tmp_path / "plan.png"
     Image.new("RGB", (400, 300), "white").save(p)
     reply = '{"1": ["CLOSET", "18 SF"], "2": ["BATH", "51 SF"], "3": ["MECH", "9 SF"], "4": ["WC", "1.5 m2"], ' \
-            '"5": ["", ""], "6": ["Corridor", ""]}'
+            '"5": ["", ""], "6": ["NOT A DOOR", ""]}'
     import bp.generic.llm as llm
     monkeypatch.setattr(llm, "ask", lambda *a, **k: {"text": reply, "cost_usd": 0.001})
     doors = [{"bbox": [0.1 * i, 0.1, 0.1 * i + 0.05, 0.2]} for i in range(1, 7)]
     out, cost = O.vision_closets({"image": str(p)}, doors)
-    assert sorted(out) == [0, 2] and cost == 0.001
+    assert sorted(out) == [0, 2, 5] and cost == 0.001 and out[5].startswith("not a door")
     assert O._printed_m2("18 SF") == pytest.approx(1.672, abs=0.01) and O._printed_m2("4.5 m2") == 4.5
