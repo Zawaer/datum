@@ -2170,11 +2170,18 @@ async function startTour(auto = false) {
   if (!tour.length) { hint('No tour steps available on this dataset'); return; }
   tourI = 0; await runStep();
 }
+let typeSeq = 0;
 async function typeQuestion(text) {
-  const q = $('#q'); q.value = '';
+  // one typing at a time: a quick Next/Back used to leave the previous step's loop appending its letters into the same
+  // box, which interleaved two questions into gibberish (and that gibberish was then asked)
+  const my = ++typeSeq, q = $('#q'); q.value = '';
   if (RMOTION.matches) { q.value = text; return; }  // reduced motion: the question appears at once, not typed out
-  const dt = Math.max(12, Math.min(40, 1400 / text.length));
-  for (const ch of text) { q.value += ch; await sleep(dt); }
+  const chars = [...text], dt = Math.max(12, Math.min(40, 1400 / chars.length));
+  for (let i = 1; i <= chars.length; i++) {
+    if (my !== typeSeq) return;
+    q.value = chars.slice(0, i).join(''); await sleep(dt);
+  }
+  q.value = text;
 }
 async function runStep() {
   const s = tour[tourI];
@@ -2194,6 +2201,7 @@ async function runStep() {
     secOpen.vs = secOpen.how = false; $('#evwrap').open = false;
     await sleep(400); await typeQuestion(s.question); await sleep(250);
     if (myI !== tourI) return;
+    $('#q').value = s.question;  // ask exactly the step's question, whatever happened in the box meanwhile
     await ask();
     for (let t = 0; t < 12000 && animating; t += 100) await sleep(100);  // let the count finish, however slow the GPU
     await sleep(1200);
