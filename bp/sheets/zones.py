@@ -1563,6 +1563,37 @@ def _reread_dims(meta, dims, W, H):
     return alld
 
 
+def _vision_dim(meta, bbox, ft):
+    """A scan's OCR can drop or misread the inches of the dimension string it picked (323'-0" for 323'-4" on a
+    150 dpi scanned PDF): one small Haiku read of that string, zoomed (~$0.0003, kept with the upload). Returns
+    (feet or None when it does not confirm a reading within 2 %, cost)."""
+    from PIL import Image
+
+    from bp.generic import llm
+
+    key = "dimread_" + hashlib.sha1(f"{[round(v, 4) for v in bbox]}".encode()).hexdigest()[:12]
+    hit = _disk_get(meta, key)
+    if hit is not None:
+        return (hit if hit and abs(hit - ft) <= 0.02 * ft else None), 0.0
+    im = _image(meta)
+    W, H = im.size
+    w_, h_ = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    box = (round(max(0.0, bbox[0] - 0.6 * w_) * W), round(max(0.0, bbox[1] - 0.8 * h_) * H),
+           round(min(1.0, bbox[2] + 0.6 * w_) * W), round(min(1.0, bbox[3] + 0.8 * h_) * H))
+    crop = im.crop(box)
+    f = min(6.0, 800 / max(1, crop.width))
+    if f > 1:
+        crop = crop.resize((round(crop.width * f), round(crop.height * f)), Image.LANCZOS)
+    r = llm.ask("Crop of a construction drawing around one dimension string (feet and inches, e.g. 133'-10\"). "
+                'Transcribe the dimension string in the middle exactly. JSON only: {"dim": "<as printed>"}',
+                [crop], model="haiku", tag="sheets-zones-dimread", timeout=60)
+    d = llm.parse_json(r.get("text") or "") or {}
+    v = _dim_ft(str(d.get("dim") or "")) if isinstance(d, dict) else None
+    if r.get("text"):
+        _disk_put(meta, key, v or 0)
+    return (v if v and abs(v - ft) <= 0.02 * ft else None), float(r.get("cost_usd") or 0.0)
+
+
 def _answer_dimension(meta, question):
     """Overall length / width of the building: the longest printed dimension string (horizontal for length,
     the other direction for width / depth when it was read), kept as printed (323'-4"), its line measured as a check."""
@@ -1594,6 +1625,15 @@ def _answer_dimension(meta, question):
     # if both directions were read, "length" is the longer one
     if not want_w and vt and max(d[0] for d in vt) > ft:
         ft, vert, w = max(vt, key=lambda d: d[0])
+    cost = 0.0
+    if not meta.get("words") and meta.get("image") and os.environ.get("BP_ZONES_LLM", "1") == "1":
+        try:
+            ft2, cost = _vision_dim(meta, w["bbox"], ft)
+        except Exception:  # noqa: BLE001 - a check only
+            log.exception("dimension re-read failed")
+            ft2 = None
+        if ft2 is not None:
+            ft = ft2
     text = _fmt_ftin(ft)
     ev = [{"kind": "text", "page": 0, "bbox": _pad(w["bbox"]), "label": f"dimension {text}", "value": round(ft, 3)}]
     conf, check = 0.75, ""
@@ -1614,7 +1654,7 @@ def _answer_dimension(meta, question):
             conf = 0.9 if abs(dev) < 0.03 else 0.6
     which = "width" if want_w else "length"
     return {"answer": text, "display": text, "value_ft": round(ft, 4), "value_m": round(ft * FT, 3),
-            "confidence": conf, "method": "sheets-zones-dimension", "cost_usd": 0.0, "unit": "ft-in",
+            "confidence": conf, "method": "sheets-zones-dimension", "cost_usd": round(cost, 5), "unit": "ft-in",
             "explanation": f"Overall {which}: the longest {'vertical' if vert else 'horizontal'} dimension string on "
                            f"the plan reads {text} ({ft:.2f} ft = {ft * FT:.2f} m){check}",
             "evidence": ev, **({"low_res": _low_res(meta)} if _low_res(meta) else {})}
