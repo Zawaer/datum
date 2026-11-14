@@ -47,7 +47,7 @@ def load_questions(root: Path | None = None):
     with open(root / "questions.jsonl") as f:
         for i, line in enumerate(f):
             q = json.loads(line)
-            q["id"] = i
+            q["id"] = q.get("id", i)  # bundle subsets carry their line index in the full questions.jsonl
             q["source"] = source_of(q["path"])
             q["ext"] = q["path"].rsplit(".", 1)[-1].lower()
             q["split"] = split_of(q["path"])

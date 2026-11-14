@@ -3,7 +3,7 @@
     .venv/bin/python deploy/build_bundle.py [--out deploy/bundle]
 
 deploy/bundle/  (gitignored; never commit or redistribute it: the dataset is non-commercial, per-file licences)
-  dataset/questions.jsonl            only the questions of the included drawings
+  dataset/questions.jsonl            only the questions of the included drawings, each with its full-set "id"
   dataset/data/<source>/...          the drawings (and their twins: .pdf/.png/.dxf/.svg, IFC + rendered plans)
   dataset/data/<source>/LICENSE.md   each included source's licence/credit file
   runs/*.summary.md                  for /results; runs/baseline_*.jsonl stripped to source/cost/latency
@@ -89,8 +89,9 @@ def main(out: Path):
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(f, dst)
     with open(ds / "questions.jsonl", "w") as fo:
-        for q in qs:
+        for i, q in enumerate(qs):  # keep the full-set id: frontier.json, runs and the VLM file are keyed by it
             if q["path"] in pick:
+                q = {**q, "id": q.get("id", i)}
                 fo.write(json.dumps(q, ensure_ascii=False) + "\n")
 
     runs = out / "runs"
