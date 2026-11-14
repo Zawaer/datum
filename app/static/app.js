@@ -115,7 +115,7 @@ $('#zfit').onclick = fit;
 // ------------------------------------------------------------ adding missed items
 function setAdding(on) {
   adding = on; viewer.classList.toggle('adding', adding);
-  $('#addbtn').textContent = adding ? '✓ Done' : '+ Add missed'; $('#addbtn').classList.toggle('on', adding);
+  $('#addbtn').textContent = adding ? 'Done' : 'Add missed'; $('#addbtn').classList.toggle('on', adding);
   hint(adding ? 'Click each item the solver missed' : '');
 }
 $('#addbtn').onclick = () => setAdding(!adding);
@@ -303,7 +303,7 @@ async function loadList(append = false) {
   for (const d of r.items) box.appendChild(itemEl(d, `${d.n} questions${d.split === 'test' ? ' · test set, never trained on' : ''}`));
   listOffset += r.items.length;
   $('#more').hidden = listOffset >= r.total;
-  $('#more').textContent = `show more (${r.total - listOffset} left)`;
+  $('#more').textContent = `Show more (${r.total - listOffset} left)`;
   if (!cur && r.items[0]) select(r.items[0], 'replace');
   if (!append) revealSelected();
 }
@@ -444,7 +444,7 @@ function uploadPanel(info) {
   const up = cur.path.startsWith('uploads/');
   const notes = (up ? info.notes || [] : []).map(n => `<div>· ${esc(n)}</div>`).join('');
   const orig = up && info.original ? `<div><a href="/api/file?path=${encodeURIComponent(info.original)}" target="_blank" rel="noopener">see your original file</a></div>` : '';
-  const warn = up && info.not_drawing ? `<div style="color:#b45309"><b>This doesn't look like a construction drawing</b> (it looks like: ${esc(info.not_drawing)}). Questions about it are declined: nothing is counted or read off a file that is not a drawing.</div>` : '';
+  const warn = up && info.not_drawing ? `<div style="color:var(--bad-ink)"><b>This doesn't look like a construction drawing</b> (it looks like: ${esc(info.not_drawing)}). Questions about it are declined: nothing is counted or read off a file that is not a drawing.</div>` : '';
   box.innerHTML = `${warn}${notes ? '<b>We prepared your file:</b>' + notes : ''}${orig}`;
   box.hidden = !box.innerHTML;
   let bar = $('#pagebar');
@@ -785,7 +785,7 @@ function correctedTrustHTML(r, h) {
     const sec = x.second || {};
     txt += `; a second method said ${typeof sec.answer === 'number' ? fmt(sec.answer, t) : esc(String(sec.answer ?? '—'))}`;
   }
-  return `<div class="trust"><span class="tbadge corr" title="You dropped or added items: this number is yours, not the solver's">✎ Corrected by you</span></div>
+  return `<div class="trust"><span class="tbadge corr" title="You dropped or added items: this number is yours, not the solver's">Corrected by you</span></div>
     <div class="orig">${txt}.</div>`;
 }
 // the second opinion in one line: a check mark when it agrees, a warning when it does not
@@ -795,7 +795,7 @@ function secondHTML(r) {
   const v = typeof sec.answer === 'number' ? fmt(sec.answer, r.type) : esc(String(sec.answer ?? '—'));
   const btn = n2 ? ` <button class="linkish" data-act="second">${showSecond ? 'hide' : 'show'} its marks</button>` : '';
   if (c.status === 'agree') return `<div class="second" title="${esc(c.note || 'A second, independent method gave the same answer')}">✓ A second, independent method agrees${btn}</div>`;
-  return `<div class="second conflict" title="${esc(c.note || '')}">⚠ A second method says ${v}: check the evidence${btn}</div>`;
+  return `<div class="second conflict" title="${esc(c.note || '')}">A second method says ${v}: check the evidence${btn}</div>`;
 }
 function renderAnswer(shownSoFar) {
   if (!res) return;
@@ -908,7 +908,7 @@ function crossHTML(r) {
     : [esc(ROUTE[m.split('-')[0]] || m || 'A second method'), ''];
   const tip = c.note ? ` title="${esc(c.note)}"` : '';
   if (c.status === 'agree') return `<div class="xcheck agree"${tip}><b>✓ Two independent methods agree</b><span>${name} also says ${val(sec.answer)}. ${track} ${btn}</span></div>`;
-  return `<div class="xcheck conflict"${tip}><b>⚠ Conflict: ${val(r.answer)} vs ${val(sec.answer)}</b><span>${name} disagrees, so confidence is halved: check the evidence before using this number. ${btn}</span></div>`;
+  return `<div class="xcheck conflict"${tip}><b>Conflict: ${val(r.answer)} vs ${val(sec.answer)}</b><span>${name} disagrees, so confidence is halved: check the evidence before using this number. ${btn}</span></div>`;
 }
 function secondMarks() {
   const ev = (showSecond && res && res.crosscheck && res.crosscheck.second && res.crosscheck.second.evidence) || [];
@@ -1262,7 +1262,7 @@ function renderEvidence() {
   if (num) {
     const tot = document.createElement('div'); tot.className = 'tot';
     const v = items.filter(e => e.on).reduce((s, e) => s + (e.value ?? 1), 0);
-    tot.innerHTML = `<span>${t === 'count' ? 'count' : 'sum'} of checked items</span><span>${fmt(v, t)} ${unitOf(t)}</span>`;
+    tot.innerHTML = `<span>${t === 'count' ? 'Count' : 'Sum'} of checked items</span><span>${fmt(v, t)} ${unitOf(t)}</span>`;
     ev.appendChild(tot);
   }
 }
@@ -1384,7 +1384,7 @@ function recompute() {
   const v = items.filter(e => e.on).reduce((s, e) => s + (e.value ?? 1), 0);
   const el = $('#corr'); if (!el) return;
   const solverHad = items.some(e => !e.added);
-  el.innerHTML = changed ? `✎ corrected by you: <b>${fmt(v, res.type)} ${unitOf(res.type)}</b> (the solver said ${fmt(res.answer, res.type)})`
+  el.innerHTML = changed ? `Corrected by you: <b>${fmt(v, res.type)} ${unitOf(res.type)}</b> (the solver said ${fmt(res.answer, res.type)})`
     + `<span class="fbnote" id="fbnote">${fb.res === res && fb.state ? fbText(fb.state) : ''}</span>`
     + (v === 0 && solverHad ? `<span class="undo">Nothing is counted now. <button type="button" class="linkish" data-act="undo">Undo all corrections</button></span>` : '') : '';
   wireAnswerActions(el);
@@ -1563,7 +1563,7 @@ async function openSheet() {
   const sum = rs => round2(rs.reduce((s, r) => s + r.area, 0));
   const counts = SYM.filter(([k]) => d.counts[k]).map(([k, n]) => `<tr><td>${n}</td><td class="q">${d.counts[k]}</td></tr>`).join('');
   sheetWrap.innerHTML = `<div class="sheettools"><span>Takeoff sheet · ${esc(name)}</span><span class="grow"></span>
-      <button class="btn ghost" id="sheetcsv">⬇ CSV</button><button class="btn" id="sheetprint">Print / PDF</button><button class="btn ghost" id="sheetclose" aria-label="Close">Close</button></div>
+      <button class="btn ghost" id="sheetcsv">Export CSV</button><button class="btn" id="sheetprint">Print</button><button class="btn ghost" id="sheetclose" aria-label="Close">Close</button></div>
     <article class="sheet">
       <header class="sh"><div><div class="sk">Room schedule and symbol takeoff</div><h1>${esc(name)}</h1></div>
         <div class="sm">Measured from the CAD layers of the drawing (DXF twin)<br>no AI model involved · $0 · ${new Date().toLocaleDateString('en-GB', {day: 'numeric', month: 'short', year: 'numeric'})}</div></header>
@@ -1854,7 +1854,7 @@ function speakTools(counting, refresh) {
     t.setAttribute('aria-pressed', String(speak.auto));
     t.title = speak.auto ? 'Answers to voice questions are read aloud: click to mute' : 'Voice questions are answered silently: click to read answers aloud';
     t.setAttribute('aria-label', speak.auto ? 'Mute spoken answers to voice questions' : 'Read answers to voice questions aloud');
-    t.style.width = 'auto'; t.style.padding = '0 6px'; t.style.fontSize = '11px';
+    t.style.width = 'auto'; t.style.padding = '0 6px'; t.style.fontSize = '12px';
     t.textContent = speak.auto ? 'auto' : 'muted';
   }
   // a voice question: speak once, after the count (renderAnswer calls us with counting=false when it has finished)

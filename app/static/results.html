@@ -9,7 +9,7 @@
 <meta property="og:image" content="/static/og.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2316191d'/%3E%3Cpath d='M16 16V7.5A8.5 8.5 0 0 1 24.5 16Z M16 16V24.5A8.5 8.5 0 0 1 7.5 16Z' fill='%23fff'/%3E%3Ccircle cx='16' cy='16' r='8.5' fill='none' stroke='%23fff' stroke-width='2'/%3E%3Cpath d='M16 4.5V27.5 M4.5 16H27.5' stroke='%23fff' stroke-width='2'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@400;600&display=swap">
 <link rel="stylesheet" href="/static/app.css">
 <style>
   /* accuracy page: same tokens as the app (app.css). One accent (our evidence blue) for our bar, neutral grey for everyone else. */
@@ -31,7 +31,7 @@
   .bars .tr { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .bars .b { height: 20px; background: var(--line2); border-radius: 0 4px 4px 0; flex: none; }
   .bars .me .b { background: var(--ev); }
-  .bars .v { font-weight: 500; white-space: nowrap; color: var(--mut); }
+  .bars .v { font-weight: 400; white-space: nowrap; color: var(--mut); }
   .bars .me .v { color: var(--ev-ink); font-weight: 600; }
   .foot { color: var(--mut); font-size: 13px; margin: 12px 0 0; }
 
@@ -58,7 +58,7 @@
   details.rev > summary::before { content: "›"; display: inline-block; width: 12px; color: var(--mut); transition: transform .15s; }
   details.rev[open] > summary::before { transform: rotate(90deg); }
   details.rev > summary small { font-weight: 400; color: var(--mut); font-size: 13px; }
-  .rev h3 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--mut); margin: 28px 0 8px; }
+  .rev h3 { font-size: 14px; font-weight: 600; color: var(--text); margin: 32px 0 8px; }
   .rev p { font-size: 13px; color: var(--mut); margin: 8px 0 0; }
   .rev p b { color: var(--text); font-weight: 600; }
   /* wide tables scroll inside their box; a shadow marks the edge that has more columns behind it */
@@ -69,7 +69,7 @@
       radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,.18), transparent) right / 10px 100% no-repeat scroll, var(--bg); }
   .tw:focus-visible { outline-offset: 0; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; color: var(--mut); font-weight: 500; font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--line2); white-space: nowrap; }
+  th { text-align: left; color: var(--mut); font-weight: 400; font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--line2); white-space: nowrap; }
   td { padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
   th:first-child, td:first-child { padding-left: 0; }
   td.r, th.r { text-align: right; }
