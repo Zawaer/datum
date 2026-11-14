@@ -8,6 +8,7 @@
 #   bash train/cubicasa/remote/box.sh <ip> sh '<command>'
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
+command -v rsync >/dev/null || { echo "rsync missing locally: apt-get install -y rsync" >&2; exit 1; }
 IP=$1; CMD=$2; shift 2
 S=data/secrets/verda
 O=(-i $S/id_verda -o BatchMode=yes -o UserKnownHostsFile=$S/known_hosts -o StrictHostKeyChecking=yes -o ConnectTimeout=15)
