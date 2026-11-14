@@ -1,0 +1,160 @@
+"""bp/sheets/zones.py on a synthetic sheet: a schedule table, a colour legend, colour-filled zones and a dimension
+string (words handed in like a PDF text layer, so no OCR and no model calls)."""
+import os
+
+import numpy as np
+import pytest
+
+os.environ["BP_ZONES_LLM"] = "0"
+
+from bp.sheets import zones as Z  # noqa: E402
+
+W, H = 2400, 1600
+PPF = 10.0  # px per foot on the synthetic sheet
+COLS = {"COMMON AREA": (254, 187, 177), "CIRCULATION": (230, 230, 230), "DORMITORY": (211, 224, 209)}
+
+
+def _line(words, x, y, toks, h=28, gap=14):
+    """Lay out tokens left to right; a ('>', x) token jumps to column x."""
+    for t in toks:
+        if isinstance(t, tuple):
+            x = t[1]
+            continue
+        w = 15 * len(t)
+        words.append({"text": t, "conf": 100.0, "bbox": [x / W, y / H, (x + w) / W, (y + h) / H]})
+        x += w + gap
+
+
+def _schedule_words():
+    ws = []
+    _line(ws, 1500, 960, ["SQUARE", "FOOTAGE"])
+    rows = [["WEST", "WING", "DORMITORY", "="], ["WEST", "WING", "CIRCULATION", "="], ["TOTAL", "WEST", "WING", "="],
+            ["EAST", "WING", "DORMITORY", "="], ["TOTAL", "SECOND", "FLOOR", "="]]
+    vals = ["4,800", "1,200", "6,000", "2,500", "8,500"]
+    for i, (lab, v) in enumerate(zip(rows, vals)):
+        _line(ws, 1500, 1010 + 40 * i, lab + [(">", 2150 - 15 * len(v)), v, "SF"])
+    _line(ws, 1500, 1240, ["ROOM", "COUNT"])
+    for i, (lab, v) in enumerate([("FIRST", "24"), ("SECOND", "24")]):
+        _line(ws, 1500, 1290 + 40 * i, [lab, "FLOOR", "=", (">", 2100), v, "DORMS"])
+    _line(ws, 1500, 1370, ["TOTAL", "=", (">", 2100), "48", "DORMS"])
+    return ws
+
+
+def _sheet(tmp_path):
+    from PIL import Image, ImageDraw
+
+    im = Image.new("RGB", (W, H), "white")
+    d = ImageDraw.Draw(im)
+    # plan: dormitory 80x60 ft, circulation 20x60 ft, common 100x50 ft (top-left at 200,200; 10 px/ft)
+    d.rectangle([200, 200, 999, 799], fill=COLS["DORMITORY"])
+    d.rectangle([1000, 200, 1199, 799], fill=COLS["CIRCULATION"])
+    d.rectangle([1200, 200, 2199, 699], fill=COLS["COMMON AREA"])
+    for x in range(260, 1000, 120):  # furniture outlines on the dormitory fill
+        d.rectangle([x, 260, x + 40, 300], outline="black", width=2)
+    # a dimension string: 200'-0" between ticks at x=200 and x=2200
+    d.line([200, 1450, 2200, 1450], fill="black", width=2)
+    for x in (200, 2200):
+        d.line([x, 1420, x, 1480], fill="black", width=2)
+    # legend swatches
+    for i, name in enumerate(COLS):
+        d.rectangle([300, 1000 + 60 * i, 380, 1030 + 60 * i], fill=COLS[name])
+    p = tmp_path / "sheet.png"
+    im.save(p)
+    ws = _schedule_words()
+    for i, name in enumerate(COLS):
+        _line(ws, 400, 1001 + 60 * i, name.split())
+    _line(ws, 1140, 1405, ["200'-0\""])
+    return {"image": str(p), "w": W, "h": H, "words": ws, "page": 0}
+
+
+@pytest.fixture()
+def meta(tmp_path):
+    return _sheet(tmp_path)
+
+
+def test_numbers_and_dimensions():
+    assert Z._num("6,095") == 6095
+    assert Z._num("26.562") == 26562
+    assert Z._num("12.5") == 12.5
+    assert Z._num("SF") is None
+    assert Z._dim_ft("323'-4\"") == pytest.approx(323 + 4 / 12)
+    assert Z._dim_ft("323-4\"") == pytest.approx(323 + 4 / 12)
+    assert Z._dim_ft("40'") == 40
+
+
+def test_rows_tables_and_totals(meta):
+    rs = Z.rows(meta)
+    got = {(r["label"], r["value"], r["unit"]) for r in rs}
+    assert ("WEST WING DORMITORY", 4800, "SF") in got
+    assert ("TOTAL SECOND FLOOR", 8500, "SF") in got
+    assert ("TOTAL", 48, "dorms") in got
+    tables = {r["table"] for r in rs}
+    assert "SQUARE FOOTAGE" in tables and "ROOM COUNT" in tables
+    assert [r["total"] for r in rs if r["label"].startswith("TOTAL")] == [True] * 3
+
+
+def test_parse_rows_ignores_underline_junk_and_lone_tags():
+    ws = []
+    _line(ws, 100, 100, ["UTILITY", "=", (">", 900), "328", "SF"])
+    _line(ws, 100, 140, ["TOTAL", "FLOOR", "=", (">", 870), "26,562", "SF"])
+    ws.append({"text": "na", "conf": 50, "bbox": [870 / W, 140 / H, 900 / W, 143 / H]})  # underline read as text
+    _line(ws, 1500, 600, ["LOUNGE", (">", 1900), "81", "SF"])  # a room tag far from any table, no "="
+    rs = Z.parse_rows(ws, W / H)
+    assert [(r["label"], r["value"]) for r in rs] == [("UTILITY", 328), ("TOTAL FLOOR", 26562)]
+
+
+def test_schedule_answers_with_arithmetic_and_cells(meta):
+    r = Z.answer(meta["image"], "What is the total dormitory area?", meta)
+    assert r["answer"] == 7300 and r["method"] == "sheets-zones-schedule"
+    assert "4,800 + 2,500 = 7,300 SF" in r["explanation"]
+    cells = [e for e in r["evidence"] if e["kind"] == "cell"]
+    assert len(cells) == 2 and cells[0]["table"] == "Square footage" and cells[0]["text"] == "4,800 SF"
+    r = Z.answer(meta["image"], "What is the total floor area of the second floor?", meta)
+    assert r["answer"] == 8500
+    r = Z.answer(meta["image"], "How many dorm rooms are there in total?", meta)
+    assert r["answer"] == 48
+    r = Z.answer(meta["image"], "How many dorms per floor?", meta)
+    assert r["answer"] == 24
+
+
+def test_unit_conversion(meta):
+    r = Z.answer(meta["image"], "What is the west wing circulation area in square metres?", meta)
+    assert r["answer"] == pytest.approx(1200 * 0.09290304, abs=0.1)
+    assert r["unit"] == "m²" and "m²" in r["explanation"]
+
+
+def test_scale_from_dimension_string(meta):
+    sc = Z.scale(meta)
+    assert sc["px_per_ft"] == pytest.approx(PPF, rel=0.01)
+
+
+def test_legend_and_measured_zones(meta):
+    leg = Z.legend(meta)
+    assert [x["name"] for x in leg] == list(COLS)
+    z = Z.zones(meta)
+    a = {c["name"]: c["area_sf"] for c in z["categories"]}
+    # fills: dormitory 4,800, circulation 1,200, common 5,000 SF; the footprint is grown by 1 ft of exterior wall
+    assert a["DORMITORY"] == pytest.approx(4800, rel=0.08)
+    assert a["CIRCULATION"] == pytest.approx(1200, rel=0.12)
+    assert a["COMMON AREA"] == pytest.approx(5000, rel=0.08)
+    r = Z.answer(meta["image"], "Measure the area of each colour zone", meta)
+    assert r["method"] == "sheets-zones-measured"
+    polys = [e for e in r["evidence"] if e["kind"] == "polygon"]
+    assert {e["category"] for e in polys} == set(COLS) and all(e["unit"] == "m²" and e["value"] > 0 for e in polys)
+
+
+def test_cross_check_in_explanation(meta):
+    r = Z.answer(meta["image"], "What is the west wing dormitory area?", meta)
+    assert r["answer"] == 4800
+    assert "measured" in r["explanation"] and "on the schedule" in r["explanation"]
+
+
+def test_detect_and_abstain(meta):
+    assert Z.detect(meta) >= 0.8
+    assert Z.answer(meta["image"], "How many doors are there?", meta) is None
+    assert Z.detect({"text": "", "words": []}) < 0.5
+
+
+def test_low_res_flag():
+    assert Z._low_res({"w": 2000, "h": 1294}) and not Z._low_res({"w": 10200, "h": 6600})
+    assert Z._low_res({"w": 2000, "h": 1294, "words": [{"text": "x"}]}) is None
