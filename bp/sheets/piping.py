@@ -1142,7 +1142,9 @@ def _llm_family(q: str, present: dict, cost: list) -> list[str] | None:
     key = hashlib.sha1((q + "|" + ",".join(fams)).encode()).hexdigest()[:16]
     f = CACHE / "family" / f"{key}.json"
     if f.exists():
-        return json.loads(f.read_text()).get("families")
+        got = [x for x in json.loads(f.read_text()).get("families") or []
+               if x in FAMILIES or re.search(rf"(?<![A-Za-z]){re.escape(x)}(?![A-Za-z])", q)]
+        return got or None
     from bp.generic import llm
 
     lst = "\n".join(f"{k}: {FAMILIES.get(k, ('?',))[0]} (e.g. {present[k][0]})" for k in fams)
@@ -1152,6 +1154,9 @@ def _llm_family(q: str, present: dict, cost: list) -> list[str] | None:
     cost.append(float(r.get("cost_usd") or 0.0))
     d = llm.parse_json(r.get("text") or "") or {}
     out = [x for x in (d.get("families") or []) if x in present] if isinstance(d, dict) else []
+    # a family whose meaning we don't know is only taken when the question names its code: the model matched
+    # 'fire sprinkler heads' to an unknown 'S-10' family on M-101A
+    out = [x for x in out if x in FAMILIES or re.search(rf"(?<![A-Za-z]){re.escape(x)}(?![A-Za-z])", q)]
     if r.get("text"):
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(json.dumps({"q": q, "families": out}))
