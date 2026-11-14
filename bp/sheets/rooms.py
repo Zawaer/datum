@@ -707,6 +707,11 @@ def answer(path, question, meta):
     W, H = meta.get("w"), meta.get("h")
     if not W:
         H, W = _gray(meta["image"]).shape
+    big = [r for r in rooms if r["area_m2"] >= 4]
+    if seg.get("px_per_m", 0) >= 40 and len(big) >= 10 and sum(1 for r in big if r["label"]) < 0.1 * len(big):
+        # readable resolution yet almost no room carries a name: not a solid-wall plan with room labels (e.g. a
+        # colour-coded space diagram with outlined walls and furniture); let the table / colour-zone paths answer
+        return None
     sc = seg["scale"]
     wpx = seg.get("wall_px") or 0
     cf = 1.0 if wpx >= 3 else 0.75 if wpx >= 2 else 0.5  # thin walls: openings and faces are less certain
