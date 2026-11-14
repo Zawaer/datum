@@ -1363,7 +1363,13 @@ async function doAction(act) {
     await sleep(900);
   }
   else if (k === 'scroll') {  // bring one part of the answer card into view (e.g. the frontier table)
-    const el = $('#answer ' + arg); if (!el) return;
+    const gh = arg === '.vs' && $('#answer .ghostcmp');
+    if (gh && !PHONE.matches) {  // the frontier comparison as a picture: keep the big number and the ghost strip in view together
+      const side = $('#side'), a = $('#answer'), top = el => el.getBoundingClientRect().top - side.getBoundingClientRect().top + side.scrollTop;
+      const card = top(a) - $('.ask').offsetHeight - 16, want = top(gh) + gh.offsetHeight - side.clientHeight + 24;
+      side.scrollTo({top: Math.max(0, Math.min(card, want)), behavior: 'smooth'}); await sleep(900); return;
+    }
+    const el = gh || $('#answer ' + arg); if (!el) return;
     if (PHONE.matches) el.scrollIntoView({behavior: 'smooth', block: 'start'});
     else {
       const side = $('#side'), top = el.getBoundingClientRect().top - side.getBoundingClientRect().top + side.scrollTop;
@@ -1424,7 +1430,10 @@ window.addEventListener('popstate', () => { if (tour) endTour(); restore(false);
 // ------------------------------------------------------------ keyboard
 document.addEventListener('keydown', e => {
   const typing = e.target.matches('input, textarea, select');
-  if (xr && !typing && !['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) xraySkip();
+  if (xr && !typing && !['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) {  // any key skips the count (and does only that)
+    if (e.key === ' ' || e.key === 'Enter') e.preventDefault();
+    xraySkip(); if (e.key !== 'Escape') return;
+  }
   if (e.key === 'Escape') {
     if (!sheetWrap.hidden) closeSheet();
     else if (tour) endTour();
