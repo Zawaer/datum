@@ -6,6 +6,7 @@ Fixtures (tests/fixtures/piping/):
 """
 import copy
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -205,3 +206,45 @@ def test_vote_keeps_tags_most_readings_agree_on():
     c = {"text": "CV-1", "bbox": [0.20, 0.20, 0.22, 0.21]}
     got = P._vote([[a, c], [dict(a), dict(c)], [b]], 1000, 700)
     assert sorted(x["text"] for x in got) == ["CV-1", "FSCV-3"]
+
+
+def test_recheck_relabels_a_doubled_tag(tmp_path, monkeypatch):
+    """Both readers took CV-4 for a second CV-5; the zoomed re-check reads CV-4 there: that label is relabelled
+    (scanned-PDF M-101A, one cold run in three gave 4 check valves)."""
+    from PIL import Image, ImageDraw
+
+    from bp.generic import llm
+
+    W, H = 400, 300
+    xs = [0.30, 0.38, 0.46, 0.54, 0.62]  # CV-1 .. CV-5 in a row
+    im = Image.new("RGB", (W, H), "white")
+    d = ImageDraw.Draw(im)
+    for x in xs:
+        d.rectangle([x * W, 0.5 * H, (x + 0.04) * W, 0.52 * H], fill="black")
+    img = tmp_path / "sheet.png"
+    im.save(img)
+    monkeypatch.setattr(P, "CACHE", tmp_path / "cache")
+    found = [{"tag": t, "family": "CV", "num": int(t[3:]), "bbox": [x, 0.5, x + 0.04, 0.52]}
+             for t, x in zip(["CV-1", "CV-2", "CV-3", "CV-5", "CV-5"], xs)]
+    b = P._union([t["bbox"] for t in found])
+    r = [max(0.0, b[0] - 0.25), max(0.0, b[1] - 0.04), min(1.0, b[2] + 0.25), min(1.0, b[3] + 0.04)]
+    f = min(3.0, P.SEND_PX / max((r[2] - r[0]) * W, (r[3] - r[1]) * H))
+
+    def fake_ask(prompt, images, **kw):
+        x = xs[3]
+        box = [round((x - r[0]) * W * f), round((0.5 - r[1]) * H * f), round((x + 0.04 - r[0]) * W * f),
+               round((0.52 - r[1]) * H * f)]
+        return {"text": ",".join(map(str, box)) + "|CV-4", "cost_usd": 0.0}
+
+    monkeypatch.setattr(llm, "ask", fake_ask)
+    new = P._recheck({"image": str(img)}, "CV", found, [], avoid=found)
+    assert [t["tag"] for t in new] == ["CV-4"]
+    assert sorted(t["tag"] for t in found) == ["CV-1", "CV-2", "CV-3", "CV-4", "CV-5"]
+
+
+def test_prompts_show_numbers_not_placeholders():
+    """Haiku copied a 'x0,y0,x1,y1|TEXT' format line literally (3 of 4 replies on a scan tile): the prompts show
+    numeric examples, and the re-check pattern is not doubled ('FSR-<number>-<number>')."""
+    assert "\nx0,y0,x1,y1|" not in P.VISION_PROMPT and re.search(r"\n\d+,\d+,\d+,\d+\|CV-1", P.VISION_PROMPT)
+    p = P.RECHECK_PROMPT.format(w=100, h=100, fam="FSR-<number>", ex="FSR-1")
+    assert "<number>-<number>" not in p and "\nx0,y0,x1,y1|" not in p
