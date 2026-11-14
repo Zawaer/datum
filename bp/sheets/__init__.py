@@ -425,7 +425,7 @@ def _ocr_run(meta, region, scale, psm):
 
     xs = list(range(0, max(1, crop.width - 200), T - 200)) or [0]
     ys = list(range(0, max(1, crop.height - 200), T - 200)) or [0]
-    with cf.ThreadPoolExecutor(min(8, len(xs) * len(ys))) as ex:  # a 10000 px sheet: ~9 tiles at once
+    with cf.ThreadPoolExecutor(max(1, min(os.cpu_count() or 2, len(xs) * len(ys)))) as ex:  # one tesseract per core
         words = [w for part in ex.map(lambda t: one(*t), [(x, y) for y in ys for x in xs]) for w in part]
     # tiles overlap: drop duplicates (same text, nearly the same box)
     seen, uniq = set(), []
