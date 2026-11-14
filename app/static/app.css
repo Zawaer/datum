@@ -807,3 +807,51 @@ svg .ping.model { stroke: var(--chk); }
 .alist > div span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .alist > div b { font-weight: 600; white-space: nowrap; }
 @media (max-width: 600px) { body:not(.sheetfull) .alist > div:nth-child(n+4) { display: none; } }
+
+/* ------------------------------------------------------------ projects (app/static/project.js): the sheet list,
+   clarify buttons under the question, the best-guess label and the per-floor parts of a whole-building answer */
+#proj { border: 1px solid var(--line); border-radius: var(--r2); background: var(--panel); font-size: 14px; }
+#proj .phead { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 16px; border-bottom: 1px solid var(--line); color: var(--mut); }
+#proj .phead > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#proj .phead b { color: var(--text); font-weight: 600; }
+#proj .padd { color: var(--ev-ink); cursor: pointer; padding: 4px 8px; border-radius: var(--r1); white-space: nowrap; }
+#proj .padd:hover { background: var(--ev-tint); }
+#proj .pclose { background: none; border: 0; color: var(--faint); cursor: pointer; width: 28px; height: 28px; border-radius: var(--r1); }
+#proj .pclose:hover { color: var(--text); background: var(--panel2); }
+#proj .plist { max-height: 196px; overflow: auto; }
+#proj .pbld { padding: 8px 16px 4px; font-size: 12px; color: var(--mut); }
+#proj .psheet { display: grid; grid-template-columns: 76px minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; padding: 8px 16px; background: none; border: 0; border-top: 1px solid var(--line); text-align: left; cursor: pointer; }
+#proj .psheet:first-child { border-top: 0; }
+#proj .psheet:hover { background: var(--panel2); }
+#proj .psheet.on { background: var(--ev-tint); box-shadow: inset 2px 0 0 var(--ev); }
+#proj .plv { font-weight: 600; white-space: nowrap; }
+#proj .pti { color: var(--mut); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#proj .pki { font-size: 12px; color: var(--mut); border: 1px solid var(--line2); border-radius: var(--r1); padding: 0 4px; }
+.clar { margin: 8px 0 0; }
+.clq { font-weight: 600; font-size: 14px; }
+.clopts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.clopt { border: 1px solid var(--ev); color: var(--ev-ink); background: var(--panel); border-radius: var(--r2); padding: 4px 12px; font-size: 14px; cursor: pointer; }
+.clopt:hover { background: var(--ev-tint); }
+.bestg, .pscope { margin-top: 8px; font-size: 12px; color: var(--mut); }
+.bestg { color: var(--chk-ink); }
+.pparts { margin-top: 8px; border-top: 1px solid var(--line); }
+.pparts .pback { display: block; margin: 8px 0 0; font-size: 14px; }
+.pparts .pcap { font-size: 12px; color: var(--mut); padding: 8px 0 4px; }
+.ppart { display: grid; grid-template-columns: minmax(0, 1fr) auto 16px; gap: 8px; align-items: center; width: 100%; padding: 8px 0; background: none; border: 0; border-top: 1px solid var(--line); text-align: left; cursor: pointer; font-size: 14px; }
+.ppart:hover span { text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--line2); }
+.ppart.on { color: var(--ev-ink); }
+.ppart.on span { font-weight: 600; }
+.ppart b { font-weight: 600; }
+.ppart i { font-style: normal; color: var(--faint); }
+@media (max-width: 600px) {
+  /* phone: the project's sheets are a strip of floor tabs over the drawing */
+  #proj { position: fixed; top: calc(52px + env(safe-area-inset-top) + 58px); left: 8px; right: 8px; z-index: 6; display: flex; align-items: center; box-shadow: var(--pop); }
+  #proj[hidden] { display: none; }
+  #proj .phead { border: 0; padding: 4px 0 4px 12px; flex: none; }
+  #proj .phead > span, #proj .padd { display: none; }
+  #proj .plist { display: flex; overflow-x: auto; max-height: none; flex: 1; scrollbar-width: none; order: -1; }
+  #proj .pbld, #proj .pti, #proj .pki { display: none; }
+  #proj .psheet { display: block; width: auto; flex: none; border: 0; padding: 8px 12px; white-space: nowrap; }
+  #proj .psheet.on { box-shadow: inset 0 -2px 0 var(--ev); }
+  .clopt { padding: 8px 12px; }
+}

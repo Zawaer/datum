@@ -1978,7 +1978,13 @@ def frontier_for(ids: list) -> list:
 @app.post("/api/ask")
 def ask(req: Ask, request: Request):
     _ask_limit(request)
+    picks, asked = {}, req.question
     if req.path.startswith("uploads/"):
+        from app import projects  # a clarify pick ("(room: Library)") is read here, not matched as words
+
+        sq, picks = projects.prepare_question(req.question)
+        if picks:
+            req = Ask(path=req.path, question=sq, page=req.page)
         q, known, same = _upload_question(req), None, []
     else:
         qs = BY_PATH.get(req.path)
@@ -2074,6 +2080,14 @@ def ask(req: Ask, request: Request):
         res["frontier"] = frontier_for([x["id"] for x in same]) if known else []
     except Exception:  # noqa: BLE001  the extras never break an answer
         traceback.print_exc()
+    if q["source"] == "upload":
+        try:  # an ambiguous question (which room, closet doors, net or gross): a structured follow-up (app/projects.py)
+            from app import projects
+
+            res = projects.postprocess(res, picks)
+            res["clarify"] = projects.clarify_for(res, asked, req.path, res.get("page") or 0)
+        except Exception:  # noqa: BLE001  a follow-up never breaks an answer
+            traceback.print_exc()
     try:
         res["speak_id"] = _speak_remember(res, req.question)
     except Exception:  # noqa: BLE001  nor does the spoken version
@@ -2794,6 +2808,10 @@ def speak(req: Speak, request: Request):
         while len(_tts_audio) > TTS_CACHE_N:
             _tts_audio.popitem(last=False)
     return Response(audio, media_type="audio/mpeg", headers={**hdr, "X-Speak-Cache": "miss"})
+
+from app import projects as _projects  # noqa: E402  projects: several uploads asked as one (app/projects.py)
+
+_projects.install(app)
 
 # ---------------------------------------------------------------- pages
 
