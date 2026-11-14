@@ -230,8 +230,9 @@ Per-solver checks: `--solver swiss`, `ifc`, `cubicasa`, `ifctext@combo --source 
 
 ## Data, licences, credits
 
-- **Code:** MIT licence (Junction submissions are MIT-licensed). Dependencies keep their own licences
-  (notably Ultralytics YOLO, AGPL-3.0, installed from PyPI, not vendored).
+- **Code:** MIT licence, see [LICENSE](LICENSE) (Junction submissions are MIT-licensed). Dependencies keep
+  their own licences (notably Ultralytics YOLO, AGPL-3.0, installed from PyPI, not vendored); see
+  [THIRD_PARTY.md](THIRD_PARTY.md). Screenshots that show dataset drawings carry the drawing's licence, not MIT.
 - **Dataset:** the Junction 2026 construction drawings dataset by Stoa, **non-commercial use for the challenge,
   per-file licences** in `data/<source>/LICENSE.md`. It is not included in this repository. Drawings shown in
   this README, the deck and the video:
