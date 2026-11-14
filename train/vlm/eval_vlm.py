@@ -80,13 +80,19 @@ def main():
     ap.add_argument("--load-4bit", action="store_true")
     ap.add_argument("--device", default=None)
     ap.add_argument("--out", default=None, help="per-question results JSONL")
+    ap.add_argument("--file", default="val.jsonl", help="rows file under --data")
+    ap.add_argument("--allow-test", action="store_true",
+                    help="inference-only run on held-out test rows (no gold boxes; never used for training)")
+    ap.add_argument("--shard", default="0/1", help="i/n: evaluate every n-th row starting at i")
     a = ap.parse_args()
 
     from bp.vlm.infer import LocalRunner, get_runner
 
     data = Path(a.data)
-    rows = [json.loads(line) for line in open(data / "val.jsonl")]
+    rows = [json.loads(line) for line in open(data / a.file)]
     rows = sample(rows, a.n, a.seed)
+    si, sn = map(int, a.shard.split("/"))
+    rows = rows[si::sn]
     if a.model or a.adapter or a.load_4bit or a.device:
         runner = LocalRunner(model=a.model, adapter=a.adapter, load_4bit=a.load_4bit or None, device=a.device)
     else:
@@ -95,14 +101,14 @@ def main():
     res = []
     t0 = time.time()
     for i, r in enumerate(rows):
-        assert split_of(r["path"]) == "dev"
+        assert a.allow_test or split_of(r["path"]) == "dev"
         img = Image.open(data / r["image"]).convert("RGB")
         try:
             o = runner.ask(img, r["question"], source=r["source"], prepared=True)
         except Exception as e:  # noqa: BLE001
             o = {"text": f"ERROR {e!r}", "parsed": parse_output(""), "confidence": None, "seconds": 0}
         p = o["parsed"]
-        gold_items = [it["bbox_2d"] for it in json.loads(r["answer"])["items"]]
+        gold_items = [it["bbox_2d"] for it in json.loads(r["answer"])["items"]] if r.get("answer") else []
         gold = [[v / 1000 for v in b] for b in gold_items]
         pred = [b for _, b in p["items"]]
         n_pred = len(pred) if p["items"] or p["count"] is None else p["count"]
