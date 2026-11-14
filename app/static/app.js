@@ -213,10 +213,10 @@ let sel3d = null;
 const tip3d = document.createElement('div'); tip3d.className = 'tip3d'; tip3d.hidden = true; tip3d.setAttribute('role', 'dialog');
 viewer.appendChild(tip3d);
 for (const t of ['pointerdown', 'pointerup', 'wheel', 'click']) tip3d.addEventListener(t, e => e.stopPropagation());
-function pickTip(i, pt) {
-  const on2d = mode === '2d' && QA.matches && i != null && items[i] && items[i].kind !== 'ifc';
+function pickTip(i, pt, at) {  // at: open it at the client point pt whatever the mode (the Swiss 3D overlay, via pinCardAt)
+  const on2d = !at && mode === '2d' && QA.matches && i != null && items[i] && items[i].kind !== 'ifc';
   pin2d = on2d ? i : null;
-  if (i == null || !items[i] || (mode !== '3d' && !on2d)) { tip3d.hidden = true; return; }
+  if (i == null || !items[i] || (mode !== '3d' && !on2d && !(at && pt))) { tip3d.hidden = true; return; }
   const e = items[i], k = items.slice(0, i + 1).filter(numbered).length;
   const name = (e.label || 'item').replace(/ \d+$/, '').replace(/^Ifc[A-Za-z]+ /, '');
   tip3d.title = e.label || '';
@@ -227,7 +227,7 @@ function pickTip(i, pt) {
   tip3d.querySelector('b').textContent = name;
   tip3d.querySelector('.tb').onclick = () => {
     e.on = !e.on; redraw(); flashRow(i);
-    if (on2d) pickTip(i); else pickTip(i, V3.screenPos(e.guids));
+    if (on2d) pickTip(i); else if (at) pickTip(i, pt, true); else pickTip(i, V3.screenPos(e.guids));
   };
   tip3d.querySelector('.tx').onclick = () => { sel3d = null; if (window.V3) V3.select(null); pickTip(null); };
   tip3d.classList.toggle('pin', on2d);
@@ -261,6 +261,7 @@ function pinFollow() {  // keep the 2D card beside its pin through pans and zoom
   placeCard(view.x + x * view.s, view.y + y * view.s, numbered(e) ? labelSize() * view.s + 8 : 16);
 }
 window.onPress3d = () => { tip3d.hidden = true; };
+window.pinCardAt = (i, pt) => pickTip(i, pt, true);  // plan3d.js (Swiss 3D): the card beside a picked element
 window.onPick3d = (g, pt) => {
   const i = g == null ? null : guidItem().get(g);
   if (i != null && items[i]) {
