@@ -118,18 +118,29 @@ examples = 2,409 steps = **~5 GPU-hours (~$26 at $5.19/h)**; all language varian
 
 ## Results (Nov 13-14, 1x H100 80GB)
 
-Dev-val = 100 held-out dev questions (stratified by source x target; `eval_vlm.py --n 100`). Test = stratified
-sample of 1,000 count questions from the held-out test split (cubicasa 500, swiss 500) through the real
-solver (`eval.py --solver vlm`, vLLM server, `runs/vlm_q3vl8b_r2_test1000.summary.md`).
+Dev-val = held-out dev questions (stratified by source x target, `eval_vlm.py`). Test = stratified sample of
+1,000 count questions from the held-out test split (cubicasa 500, swiss 500), same ids for every model
+(`runs/vlm_*_test1000.summary.md`); test rows are inference only.
 
-| model | data | dev-val exact count | JSON ok | box recall (IoU≥0.5) | test exact count |
+| model | training | dev-val exact (100 q) | test exact (1,000 q) | cubicasa | swiss |
 |---|---|---|---|---|---|
-| Qwen3-VL-8B zero-shot | — | 42.6 % (first 54 q) | 76 % | 11 % | — |
-| + LoRA r2 (520 steps, 8.3 k ex, ~1 h) | dedup | 62 % (70.4 % on the same 54) | 99 % | 42 % | **64.4 %** (cubicasa 70.0 %, swiss 58.8 %) |
+| Qwen3-VL-8B zero-shot | — | 42.6 % (54 q) | — | | |
+| + LoRA r2 | 520 steps, 8.3 k ex, ~1 h | 62 % | 64.4 % | 70.0 % | 58.8 % |
+| + LoRA r3 checkpoint-2200 | | 74 % | 73.0 % | 74.4 % | 71.6 % |
+| **+ LoRA r3 final** | 3,000 steps, 48 k ex (all languages), ~5.5 h | **76 %** | **73.0 %** | 73.8 % | 72.2 % |
+| PaliGemma 2 3B-896 + LoRA | 1,000 steps, ~4.5 h (eager attention) | 52 % | — | | |
 
-Throughput with vLLM on one H100 (shared with a training job): 1,000 test questions in ~17 min with 8
-parallel requests, i.e. ~$1.5 per 1,000 questions at $5.19/h. Weakest classes: windows and Swiss doors (many
-small instances per plan). For context, the YOLO detector (`cubicasa` solver) scores 82.2 % on the cubicasa
-test split; on the 500 overlapping questions the VLM is right on 23 that YOLO misses, so it is best used as
-a fallback when YOLO is unsure (to be tuned on dev), and as a general counter for plan styles with no
-detector or CAD twin.
+Zero-shot, the base model answers in the right JSON only 76 % of the time and finds about 1 box in 10 at
+IoU ≥ 0.5; after fine-tuning: 99 % valid JSON, box recall at IoU ≥ 0.5 ~0.5. Remaining failure mode: dense
+classes (windows, doors), where the model can loop on one box; `parse_output` drops exact repeats and the
+solver cuts its confidence (x0.2) so the router falls back.
+
+Cost with vLLM on one dedicated H100 ($5.19/h): 1,000 mixed questions in 10 min with 4 request streams
+($0.87 / 1k); all 16,496 cubicasa test questions in 31 min with 16 streams ($0.16 / 1k).
+
+**Second opinion for the detector** (`runs/vlm_r3_cubicasa_test_full.summary.md`, all 16,496 cubicasa test
+questions vs the YOLO11m v4 `cubicasa` solver): YOLO 84.2 %, VLM 74.9 %, either right 89.5 %. The two agree on
+73.7 % of questions and YOLO is then right 94.6 % of the time; when they disagree YOLO is right 55.1 % and the
+VLM 19.9 %. So the VLM is most useful as an independent check that sets the detector's confidence (answer
+confidently on agreement, flag or abstain on disagreement), not as a replacement answer. Agreement is lowest on
+windows (28 %) and doors (42 %).
