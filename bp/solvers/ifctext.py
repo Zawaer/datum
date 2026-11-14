@@ -146,10 +146,20 @@ class IfcTextSolver:
                 ev.append({"kind": "ifc", "file": rel, "guids": guids[fid][:MAX_EV_GUIDS],
                            "label": f"[{fid}] {lines[fid][:160]}", "value": len(guids[fid])})
         na = text.startswith(NA[:30])
-        return {"answer": text, "confidence": 0.3 if na else 0.6, "method": f"ifctext-{self.mode}-{self.model}",
-                "cost_usd": cost, "evidence": ev, "facts_cited": cited,
-                "explanation": f"{self.model} answer from the fact sheet ({len(facts)} chars, "
-                               f"{len(used)} blocks), citing {len(cited)} facts"}
+        out = {"answer": text, "confidence": 0.3 if na else 0.6, "method": f"ifctext-{self.mode}-{self.model}",
+               "cost_usd": cost, "evidence": ev, "facts_cited": cited,
+               "explanation": f"{self.model} answer from the fact sheet ({len(facts)} chars, "
+                              f"{len(used)} blocks), citing {len(cited)} facts"}
+        # provenance: every number / quoted name must be in a cited fact line (or derived from them)
+        from bp import provenance
+
+        prov = provenance.check(text, [(fid, lines[fid]) for fid in dict.fromkeys(cited) if fid in lines],
+                                context=[ln if ln.startswith("[f") else ("sheet", ln) for ln in facts.splitlines()])
+        ok = provenance.verified_sources(prov)
+        for e in ev:
+            if e["label"][1:].split("]")[0] in ok:
+                e["verified"] = True
+        return provenance.apply(out, prov)
 
 
 def _trust_rules(draft: dict) -> bool:
