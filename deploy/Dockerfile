@@ -26,9 +26,12 @@ RUN mkdir -p cache runs && chown -R bp /app
 USER bp
 ENV BP_DATA=/srv/bundle/dataset CLAUDE_CLI=/usr/local/bin/claude-capped CLAUDE_REAL=claude \
     BP_SPEND_LEDGER=/app/cache/spend/ledger.jsonl HF_HUB_OFFLINE=1 YOLO_OFFLINE=1 \
-    YOLO_CONFIG_DIR=/app/cache/yolo DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+    YOLO_CONFIG_DIR=/app/cache/yolo DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+    CLAUDE_CODE_MAX_OUTPUT_TOKENS=2048
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8000/api/drawings?limit=0 >/dev/null || exit 1
+# Proxy headers are trusted only from Docker's private address pools (Caddy reaches the app over the compose network,
+# whose subnet Docker picks at creation) and loopback, never from '*': the rate limiter keys on the resolved client.
 # bp/crosscheck.py reads its second-detector thresholds from cache/crosscheck/ (a volume): copy them in at start
-CMD ["sh", "-c", "mkdir -p cache/crosscheck && cp -f /srv/bundle/xcheck/cc_second_thresholds_*.json cache/crosscheck/ 2>/dev/null; exec uvicorn app.server:app --host 0.0.0.0 --port 8000 --workers 1 --no-server-header --proxy-headers --forwarded-allow-ips '*'"]
+CMD ["sh", "-c", "mkdir -p cache/crosscheck && cp -f /srv/bundle/xcheck/cc_second_thresholds_*.json cache/crosscheck/ 2>/dev/null; exec uvicorn app.server:app --host 0.0.0.0 --port 8000 --workers 1 --no-server-header --proxy-headers --forwarded-allow-ips '127.0.0.1,172.16.0.0/12,192.168.0.0/16,10.0.0.0/8'"]

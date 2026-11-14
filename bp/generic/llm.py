@@ -73,6 +73,29 @@ def _ask_nemotron(prompt, images, system, timeout):
     return {"text": "", "cost_usd": 0.0, "error": err}
 
 
+def run_killable(cmd: list, stdin_text: str | None, timeout: float, **kw) -> subprocess.CompletedProcess:
+    """subprocess.run, but the child gets its own session and the whole process group is killed on timeout:
+    the CLI forks helpers, and a plain kill() left them running (and spending) after we gave up on the call."""
+    import signal
+
+    p = subprocess.Popen(cmd, stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True, **kw)
+    try:
+        out, err = p.communicate(stdin_text, timeout=timeout)
+    except BaseException:
+        try:
+            os.killpg(p.pid, signal.SIGTERM)
+            try:
+                p.wait(5)
+            except subprocess.TimeoutExpired:
+                os.killpg(p.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        p.communicate()
+        raise
+    return subprocess.CompletedProcess(cmd, p.returncode, out, err)
+
+
 def ask(prompt: str, images=(), model: str = "haiku", system: str = "Reply with JSON only.",
         timeout: int = 600, tag: str = "") -> dict:
     """One-turn call. Returns {"text", "cost_usd", "latency_s"} (text '' on failure, plus "error").
@@ -92,8 +115,7 @@ def ask(prompt: str, images=(), model: str = "haiku", system: str = "Reply with 
     res = {"text": "", "cost_usd": 0.0}
     try:
         with tempfile.TemporaryDirectory(prefix="bpgen_") as d:
-            out = subprocess.run(cmd, input=json.dumps(msg) + "\n", capture_output=True, text=True,
-                                 timeout=timeout, cwd=d)
+            out = run_killable(cmd, json.dumps(msg) + "\n", timeout, cwd=d)
         for line in out.stdout.splitlines():
             try:
                 ev = json.loads(line)

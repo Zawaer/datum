@@ -24,12 +24,18 @@ from pydantic import BaseModel
 from bp.data import data_root, load_questions
 from bp.router import Router, guess_type
 
+# imported here, once, not lazily inside handlers: concurrent first imports of shapely from worker threads left it
+# "partially initialized" (every later rooms / plan3d request 500ed, then the import lock hung the server)
+import ezdxf  # noqa: E402,F401
+import shapely.geometry  # noqa: E402,F401
+import shapely.ops  # noqa: E402,F401
+
 ROOT = data_root()
 APP = Path(__file__).parent
 STATIC = APP / "static"
 RUNS = Path("runs")
 UPLOADS = Path("cache/uploads")
-app = FastAPI(title="Blueprints that talk")
+app = FastAPI(title="Blueprints that talk", docs_url=None, redoc_url=None, openapi_url=None)  # public: no API browser
 router = Router()
 
 QUESTIONS = load_questions()
@@ -60,22 +66,63 @@ DAILY_CAP = float(os.environ.get("BP_DAILY_USD_CAP", 0) or 0)
 LEDGER = Path(os.environ["BP_SPEND_LEDGER"]) if os.environ.get("BP_SPEND_LEDGER") else None
 _hits: dict[str, collections.deque] = collections.defaultdict(collections.deque)
 _hits_lock = threading.Lock()
+# rendering, word boxes, meshes, room schedules and 3D plans cost CPU but no money: a separate, more generous bucket
+# (on whenever BP_RATE_LIMIT is), so a script can't pin the CPU and starve the asks
+HEAVY_N = int(os.environ.get("BP_HEAVY_RATE_N", 0) or 0) or RATE_N * 20
+_heavy_hits: dict[str, collections.deque] = collections.defaultdict(collections.deque)
+_PRUNE_EVERY = 300
+_last_prune = [0.0]
+
+
+def client_key(request: Request) -> str:
+    """The visitor's address as uvicorn resolved it (it reads X-Forwarded-For only from the trusted proxy, see
+    --forwarded-allow-ips): a client-sent header can't pick its own bucket. IPv6 is keyed per /64."""
+    import ipaddress
+
+    host = request.client.host if request.client else "?"
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return host
+    if ip.version == 6:
+        if ip.ipv4_mapped is not None:
+            return str(ip.ipv4_mapped)
+        return str(ipaddress.ip_network(f"{ip}/64", strict=False))
+    return str(ip)
+
+
+def _bucket(hits: dict, request: Request, n: int, window: float, msg: str, lock=_hits_lock):
+    ip = client_key(request)
+    now = time.time()
+    with lock:
+        if now - _last_prune[0] > _PRUNE_EVERY:  # forget visitors whose window has passed (bounded memory)
+            _last_prune[0] = now
+            for tab in (_hits, _heavy_hits, _fb_hits):
+                for k in [k for k, d in tab.items() if not d or d[-1] < now - max(window, RATE_S, FEEDBACK_S)]:
+                    del tab[k]
+        dq = hits[ip]
+        while dq and dq[0] < now - window:
+            dq.popleft()
+        if len(dq) >= n:
+            raise HTTPException(429, msg)
+        dq.append(now)
 
 
 def _rate_limit(request: Request):
     if not RATE_N:
         return
-    ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() or \
-        (request.client.host if request.client else "?")
-    now = time.time()
-    with _hits_lock:
-        dq = _hits[ip]
-        while dq and dq[0] < now - RATE_S:
-            dq.popleft()
-        if len(dq) >= RATE_N:
-            raise HTTPException(429, f"this public demo allows {RATE_N} questions per {RATE_S // 60} minutes "
-                                     "per visitor; please try again in a few minutes")
-        dq.append(now)
+    _bucket(_hits, request, RATE_N, RATE_S, f"this public demo allows {RATE_N} questions per {RATE_S // 60} minutes "
+                                            "per visitor; please try again in a few minutes")
+
+
+def _heavy_limit(request: Request):
+    if not RATE_N:
+        return
+    _bucket(_heavy_hits, request, HEAVY_N, RATE_S, "too many drawing requests from this visitor; please wait a minute")
+
+
+# CPU-heavy work that one request can make expensive (upload preparation, IFC tessellation): at most 2 at a time
+_heavy_sem = threading.BoundedSemaphore(2)
 
 
 def spent_today() -> float:
@@ -262,14 +309,22 @@ def _render(path: str, page: int, dpi: int) -> bytes:
     return p.read_bytes()
 
 
+RENDER_DPI = (72, 100, 130, 160, 200, 220)  # snapped, so the lru cache can't be bypassed with dpi=101, 102, ...
+
+
 @app.get("/api/render")
-def render(path: str, page: int = 0, dpi: int = 130):
+def render(request: Request, path: str, page: int = 0, dpi: int = 130):
+    _heavy_limit(request)
+    if not 0 <= page < 10_000:
+        raise HTTPException(404, "no such page")
+    dpi = min(RENDER_DPI, key=lambda d: abs(d - dpi))
     try:
-        data = _render(path, page, min(dpi, 220))
+        data = _render(path, page, dpi)
     except HTTPException:
         raise
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(422, f"could not render: {e}") from e
+        print(f"render failed for {path!r} page {page}: {e!r}", flush=True)
+        raise HTTPException(422, "could not render this page") from e
     mt = "image/jpeg" if path.lower().endswith((".jpg", ".jpeg")) else "image/png"
     return Response(data, media_type=mt, headers={"Cache-Control": "max-age=3600"})
 
@@ -294,8 +349,11 @@ def _words(path: str, page: int) -> tuple:
 
 
 @app.get("/api/words")
-def words(path: str, page: int = 0):
+def words(request: Request, path: str, page: int = 0):
     """Where the drawing's own printed text sits (normalised boxes), so evidence badges can stay off it."""
+    _heavy_limit(request)
+    if not 0 <= page < 10_000:
+        return {"boxes": []}
     try:
         return {"boxes": _words(path, page)}
     except HTTPException:
@@ -305,16 +363,23 @@ def words(path: str, page: int = 0):
 
 
 @app.get("/api/mesh")
-def mesh(path: str):
+def mesh(request: Request, path: str):
     from app.mesh import mesh_bytes
 
+    _heavy_limit(request)
+    _known_drawing(path)
     ifc = ifc_for(path)
     if ifc is None:
         raise HTTPException(404, "no IFC model for this drawing")
+    if not _heavy_sem.acquire(timeout=120):
+        raise HTTPException(503, "the server is busy; please try again in a minute")
     try:
         data = mesh_bytes(ifc)
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(422, f"could not tessellate the model: {e}") from e
+        print(f"tessellation failed for {path!r}: {e!r}", flush=True)
+        raise HTTPException(422, "could not tessellate the model") from e
+    finally:
+        _heavy_sem.release()
     return Response(data, media_type="application/json",
                     headers={"Content-Encoding": "gzip", "Cache-Control": "max-age=3600"})
 
@@ -324,10 +389,11 @@ _FIXTURE_H = {"toilet": 0.4, "washbasin": 0.85, "bathtub": 0.55, "shower": 0.04,
 
 
 @app.get("/api/plan3d")
-def plan3d(path: str):
+def plan3d(request: Request, path: str):
     """A Swiss plan's CAD twin as extrudable geometry (metres): wall footprints, door / window / fixture outlines,
     numbered rooms, and the DXF -> page transform so the client can place the answer's evidence in 3D."""
-    if path.startswith("uploads/") or "swiss_dwellings/" not in path:
+    _heavy_limit(request)
+    if path not in BY_PATH or "swiss_dwellings/" not in path:  # the dataset index, never a client-built path
         raise HTTPException(404, "3D plans exist for the Swiss CAD plans only")
     if path in _PLAN3D:
         return _PLAN3D[path]
@@ -376,12 +442,26 @@ def plan3d(path: str):
     return out
 
 
+def _known_drawing(path: str):
+    """A dataset drawing from the index, or an upload's own folder: anything else is a 404."""
+    if "\x00" in path or not (path in BY_PATH or re.fullmatch(r"uploads/[0-9a-f]{12}/[A-Za-z0-9._-]+", path)):
+        raise HTTPException(404)
+
+
 @app.get("/api/file")
 def raw_file(path: str):
-    p = resolve(path)
-    if not p.exists():
+    if "\x00" in path:
         raise HTTPException(404)
-    return FileResponse(p)
+    p = resolve(path)
+    if not p.is_file():
+        raise HTTPException(404)
+    headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "max-age=3600"}
+    if p.suffix.lower() in VIEWABLE:
+        return FileResponse(p, headers=headers)
+    # anything else (DXF, IFC, an SVG or other markup) is only ever downloaded, never rendered on our origin
+    return FileResponse(p, media_type="application/octet-stream", filename=p.name,
+                        headers={**headers, "Content-Security-Policy": "sandbox; default-src 'none'"},
+                        content_disposition_type="attachment")
 
 
 # ---------------------------------------------------------------- uploads
@@ -402,6 +482,18 @@ REFUSE_EXT = {
 MAX_UPLOAD = 200 * 1024 * 1024
 MAX_PIXELS = 40_000_000      # bigger rasters are downscaled on upload (a 30 MB phone panorama renders in seconds)
 REFUSE_PIXELS = 400_000_000  # decompression bombs
+MAX_FRAMES = 50              # TIFF pages kept (a multi-page scan); the rest are dropped. GIF / WEBP: first frame only
+FRAME_PIXEL_BUDGET = 100_000_000  # width x height x frames converted, at most (~300 MB of RGB)
+
+
+def _pil_limits():
+    """Set before any Image.open (also in _convert): PIL refuses images over this outright."""
+    from PIL import Image
+
+    Image.MAX_IMAGE_PIXELS = REFUSE_PIXELS // 2
+
+
+_pil_limits()
 PREP_VERSION = 3             # bump to re-run the upload preparation on files already in cache/uploads
 SHEET_CHECK = os.environ.get("BP_SHEET_CHECK", "1") == "1"
 
@@ -463,7 +555,15 @@ def _convert(p: Path) -> Path:
 
     try:
         with Image.open(p) as im:
-            frames = [f.convert("RGB") for f in ImageSequence.Iterator(im)][:50]
+            n = min(getattr(im, "n_frames", 1) or 1, MAX_FRAMES) if ext in (".tif", ".tiff") else 1
+            if im.width * im.height * n > FRAME_PIXEL_BUDGET:
+                n = FRAME_PIXEL_BUDGET // max(1, im.width * im.height)
+                if n < 1:
+                    raise UploadError(413, f"image is {im.width}x{im.height} px: too large to process; scale it down")
+            # convert frame by frame and stop at n: never decode the frames we would drop
+            frames = [f.convert("RGB") for _, f in zip(range(n), ImageSequence.Iterator(im))]
+    except UploadError:
+        raise
     except Exception as e:  # noqa: BLE001
         raise UploadError(422, f"could not read this {ext.lstrip('.').upper()} image: it may be damaged "
                                f"({type(e).__name__})") from e
@@ -480,7 +580,6 @@ def _prep_raster(p: Path, m: dict):
     """Validate, honour EXIF rotation, downscale huge images, rectify phone photos of sheets (in place)."""
     from PIL import Image, ImageOps
 
-    Image.MAX_IMAGE_PIXELS = REFUSE_PIXELS
     try:
         with Image.open(p) as im0:
             if im0.width * im0.height > REFUSE_PIXELS:
@@ -611,7 +710,8 @@ def _prepare(d: Path, p: Path, m: dict) -> tuple[Path, str]:
     m["notes"] = []
     ext = p.suffix.lower()
     orig = d / ("original" + ext)
-    if not orig.exists():
+    keep_orig = ext != ".svg"  # an SVG is active content: never kept or served as itself, only its PDF
+    if keep_orig and not orig.exists():
         shutil.copyfile(p, orig)
     if ext in CONVERT_EXT:
         p2 = _convert(p)
@@ -634,7 +734,8 @@ def _prepare(d: Path, p: Path, m: dict) -> tuple[Path, str]:
             m["dxf_extents"] = json.loads((d / "meta.json").read_text()).get("dxf_extents") \
                 if (d / "meta.json").exists() else None
         except Exception as e:  # noqa: BLE001
-            m["render_error"] = repr(e)[:200]
+            print(f"DXF render failed for {p}: {e!r}", flush=True)
+            m["render_error"] = type(e).__name__
     check_file = d / (p.name + ".png") if kind == "dxf" else p
     if SHEET_CHECK and kind != "ifc" and check_file.exists() and not (DAILY_CAP and spent_today() >= DAILY_CAP):
         from bp.generic import sheets
@@ -646,7 +747,9 @@ def _prepare(d: Path, p: Path, m: dict) -> tuple[Path, str]:
             _turn_pages(p, "raster" if kind == "raster" else "pdf", sh, m)
         if sheets.not_a_drawing(sh):
             m["not_drawing"] = sheets.not_a_drawing(sh)
-    if (d / ("original" + ext)).read_bytes() == p.read_bytes() if p.exists() and p.stat().st_size < 50e6 else False:
+    if not keep_orig:
+        pass
+    elif (d / ("original" + ext)).read_bytes() == p.read_bytes() if p.exists() and p.stat().st_size < 50e6 else False:
         (d / ("original" + ext)).unlink()  # nothing changed: no second copy
     else:
         m["original"] = "original" + ext
@@ -662,6 +765,7 @@ def _render_dxf(src: Path, out: Path):
     import matplotlib.pyplot as plt
     from ezdxf import bbox
     from ezdxf.addons.drawing import Frontend, RenderContext
+    from ezdxf.addons.drawing.config import Configuration, ImagePolicy
     from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
 
     doc = ezdxf.readfile(src)
@@ -673,7 +777,9 @@ def _render_dxf(src: Path, out: Path):
     fig = plt.figure(figsize=(w * scale / 100, h * scale / 100), dpi=100)
     ax = fig.add_axes([0, 0, 1, 1])
     ax.set_axis_off()
-    Frontend(RenderContext(doc), MatplotlibBackend(ax)).draw_layout(msp, finalize=False)
+    # IMAGE entities reference files by path: drawing them would read files on this server, so they become outlines
+    Frontend(RenderContext(doc), MatplotlibBackend(ax),
+             config=Configuration(image_policy=ImagePolicy.RECT)).draw_layout(msp, finalize=False)
     ax.set_xlim(x0, x1)
     ax.set_ylim(y0, y1)
     ax.set_aspect("auto")
@@ -703,23 +809,51 @@ async def upload(request: Request, name: str):
     if ext not in UPLOAD_EXT | CONVERT_EXT:
         raise HTTPException(415, f"unsupported file type {ext or '?'}: use PDF, PNG, JPG, DXF or IFC "
                                  "(WEBP, TIFF, BMP, GIF and SVG are converted)")
-    body = await request.body()
-    if not body:
-        raise HTTPException(400, "empty file")
-    if len(body) > MAX_UPLOAD:
-        raise HTTPException(413, "file too large (max 200 MB)")
-    key = hashlib.sha1(body).hexdigest()[:12]
-    d = UPLOADS / key
-    d.mkdir(parents=True, exist_ok=True)
-    meta = d / "meta.json"
-    m = json.loads(meta.read_text()) if meta.exists() else {}
-    if m.get("prep") == PREP_VERSION and m.get("name") and (d / m["name"]).exists():
+    try:
+        if int(request.headers.get("content-length") or 0) > MAX_UPLOAD:
+            raise HTTPException(413, "file too large (max 200 MB)")
+    except ValueError:
+        raise HTTPException(400, "bad Content-Length") from None
+    # stream to a temp file with a running size check (never the whole body in memory)
+    import tempfile
+
+    UPLOADS.mkdir(parents=True, exist_ok=True)
+    sha, size = hashlib.sha1(), 0
+    tmp = Path(tempfile.mkstemp(dir=UPLOADS, prefix=".incoming_")[1])
+    try:
+        with open(tmp, "wb") as fh:
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > MAX_UPLOAD:
+                    raise HTTPException(413, "file too large (max 200 MB)")
+                sha.update(chunk)
+                fh.write(chunk)
+        if not size:
+            raise HTTPException(400, "empty file")
+        key = sha.hexdigest()[:12]
+        d = UPLOADS / key
+        d.mkdir(parents=True, exist_ok=True)
+        meta = d / "meta.json"
+        m = json.loads(meta.read_text()) if meta.exists() else {}
+        prepared = m.get("prep") == PREP_VERSION and m.get("name") and (d / m["name"]).exists()
+        if not prepared:
+            p = d / safe
+            tmp.replace(p)
+    finally:
+        tmp.unlink(missing_ok=True)
+    if prepared:
         safe, kind = m["name"], m["kind"]  # the same file again: prepared already
     else:
-        p = d / safe
-        p.write_bytes(body)
+        def _prepare_limited(*a):
+            if not _heavy_sem.acquire(timeout=120):
+                raise UploadError(503, "the server is busy preparing other uploads; please try again in a minute")
+            try:
+                return _prepare(*a)
+            finally:
+                _heavy_sem.release()
+
         try:
-            p, kind = await run_in_threadpool(_prepare, d, p, m)
+            p, kind = await run_in_threadpool(_prepare_limited, d, p, m)
         except UploadError as e:
             raise HTTPException(e.status, e.msg) from e
         except HTTPException:
@@ -729,7 +863,7 @@ async def upload(request: Request, name: str):
             raise HTTPException(422, f"could not read this file as {ext.lstrip('.').upper()}: it may be damaged or "
                                      f"not really a {ext.lstrip('.').upper()} ({type(e).__name__})") from e
         safe = p.name
-        m.update({"name": safe, "kind": kind, "bytes": len(body), "uploaded": time.time(), "prep": PREP_VERSION})
+        m.update({"name": safe, "kind": kind, "bytes": size, "uploaded": time.time(), "prep": PREP_VERSION})
         meta.write_text(json.dumps(m))
     path = f"uploads/{key}/{safe}"
     return {"path": path, "source": "upload", "ext": Path(safe).suffix.lstrip("."), "kind": kind, "n": 0,
@@ -852,12 +986,14 @@ def _run_router(q: dict, timeout: float = SOLVER_TIMEOUT_S) -> dict:
     except Exception as e:  # noqa: BLE001  never 500 on a solver bug: abstain and say why
         traceback.print_exc()
         return _abstain("the solver hit an internal error on this question, so it abstains rather than guess",
-                        method="error", error=repr(e)[:300])
+                        method="error", error="internal error")
     if not isinstance(res, dict):
         return _abstain("the solver returned nothing usable", method="error")
     if res.get("answer") is None and str(res.get("method", "")).endswith("error"):
         # solver-internal failures (e.g. model weights being swapped) read as stack traces: keep them out of the UI
-        res["error"] = res.get("explanation")
+        # and out of the response (logged here instead)
+        print(f"solver error ({res.get('method')}): {str(res.get('explanation'))[:500]}", flush=True)
+        res["error"] = "internal error"
         res["explanation"] = ("the solver hit an internal error on this question (a model may be updating), "
                               "so it abstains rather than guess; try again in a minute")
     return res
@@ -1115,6 +1251,15 @@ def rule_for(res: dict, q: dict) -> str | None:
     if res.get("answer") is None:
         return None
     m, ql, expl = str(res.get("method") or ""), (q.get("question") or "").lower(), res.get("explanation") or ""
+    if m.endswith("-compare") or res.get("comparison"):  # before the per-source rules: their wording is for one value
+        if m.startswith("ifc"):
+            return ("Compared from the IFC model: each candidate's value is read as for a normal count or quantity "
+                    "answer; the largest / smallest or the difference is shown with its arithmetic.")
+        if m.startswith("swiss"):
+            return ("Compared from the CAD geometry: each candidate's value is read as for a normal area or count "
+                    "answer; the largest / smallest or the difference is shown with its arithmetic.")
+        return ("Each candidate's value is read as for a normal answer; the largest / smallest or the difference "
+                "is shown with its arithmetic.")
     if m.startswith("cubicasa"):
         try:
             from bp.cubicasa.questions import target
@@ -1250,6 +1395,9 @@ def ask(req: Ask, request: Request):
         _fix_upload_evidence(res, q, req.path)
         _upload_honesty(res, q)
     res.pop("raw", None)
+    if res.get("error") not in (None, "timeout", "internal error"):  # raw exception / CLI text: log, don't return
+        print(f"ask error ({res.get('method')}): {str(res['error'])[:500]}", flush=True)
+        res["error"] = "internal error"
     try:
         res["question_id"] = known["id"] if known else None
         res["calibration"] = calibration_for(res)
@@ -1265,8 +1413,9 @@ def ask(req: Ask, request: Request):
         traceback.print_exc()
     try:
         return JSONResponse(json.loads(json.dumps(res, default=str)))
-    except Exception as e:  # noqa: BLE001
-        return _abstain(f"could not serialise the answer: {e}", method="error")
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
+        return _abstain("could not serialise the answer", method="error")
 
 
 # ---------------------------------------------------------------- corrections become training data
@@ -1318,16 +1467,8 @@ def _clean_item(e: dict) -> dict:
 
 
 def _feedback_limit(request: Request):
-    ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() or \
-        (request.client.host if request.client else "?")
-    now = time.time()
-    with _fb_lock:
-        dq = _fb_hits[ip]
-        while dq and dq[0] < now - FEEDBACK_S:
-            dq.popleft()
-        if len(dq) >= FEEDBACK_N:
-            raise HTTPException(429, "too many corrections from this visitor; please try again later")
-        dq.append(now)
+    _bucket(_fb_hits, request, FEEDBACK_N, FEEDBACK_S,
+            "too many corrections from this visitor; please try again later", lock=_hits_lock)
 
 
 @app.post("/api/feedback")
@@ -1399,10 +1540,11 @@ def signoff(so: Signoff, request: Request):
 # ---------------------------------------------------------------- room schedule (heat-map + takeoff sheet)
 
 @app.get("/api/rooms")
-def rooms(path: str):
+def rooms(request: Request, path: str):
     """Every numbered room of a Swiss plan (apartment, net area, outline on the page) and the symbol counts, read
     from the CAD twin the solver uses: the heat-map and the printable takeoff sheet. $0, no model call."""
-    if path.startswith("uploads/") or "swiss_dwellings/" not in path:
+    _heavy_limit(request)
+    if path not in BY_PATH or "swiss_dwellings/" not in path:  # the dataset index, never a client-built path
         raise HTTPException(404, "room schedules exist for the Swiss CAD plans only")
     from bp.solvers.swiss import FILL_COMMON, SwissSolver
     try:

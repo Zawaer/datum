@@ -3,12 +3,16 @@
 
 Every call's total_cost_usd is appended to $BP_SPEND_LEDGER as {"t", "day", "cost_usd"}; once today's (UTC)
 sum reaches $BP_DAILY_USD_CAP, calls are refused without reaching the API (the solvers then abstain).
+Before each call a pessimistic reservation ($BP_RESERVE_USD, default $0.05) is written under the ledger lock and
+corrected to the real cost afterwards, so concurrent calls cannot all slip under the cap, and a call that is
+killed mid-way still counts. The real CLI runs in its own process group, killed as a whole on SIGTERM / timeout.
 Works with both --output-format json and stream-json (the refusal is a result event with is_error).
 """
 import datetime
 import fcntl
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -16,6 +20,8 @@ import time
 REAL = os.environ.get("CLAUDE_REAL", "claude")
 LEDGER = os.environ.get("BP_SPEND_LEDGER", "/app/cache/spend/ledger.jsonl")
 CAP = float(os.environ.get("BP_DAILY_USD_CAP", "5") or 5)
+RESERVE = float(os.environ.get("BP_RESERVE_USD", "0.05") or 0.05)
+TIMEOUT_S = float(os.environ.get("BP_CALL_TIMEOUT_S", "900") or 900)
 MODELS = set(filter(None, os.environ.get("BP_ALLOWED_MODELS", "haiku,sonnet").split(",")))
 
 
@@ -50,21 +56,57 @@ if "--model" in args:
     if MODELS and m not in MODELS:
         refuse(f"model {m} is not allowed on the public demo")
 day = today()
-if spent(day) >= CAP:
-    refuse(f"daily model budget of ${CAP:g} reached")
-p = subprocess.run([REAL] + args, stdin=sys.stdin, capture_output=True, text=True)
-cost = 0.0
-for line in p.stdout.splitlines():
+os.makedirs(os.path.dirname(LEDGER), exist_ok=True)
+
+
+def ledger(cost_usd, **kw):
+    with open(LEDGER, "a") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        f.write(json.dumps({"t": round(time.time()), "day": day, "cost_usd": cost_usd, **kw}) + "\n")
+
+
+# check the cap and reserve under one lock, so N concurrent calls can't all pass the check at once
+with open(LEDGER + ".lock", "a") as lk:
+    fcntl.flock(lk, fcntl.LOCK_EX)
+    if spent(day) >= CAP:
+        refuse(f"daily model budget of ${CAP:g} reached")
+    rid = f"{os.getpid()}-{time.time_ns()}"
+    ledger(RESERVE, reserve=rid)
+
+p = subprocess.Popen([REAL] + args, stdin=sys.stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                     start_new_session=True)
+
+
+def _kill(*_):
+    try:
+        os.killpg(p.pid, signal.SIGTERM)
+        try:
+            p.wait(3)  # under the 5 s the caller's own group kill allows
+        except subprocess.TimeoutExpired:
+            os.killpg(p.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    sys.exit(143)  # the reservation stays in the ledger: a killed call may still have been billed
+
+
+signal.signal(signal.SIGTERM, _kill)
+signal.signal(signal.SIGINT, _kill)
+signal.signal(signal.SIGHUP, _kill)
+try:
+    out, err = p.communicate(timeout=TIMEOUT_S)
+except subprocess.TimeoutExpired:
+    _kill()
+cost = None
+for line in out.splitlines():
     try:
         ev = json.loads(line)
     except ValueError:
         continue
     if isinstance(ev, dict) and ev.get("total_cost_usd") is not None:
         cost = float(ev["total_cost_usd"])
-os.makedirs(os.path.dirname(LEDGER), exist_ok=True)
-with open(LEDGER, "a") as f:
-    fcntl.flock(f, fcntl.LOCK_EX)
-    f.write(json.dumps({"t": round(time.time()), "day": day, "cost_usd": cost}) + "\n")
-sys.stdout.write(p.stdout)
-sys.stderr.write(p.stderr)
+# correct the reservation to the real cost; with no cost reported (crash), keep the reservation
+if cost is not None:
+    ledger(round(cost - RESERVE, 6), correct=rid)
+sys.stdout.write(out)
+sys.stderr.write(err)
 sys.exit(p.returncode)

@@ -13,6 +13,8 @@ import threading
 import time
 from pathlib import Path
 
+from bp.generic.llm import run_killable
+
 CLI = os.environ.get("CLAUDE_CLI") or os.environ.get("CLAUDE_CODE_EXECPATH") or "claude"
 SPEND_LOG = Path(os.environ.get("BP_CACHE", "cache")) / "llm_spend.jsonl"
 _lock = threading.Lock()
@@ -28,7 +30,7 @@ def ask(prompt: str, system: str, model: str = "haiku", tag: str = "", timeout: 
                 # each prompt is used once, so a prompt-cache write (2x input price) is pure overhead:
                 # measured 5 Haiku calls $0.0247 with caching vs $0.0142 without
                 env = {**os.environ, "DISABLE_PROMPT_CACHING": os.environ.get("DISABLE_PROMPT_CACHING", "1")}
-                out = subprocess.run(cmd, cwd=d, capture_output=True, text=True, timeout=timeout, env=env)
+                out = run_killable(cmd, None, timeout, cwd=d, env=env)
                 res = json.loads(out.stdout)
             except Exception as e:  # noqa: BLE001
                 err = repr(e)[:300]
