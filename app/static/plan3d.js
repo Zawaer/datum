@@ -66,7 +66,9 @@ css.textContent = `
 .p3l.hot .p3a b { color: var(--ink); } .p3l.hot { z-index: 2; }
 .p3l.cand .p3n { background: #7a8594; }
 .p3l.dot .p3n { min-width: 0; width: 12px; height: 12px; padding: 0; margin: 0; border-width: 2px; font-size: 0; box-shadow: 0 0 0 1px rgba(22,25,29,.25); }
-.p3l.dot .p3n::after { display: none; } .p3l.dot { z-index: 0; } .p3l:not(.dot) { z-index: 1; } .p3l.hot.hot { z-index: 3; }
+.p3l.dot .p3n::after { display: none; }
+.p3l.dot .p3a { width: 12px; height: 12px; padding: 0; margin: 0; border-radius: 50%; border: 2px solid #fff; background: var(--ev); box-shadow: 0 0 0 1px rgba(22,25,29,.25); }
+.p3l.dot .p3a > *, .p3l.dot .p3a::after { display: none; } .p3l.off.dot .p3a { background: #9aa2ad; } .p3l.dot { z-index: 0; } .p3l:not(.dot) { z-index: 1; } .p3l.hot.hot { z-index: 3; }
 #viewer.p3on #p3modes { box-shadow: 0 1px 3px rgba(22,25,29,.12); }
 .p3ctl { position: absolute; right: 12px; top: 64px; z-index: 5; display: flex; flex-direction: column; gap: 8px; align-items: center; }
 .p3ctl > * { background: var(--panel); border: 1px solid var(--line2); border-radius: 8px; box-shadow: 0 1px 3px rgba(22,25,29,.12); }
@@ -614,44 +616,29 @@ function legend() {
   leg.innerHTML = `${what}<span class="p3wide">Floor: the drawing · ${src}</span>`;
 }
 
-// numbers and m² labels follow their anchors on every rendered frame; a label that would sit on an earlier one
-// is nudged up so the numbers stay readable
+// numbers and m² labels are pinned to one fixed world point each (the door / symbol on the floor, the room's label
+// spot), projected with the camera of the frame just rendered: a pin never moves on screen except with its anchor.
+// Decluttering only hides: a pin that would overlap one already placed (the hovered one first) shows as a small dot
+// on its anchor, and gets its number back on hover or when zooming in gives it room. A big count (more than DENSE
+// numbered items) keeps a wider margin between pins.
 const _v = new THREE.Vector3(), DENSE = 40;
 let dense = false;
 function placeLabels() {
   if (!ev.length) return;
-  const w = box.clientWidth, h = box.clientHeight, placed = [];
+  const w = box.clientWidth, h = box.clientHeight, placed = [], gap = dense ? 8 : 3;
   const order = ev.filter(x => x.el).sort((a, b) => (b === hot) - (a === hot) || (b.on - a.on) || a.i - b.i);
-  // a big count (more than DENSE numbered items): every item is a small dot on the floor, and a numbered pin only
-  // where it has room (the hovered / selected one first), so zooming in brings the numbers back one by one
-  if (dense) {
-    for (const it of order) {
-      _v.copy(it.anchor).project(camera);
-      if (_v.z > 1 || _v.x < -1.2 || _v.x > 1.2 || _v.y < -1.2 || _v.y > 1.2) { it.el.style.visibility = 'hidden'; continue; }
-      it.el.style.visibility = '';
-      const sx = (_v.x + 1) / 2 * w, sy = (1 - _v.y) / 2 * h, pw = 30, ph = 35;
-      const r0 = [sx - pw / 2, sy - ph, pw, ph];
-      const free = it.n != null && !placed.some(p => r0[0] < p[0] + p[2] + 8 && r0[0] + pw + 8 > p[0] && r0[1] < p[1] + p[3] + 8 && r0[1] + ph + 8 > p[1]);
-      const pin = it === hot || free;
-      if (it.el.classList.contains('dot') === pin) it.el.classList.toggle('dot', !pin);
-      if (pin) placed.push(r0);
-      it.el.style.transform = pin ? `translate(${Math.round(r0[0])}px,${Math.round(r0[1])}px)` : `translate(${Math.round(sx - 6)}px,${Math.round(sy - 6)}px)`;
-    }
-    return;
-  }
   for (const it of order) {
     _v.copy(it.anchor).project(camera);
     if (_v.z > 1 || _v.x < -1.2 || _v.x > 1.2 || _v.y < -1.2 || _v.y > 1.2) { it.el.style.visibility = 'hidden'; continue; }
     it.el.style.visibility = '';
-    const ew = it.el.offsetWidth || 20, eh = it.el.offsetHeight || 20;
-    let x = (_v.x + 1) / 2 * w - ew / 2, y = (1 - _v.y) / 2 * h - eh;
-    for (let t = 0; t < 4; t++) {
-      const hit = placed.find(p => x < p[0] + p[2] && x + ew > p[0] && y < p[1] + p[3] && y + eh > p[1]);
-      if (!hit) break;
-      y = hit[1] - eh - 2;
-    }
-    placed.push([x, y, ew, eh]);
-    it.el.style.transform = `translate(${Math.round(x)}px,${Math.round(y)}px)`;
+    if (!it.fw && !it.el.classList.contains('dot') && it.el.offsetWidth) { it.fw = it.el.offsetWidth; it.fh = it.el.offsetHeight; }
+    const fw = it.fw || 30, fh = it.fh || 35, sx = (_v.x + 1) / 2 * w, sy = (1 - _v.y) / 2 * h;
+    const r0 = [sx - fw / 2, sy - fh, fw, fh];
+    const free = !placed.some(p => r0[0] < p[0] + p[2] + gap && r0[0] + fw + gap > p[0] && r0[1] < p[1] + p[3] + gap && r0[1] + fh + gap > p[1]);
+    const pin = it === hot || free;
+    if (it.el.classList.contains('dot') === pin) it.el.classList.toggle('dot', !pin);
+    if (pin) placed.push(r0);
+    it.el.style.transform = pin ? `translate(${(sx - fw / 2).toFixed(1)}px,${(sy - fh).toFixed(1)}px)` : `translate(${(sx - 6).toFixed(1)}px,${(sy - 6).toFixed(1)}px)`;
   }
 }
 
