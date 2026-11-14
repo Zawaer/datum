@@ -270,6 +270,36 @@ def render(path: str, page: int = 0, dpi: int = 130):
     return Response(data, media_type=mt, headers={"Cache-Control": "max-age=3600"})
 
 
+@functools.lru_cache(maxsize=128)
+def _words(path: str, page: int) -> tuple:
+    p = resolve(path)
+    if p.suffix.lower() != ".pdf" or not p.exists():
+        return ()
+    import pymupdf
+
+    with pymupdf.open(p) as doc:
+        if page >= len(doc):
+            return ()
+        pg = doc[page]
+        W, H, m = pg.rect.width, pg.rect.height, pg.rotation_matrix
+        out = []
+        for w in pg.get_text("words")[:4000]:
+            r = pymupdf.Rect(w[:4]) * m if pg.rotation else pymupdf.Rect(w[:4])
+            out.append((round(r.x0 / W, 5), round(r.y0 / H, 5), round(r.x1 / W, 5), round(r.y1 / H, 5)))
+        return tuple(out)
+
+
+@app.get("/api/words")
+def words(path: str, page: int = 0):
+    """Where the drawing's own printed text sits (normalised boxes), so evidence badges can stay off it."""
+    try:
+        return {"boxes": _words(path, page)}
+    except HTTPException:
+        raise
+    except Exception:  # noqa: BLE001  (a scan, a damaged file: no text to avoid)
+        return {"boxes": []}
+
+
 @app.get("/api/mesh")
 def mesh(path: str):
     from app.mesh import mesh_bytes

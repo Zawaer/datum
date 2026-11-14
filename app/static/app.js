@@ -16,7 +16,7 @@ let askSeq = 0, animating = false;
 // ------------------------------------------------------------ pan / zoom (mouse, wheel, touch pinch)
 let view = {s: 1, x: 0, y: 0};
 const stage = $('#stage'), viewer = $('#viewer'), img = $('#img'), ov = $('#ov');
-function apply() { stage.style.transform = `translate(${view.x}px,${view.y}px) scale(${view.s})`; }
+function apply() { stage.style.transform = `translate(${view.x}px,${view.y}px) scale(${view.s})`; ov.style.setProperty('--u', (1 / view.s) + 'px'); }
 function fit() {
   const W = viewer.clientWidth, H = viewer.clientHeight, w = img.naturalWidth, h = img.naturalHeight;
   if (!w) return;
@@ -263,6 +263,7 @@ async function select(d, how = 'push') {
 function showImage(view, page = 0) {
   cur.shown = view || null; cur.page = page || 0; syncPageBar();
   if (!view) { img.removeAttribute('src'); return; }
+  loadWords(view, page || 0);
   const src = '/api/render?path=' + encodeURIComponent(view) + (page ? '&page=' + page : '');
   if (img.getAttribute('src') !== src) { loading('Rendering the drawing…'); img.onload = () => loading(''); img.onerror = () => { loading(''); hint('Could not render this drawing'); }; img.src = src; }
 }
@@ -701,22 +702,113 @@ const PHONE = matchMedia('(max-width: 860px)');
 const pgLabelY = (cy, by, fs) => Math.max(cy + fs * 2.4, by - fs * 0.9);
 const pgBadgeY = (cy, ty, fs) => Math.max(ty + fs * 1.1, cy - fs * 2.4);
 function labelSize() { return (PHONE.matches ? 11 : 14) / view.s; }
-function rescaleLabels() {
-  const fs = labelSize();
-  ov.querySelectorAll('circle.badgebg').forEach(c => {
-    c.setAttribute('r', fs * 0.78);
-    if (c.dataset.ty) { const y = pgBadgeY(+c.dataset.y, +c.dataset.ty, fs); c.setAttribute('cy', y); c.nextElementSibling?.setAttribute('y', y); }
+// where the drawing's own printed text sits (PDF words, normalised boxes): numbers and m² labels keep off it
+let words = {key: '', boxes: []};
+function loadWords(file, page) {
+  const key = file + '#' + page; if (words.key === key) return;
+  words = {key, boxes: []};
+  if (!/\.pdf$/i.test(file)) return;
+  fetch('/api/words?path=' + encodeURIComponent(file) + '&page=' + page).then(r => r.ok ? r.json() : null)
+    .then(d => { if (d && words.key === key && d.boxes?.length) { words.boxes = d.boxes; rescaleLabels(); } }).catch(() => {});
+}
+// Place every number badge and m² label (in image pixels, for the current zoom): each one tries a few spots
+// around what it marks and takes the one that covers the least of the other badges, the printed text and the
+// other evidence; a badge pushed away from its box gets a thin leader line back to it.
+let lay = new Map();
+const ovl = (a, b) => Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+function layoutLabels(W, H, fs) {
+  const out = new Map(), placed = [];
+  const px = b => [b[0] * W, b[1] * H, b[2] * W, b[3] * H];
+  const text = [...words.boxes.map(px), ...marks.filter(m => m.kind === 'text' && m.bbox).map(m => px(m.bbox))];
+  const boxes = items.map(e => e.kind === 'box' && e.bbox ? px(e.bbox) : null);
+  const pick = (cands, hw, hh, own, i) => {
+    const reach = 2 * (hw + hh) + 6 * fs, ox = (own[0] + own[2]) / 2, oy = (own[1] + own[3]) / 2;
+    const zone = [own[0] - reach, own[1] - reach, own[2] + reach, own[3] + reach];
+    const near = text.filter(t => ovl(t, zone) > 0), nearBx = boxes.filter((b, j) => b && j !== i && ovl(b, zone) > 0);
+    const nearPl = placed.filter(p => ovl(p, zone) > 0);
+    let best = null;
+    cands.forEach((c, k) => {
+      const R = [c.x - hw, c.y - hh, c.x + hw, c.y + hh], A = 4 * hw * hh;
+      let cost = (c.ring || 0) * 0.45 + k * 0.01 + (c.extra || 0);
+      for (const p of nearPl) cost += 8 * ovl(R, p) / A;
+      for (const t of near) cost += 2.5 * ovl(R, t) / A;
+      for (const b of nearBx) cost += 0.6 * ovl(R, b) / A;
+      if (c.ring != null) cost += ovl(R, own) / A;  // a box's number sits beside it, not on what it marks
+      cost += 4 * (1 - ovl(R, [0, 0, W, H]) / A);
+      if (!best || cost < best.cost - 1e-9) best = {...c, cost};
+    });
+    placed.push([best.x - hw, best.y - hh, best.x + hw, best.y + hh]);
+    return best;
+  };
+  items.forEach((e, i) => {
+    if (e.kind === 'ifc' || (!e.bbox && !e.points)) return;
+    if (e.kind === 'polygon') {
+      const xs = e.points.map(p => p[0] * W), ys = e.points.map(p => p[1] * H);
+      const x0 = Math.min(...xs), x1 = Math.max(...xs), ty = Math.min(...ys), by = Math.max(...ys), cx = (x0 + x1) / 2, cy = (ty + by) / 2;
+      const own = [x0, ty, x1, by];
+      if (numbered(e)) {  // a room's printed name and number sit at its centre: its number badge goes above them, inside
+        const r = fs * 0.85, q = (x1 - x0) / 4;
+        const c = [pgBadgeY(cy, ty, fs), ty + fs * 1.1, cy - fs * 1.2, by - fs * 1.1].flatMap(y => [cx, cx - q, cx + q].map((x, j) => ({x, y, extra: j ? 0.1 : 0})));
+        out.set(i, {...pick(c, r, r, own, i), lead: null});
+      } else if (e.on && e.value != null && res.type !== 'count') {  // the m²: near the room's bottom edge, off its printed name
+        const hw = (round2(e.value) + ' m²').length * fs * 0.3 + fs * 0.15, hh = fs * 0.55, sh = fs * 0.33;  // sh: baseline to centre
+        const yl = [pgLabelY(cy, by, fs), by - fs * 0.9, ty + fs * 1.6, cy + fs * 1.4, cy - fs * 1.6];
+        const xl = [cx, x0 + hw + fs * 0.4, x1 - hw - fs * 0.4];
+        const c = yl.flatMap(y => xl.map((x, j) => ({x, y: y - sh, extra: j ? 0.1 : 0})));
+        c.push({x: cx, y: by + fs * 0.9 - sh, extra: 1.2}, {x: cx, y: ty - fs * 0.4 - sh, extra: 1.2});  // just outside: a last resort
+        const b = pick(c, hw, hh, own, i); out.set(i, {x: b.x, y: b.y + sh});
+      }
+      return;
+    }
+    if (!numbered(e)) return;
+    const [x0, y0, x1, y1] = px(e.bbox), mx = (x0 + x1) / 2, my = (y0 + y1) / 2, r = fs * 0.8, d = r * 0.78;
+    // spots around the box: its corners and edge midpoints, touching it (ring 0), then further out (with a leader)
+    const dirs = [[x0, y0, -1, -1], [x1, y0, 1, -1], [x0, y1, -1, 1], [x1, y1, 1, 1], [mx, y0, 0, -1], [mx, y1, 0, 1], [x0, my, -1, 0], [x1, my, 1, 0]];
+    if (y1 - y0 < fs * 2.2) dirs.unshift(dirs.splice(6, 1)[0]);  // a thin box (a wall, a door in plan): its left end first
+    const c = [];
+    for (const ring of [0, 1, 2, 3]) for (const [ax, ay, dx, dy] of dirs) {
+      const k = (dx && dy ? d : r * 1.05) + ring * r * 1.9;
+      c.push({x: ax + dx * k, y: ay + dy * k, ring});
+    }
+    const b = pick(c, r * 0.95, r * 0.95, [x0, y0, x1, y1], i);
+    out.set(i, {x: b.x, y: b.y, lead: b.ring ? [Math.min(x1, Math.max(x0, b.x)), Math.min(y1, Math.max(y0, b.y))] : null});
   });
-  ov.querySelectorAll('text.badge').forEach(t => t.style.fontSize = (t.textContent.length > 2 ? fs * 0.62 : fs * 0.82) + 'px');
-  ov.querySelectorAll('text.pglabel').forEach(t => { t.style.fontSize = fs + 'px'; t.setAttribute('y', pgLabelY(+t.dataset.y, +t.dataset.by, fs)); });
-  ov.querySelectorAll('rect.badgebg').forEach(c => { const cx = +c.dataset.cx, cy = +c.dataset.cy, h = fs * 0.72;
-    c.setAttribute('x', cx - h); c.setAttribute('y', cy - h); c.setAttribute('width', 2 * h); c.setAttribute('height', 2 * h); });
+  return out;
+}
+function placeLabels(g, p, fs) {
+  if (!p) return;
+  const bg = g.querySelector('.badgebg'), t = g.querySelector('text.badge'), pl = g.querySelector('text.pglabel'), ln = ov.querySelector(`line.leader[data-i="${g.dataset.i}"]`);
+  if (bg) {
+    if (bg.tagName === 'circle') { bg.setAttribute('cx', p.x); bg.setAttribute('cy', p.y); bg.setAttribute('r', fs * 0.78); }
+    else { const h = fs * 0.72; bg.setAttribute('x', p.x - h); bg.setAttribute('y', p.y - h); bg.setAttribute('width', 2 * h); bg.setAttribute('height', 2 * h); bg.setAttribute('rx', h * 0.15); }
+  }
+  if (t) { t.setAttribute('x', p.x); t.setAttribute('y', p.y); t.style.fontSize = (t.textContent.length > 2 ? fs * 0.62 : fs * 0.82) + 'px'; }
+  if (pl) { pl.setAttribute('x', p.x); pl.setAttribute('y', p.y); pl.style.fontSize = fs + 'px'; }
+  if (ln) {
+    ln.style.display = p.lead ? '' : 'none';
+    if (p.lead) { ln.setAttribute('x1', p.x); ln.setAttribute('y1', p.y); ln.setAttribute('x2', p.lead[0]); ln.setAttribute('y2', p.lead[1]); }
+  }
+}
+// the stage is a will-change layer: Chrome keeps the raster it made at the old scale, so the numbers would blur
+// to specks when zoomed in. Once the zoom settles, drop the hint for a frame so the layer is redrawn at the new scale.
+let reraster = 0;
+function sharpen() {
+  clearTimeout(reraster);
+  reraster = setTimeout(() => { stage.style.willChange = 'auto'; requestAnimationFrame(() => requestAnimationFrame(() => { stage.style.willChange = ''; })); }, 160);
+}
+function rescaleLabels() {
+  sharpen();
+  if (mode === '3d' || !img.naturalWidth || !items.length) return;
+  const fs = labelSize(); lay = layoutLabels(img.naturalWidth, img.naturalHeight, fs);
+  ov.querySelectorAll('g[data-i]').forEach(g => { if (+g.dataset.i >= 0) placeLabels(g, lay.get(+g.dataset.i), fs); });
 }
 function draw(animate) {
   ov.innerHTML = '';
   if (mode === '3d' || !img.naturalWidth) return;
   const W = img.naturalWidth, H = img.naturalHeight;
   ov.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  lay = layoutLabels(W, H, labelSize());
+  const leaders = document.createElementNS(NS, 'g'); leaders.setAttribute('class', 'leaders'); ov.appendChild(leaders);  // under every shape and number
   for (const m of [...marks, ...secondMarks()]) ov.appendChild(shapeFor(m, -1, W, H));
   const list2d = items.map((e, i) => [e, i]).filter(([e]) => e.kind !== 'ifc');
   const step = animate ? Math.max(25, Math.min(110, 1800 / Math.max(1, list2d.length))) : 0;
@@ -730,13 +822,11 @@ function draw(animate) {
 function shapeFor(e, i, W, H) {
   const g = document.createElementNS(NS, 'g'); g.dataset.i = i;
   const fs = labelSize();
-  let shape, lx, ly;
+  let shape;
   if (e.kind === 'polygon') {
     shape = document.createElementNS(NS, 'polygon');
     shape.setAttribute('points', e.points.map(p => (p[0] * W) + ',' + (p[1] * H)).join(' '));
     shape.setAttribute('class', 'pg appear' + (e.on ? '' : ' off'));
-    const xs = e.points.map(p => p[0] * W), ys = e.points.map(p => p[1] * H);
-    lx = (Math.min(...xs) + Math.max(...xs)) / 2; ly = (Math.min(...ys) + Math.max(...ys)) / 2; var by = Math.max(...ys), ty = Math.min(...ys);
   } else {
     const [x0, y0, x1, y1] = e.bbox;
     shape = document.createElementNS(NS, 'rect');
@@ -744,13 +834,11 @@ function shapeFor(e, i, W, H) {
     shape.setAttribute('width', Math.max(2, (x1 - x0) * W)); shape.setAttribute('height', Math.max(2, (y1 - y0) * H));
     shape.setAttribute('rx', 2);
     const cls = e.second ? 'bx second' : e.mark ? (e.kind === 'text' ? 'bx txt' : 'bx mark') : 'bx appear' + (e.on ? '' : ' off') + (e.added ? ' added' : '') + (modelRead(e) ? ' model' : '');
-    shape.setAttribute('class', cls); lx = x0 * W; ly = y0 * H;
-    // a thin box (a text label, a wall): put the number just left of it so it does not cover what it marks
-    if ((y1 - y0) * H < fs * 2.2) { lx = x0 * W - fs * 0.85; ly = (y0 + y1) / 2 * H; }
+    shape.setAttribute('class', cls);
   }
   const tip = document.createElementNS(NS, 'title'); tip.textContent = (e.label || '') + (e.value != null && res.type !== 'count' ? ` = ${fmt(e.value, res.type)} ${unitOf(res.type)}` : '');
   shape.appendChild(tip);
-  g.appendChild(shape);
+  g.appendChild(shape);  // the shape stays the group's first rect / polygon: hover and flash look it up that way
   if (i >= 0) {
     shape.addEventListener('click', ev => { if (adding) return; ev.stopPropagation(); if (moved) return; e.on = !e.on; redraw(); flashRow(i); });
     shape.addEventListener('mouseenter', () => rowHot(i, true, true));
@@ -758,31 +846,26 @@ function shapeFor(e, i, W, H) {
   } else if (e.guids) {
     shape.addEventListener('mouseenter', () => { const j = guidItem().get(e.guids[0]); if (j != null) rowHot(j, true, true); });
   }
-  if (i >= 0 && numbered(e)) {  // numbers stay put after a correction: a dropped item keeps its number, faint, to click back
+  const p = i >= 0 ? lay.get(i) : null;
+  if (p && numbered(e)) {  // numbers stay put after a correction: a dropped item keeps its number, faint, to click back
     const n = items.slice(0, i + 1).filter(numbered).length;
-    // shape carries the meaning without colour: circle = measured from CAD / IFC geometry, square = found by a model
-    let c;
-    if (modelRead(e)) {
-      const h = fs * 0.72; c = document.createElementNS(NS, 'rect'); c.dataset.cx = lx; c.dataset.cy = ly;
-      c.setAttribute('x', lx - h); c.setAttribute('y', ly - h); c.setAttribute('width', 2 * h); c.setAttribute('height', 2 * h); c.setAttribute('rx', h * 0.15);
-    } else {
-      c = document.createElementNS(NS, 'circle');
-      // a room's printed name and number sit at its centre: put the room's number badge above them, inside the room
-      if (e.kind === 'polygon') { c.dataset.y = ly; c.dataset.ty = ty; ly = pgBadgeY(ly, ty, fs); }
-      c.setAttribute('cx', lx); c.setAttribute('cy', ly); c.setAttribute('r', fs * 0.78);
+    if (e.kind === 'box') {
+      const ln = document.createElementNS(NS, 'line'); ln.dataset.i = i; ln.setAttribute('class', 'leader' + (modelRead(e) ? ' model' : '') + (e.on ? '' : ' off'));
+      (ov.querySelector('g.leaders') || g).appendChild(ln);
     }
+    // shape carries the meaning without colour: circle = measured from CAD / IFC geometry, square = found by a model
+    const c = document.createElementNS(NS, modelRead(e) ? 'rect' : 'circle');
     c.setAttribute('class', 'badgebg' + (e.added ? ' added' : '') + (modelRead(e) ? ' model' : '') + (e.on ? '' : ' off')); g.appendChild(c);
     const t = document.createElementNS(NS, 'text');
-    t.setAttribute('x', lx); t.setAttribute('y', ly); t.setAttribute('text-anchor', 'middle');
+    t.setAttribute('text-anchor', 'middle');
     t.setAttribute('dominant-baseline', 'central'); t.setAttribute('class', 'badge' + (e.on ? '' : ' off'));
-    t.textContent = n; t.style.fontSize = (String(n).length > 2 ? fs * 0.62 : fs * 0.82) + 'px'; g.appendChild(t);
-  } else if (i >= 0 && e.kind === 'polygon' && e.on && e.value != null && res.type !== 'count') {
+    t.textContent = n; g.appendChild(t);
+  } else if (p) {
     const t = document.createElementNS(NS, 'text');
-    // the printed room name and number sit at the centre: put the m² near the bottom edge, inside the room
-    t.setAttribute('x', lx); t.dataset.y = ly; t.dataset.by = by; t.setAttribute('y', pgLabelY(ly, by, fs)); t.setAttribute('text-anchor', 'middle');
-    t.setAttribute('class', 'pglabel'); t.style.fontSize = fs + 'px';
+    t.setAttribute('text-anchor', 'middle'); t.setAttribute('class', 'pglabel');
     t.textContent = round2(e.value) + ' m²'; g.appendChild(t);
   }
+  placeLabels(g, p, fs);
   return g;
 }
 

@@ -287,29 +287,34 @@ h3 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing
 /* ------------------------------------------------------------ evidence on the drawing
    blue solid = measured from CAD / IFC geometry · orange dashed = read by a model, please check ·
    green = added by you · grey dotted = dropped · purple dotted = a second method's marks · yellow = the one you point at */
-svg .bx { fill: rgba(0,114,178,.08); stroke: var(--ev); vector-effect: non-scaling-stroke; stroke-width: 2; cursor: pointer; }
-svg .bx.off { fill: rgba(120,120,120,.06); stroke: var(--faint); stroke-dasharray: 2 3; }
+/* stroke widths are screen pixels: --u is one screen pixel in drawing units, set on every zoom */
+svg .bx { fill: rgba(0,114,178,.08); stroke: var(--ev); stroke-width: calc(2 * var(--u, 1px)); cursor: pointer; }
+svg .bx.off { fill: rgba(120,120,120,.06); stroke: var(--faint); stroke-dasharray: calc(2 * var(--u, 1px)) calc(3 * var(--u, 1px)); }
 svg .bx.added { stroke: var(--ok); fill: rgba(0,158,115,.12); }
-svg .bx.mark { fill: none; stroke: rgba(0,114,178,.6); stroke-width: 1.2; }
-svg .bx.txt { fill: rgba(194,106,0,.08); stroke: var(--chk); stroke-dasharray: 5 3; stroke-width: 1.6; }
-svg .bx.model { stroke: var(--chk); stroke-dasharray: 6 3; fill: rgba(194,106,0,.08); }
-svg .bx.second { fill: rgba(204,121,167,.10); stroke: var(--alt); stroke-dasharray: 2 2; vector-effect: non-scaling-stroke; stroke-width: 2; }
-svg .pg { fill: rgba(0,114,178,.13); stroke: var(--ev); vector-effect: non-scaling-stroke; stroke-width: 2; cursor: pointer; }
-svg .pg.off { fill: rgba(120,120,120,.05); stroke: var(--faint); stroke-dasharray: 2 3; }
-svg .hot { stroke-width: 3.5 !important; fill: rgba(240,228,66,.45) !important; stroke: var(--ink) !important; stroke-dasharray: none !important; }
-svg .flash { stroke-width: 4; }
+svg .bx.mark { fill: none; stroke: rgba(0,114,178,.6); stroke-width: calc(1.2 * var(--u, 1px)); }
+svg .bx.txt { fill: rgba(194,106,0,.08); stroke: var(--chk); stroke-dasharray: calc(5 * var(--u, 1px)) calc(3 * var(--u, 1px)); stroke-width: calc(1.6 * var(--u, 1px)); }
+svg .bx.model { stroke: var(--chk); stroke-dasharray: calc(6 * var(--u, 1px)) calc(3 * var(--u, 1px)); fill: rgba(194,106,0,.08); }
+svg .bx.second { fill: rgba(204,121,167,.10); stroke: var(--alt); stroke-dasharray: calc(2 * var(--u, 1px)) calc(2 * var(--u, 1px)); stroke-width: calc(2 * var(--u, 1px)); }
+svg .pg { fill: rgba(0,114,178,.13); stroke: var(--ev); stroke-width: calc(2 * var(--u, 1px)); cursor: pointer; }
+svg .pg.off { fill: rgba(120,120,120,.05); stroke: var(--faint); stroke-dasharray: calc(2 * var(--u, 1px)) calc(3 * var(--u, 1px)); }
+svg .hot { stroke-width: calc(3.5 * var(--u, 1px)) !important; fill: rgba(240,228,66,.45) !important; stroke: var(--ink) !important; stroke-dasharray: none !important; }
+svg .flash { stroke-width: calc(4 * var(--u, 1px)); }
 svg .appear { animation: pop .25s ease-out; transform-box: fill-box; transform-origin: center; }
 @keyframes pop { from { opacity: 0; transform: scale(1.4); } to { opacity: 1; transform: scale(1); } }
 .badge { font: 600 11px var(--font); fill: #fff; pointer-events: none; }
-.badgebg { fill: var(--ev); stroke: #fff; vector-effect: non-scaling-stroke; stroke-width: 1.5; pointer-events: none; }
+.badgebg { fill: var(--ev); stroke: #fff; stroke-width: calc(1.5 * var(--u, 1px)); pointer-events: none; }
 .badgebg.added { fill: var(--ok-ink); }
-.badgebg.model { fill: var(--chk-ink); stroke-dasharray: 2 1.5; }
+.badgebg.model { fill: var(--chk-ink); stroke-dasharray: calc(2 * var(--u, 1px)) calc(1.5 * var(--u, 1px)); }
 /* a dropped item keeps its number, faint and struck through, so it can be clicked back in */
 .badgebg.off { fill: #fff; stroke: #7a8594; stroke-dasharray: none; }
 .badge.off { fill: #6b7584; text-decoration: line-through; }
+/* a number pushed off its box (to keep the drawing's own labels readable) points back at it */
+svg line.leader { stroke: var(--ev); stroke-width: calc(1.5 * var(--u, 1px)); pointer-events: none; }
+svg line.leader.model { stroke: var(--chk-ink); }
+svg line.leader.off { stroke: #7a8594; stroke-dasharray: calc(2 * var(--u, 1px)) calc(2 * var(--u, 1px)); }
 /* nothing to suggest (a refused upload, a file that is not a drawing): no empty heading */
 .qs:has(#chips:empty) #qstitle { display: none; }
-.pglabel { font: 600 11px var(--font); fill: #003a5c; paint-order: stroke; stroke: rgba(255,255,255,.95); stroke-width: 3px; pointer-events: none; }
+.pglabel { font: 600 11px var(--font); fill: #003a5c; paint-order: stroke; stroke: rgba(255,255,255,.95); stroke-width: calc(3 * var(--u, 1px)); pointer-events: none; }
 
 /* ------------------------------------------------------------ narrower screens and phones */
 @media (max-width: 1100px) { main { grid-template-columns: 224px 1fr 360px; } .meter { min-width: 240px; } }
