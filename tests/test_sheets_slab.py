@@ -167,7 +167,7 @@ def test_heldout_S100A_imperial(tmp_path, sid):
     assert slab.answer(str(p), "What bars are in the 6 inch slab?", m)["answer"] == '#4 @ 18" O.C.'
     assert "#4 @ 12\" O.C.E.W." in slab.answer(str(p), 'What reinforcement does the 12" slab have?', m)["answer"]
     r = slab.answer(str(p), "How long is the power control panel trench?", m)
-    assert r["answer"] == pytest.approx(5.5, abs=0.01) and r["unit"] == "ft"
+    assert r["answer"].startswith("5'-6\"") and "5.50 ft" in r["answer"] and r["unit"] == "ft"
     r = slab.answer(str(p), "What is the slab area by type?", m)
     assert r["unit"] == "SF" and re.search(r"12\" \(305 mm\).*SF", r["answer"])
     assert "dimension strings" in r["explanation"]

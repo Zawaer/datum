@@ -1939,7 +1939,10 @@ def answer(path, question, meta) -> dict | None:
             if A.get("imperial") and div != 1:
                 div, ulen = 304.8, "ft"
             if hits and not re.search(r"\btotal|all|sum\b", ql):
-                return _res(round(best["length_mm"] / div, 3), conf0 + 0.1,
+                v = round(best["length_mm"] / div, 3)
+                if ulen == "ft":  # an imperial sheet: as printed (5'-6"), with the decimal feet
+                    v = f"{best.get('printed') or _fmt_ftin(best['length_mm'])} ({best['length_mm'] / div:.2f} ft)"
+                return _res(v, conf0 + 0.1,
                             f"{best['name']}: {best['length_mm']:,} mm per the general notes"
                             + (f" = {best['printed']}" if best.get("printed") else "")
                             + " (approximate trench lengths)", ev, A, "trench", ulen)
