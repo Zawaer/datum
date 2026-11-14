@@ -1236,46 +1236,152 @@ async function openSheet() {
 }
 function closeSheet() { sheetWrap.hidden = true; document.body.classList.remove('sheeton'); }
 
-// ------------------------------------------------------------ ask by voice (Web Speech API: runs in the browser, no server cost)
-// The mic sits in the ask box; while it listens, a strip under the box shows the words as they are heard and the
-// language it listens for. The final result is asked straight away. Browsers without speech recognition (Firefox)
-// never see the button.
+// ------------------------------------------------------------ ask by voice
+// The mic sits in the ask box; while it listens, a strip under the box shows what is happening and the language it
+// listens for. Two engines, picked once at load:
+//  - server (when /api/transcribe says it is available): the browser records the question (MediaRecorder), a level
+//    meter and timer show it is listening, it stops on a click, after ~1.5 s of silence or at 20 s, and the audio
+//    goes to our server, which has ElevenLabs Scribe turn it into text. Works in every browser with a microphone,
+//    Firefox included.
+//  - browser (fallback): the Web Speech API (Chrome, Edge, Safari), words appear as they are heard.
+// Either way the text is asked straight away. With neither, the mic is not shown.
 const VOICE_LANGS = [['en-US', 'English'], ['fi-FI', 'Suomi'], ['de-DE', 'Deutsch'], ['fr-FR', 'Français'], ['it-IT', 'Italiano'],
                      ['nl-NL', 'Nederlands'], ['sv-SE', 'Svenska']];
-const voice = {rec: null, lang: null, final: '', timer: 0};
-(() => {
+const voice = {rec: null, lang: null, final: '', timer: 0, engine: null};
+(async () => {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) return;
+  const canRecord = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+  let server = false;
+  if (canRecord) {
+    try { const j = await (await fetch('/api/transcribe')).json(); server = !!j.available && !j.over_cap; } catch {}
+  }
+  if (!server && !SR) return;
+  voice.engine = server ? 'server' : 'browser';
+  const NOTE = {
+    server: 'Your recording is sent to ElevenLabs to turn it into text; we keep only the text.',
+    browser: "Speech-to-text is done by your browser's provider (Google in Chrome, Microsoft in Edge, Apple in Safari); we only receive the text."};
+  const TITLE = {
+    server: 'Ask by voice: your recording is sent to ElevenLabs to turn it into text; we keep only the text',
+    browser: 'Ask by voice: your browser turns speech into text (Chrome and Edge send the audio to Google or Microsoft, Safari to Apple); we only receive the text'};
+  const langs = () => voice.engine === 'server' ? [['auto', 'Detect language'], ...VOICE_LANGS] : VOICE_LANGS;
   const pick = () => {
-    const saved = localStorage.getItem('bp_voice_lang'); if (VOICE_LANGS.some(l => l[0] === saved)) return saved;
+    const saved = localStorage.getItem('bp_voice_lang'); if (langs().some(l => l[0] === saved)) return saved;
+    if (voice.engine === 'server') return 'auto';  // Scribe detects the language well; a wrong forced hint garbles it
     for (const n of navigator.languages || [navigator.language || '']) {
       const hit = VOICE_LANGS.find(l => l[0].toLowerCase() === n.toLowerCase()) || VOICE_LANGS.find(l => l[0].slice(0, 2) === n.slice(0, 2).toLowerCase());
       if (hit) return hit[0];
     }
     return 'en-US';
   };
-  voice.lang = pick();
   const mic = document.createElement('button');
-  mic.id = 'mic'; mic.type = 'button'; mic.className = 'mic'; mic.setAttribute('aria-label', 'Ask by voice'); mic.setAttribute('aria-pressed', 'false'); mic.title = 'Ask by voice: your browser turns speech into text (Chrome and Edge send the audio to Google or Microsoft, Safari to Apple); we only receive the text';
+  mic.id = 'mic'; mic.type = 'button'; mic.className = 'mic'; mic.setAttribute('aria-label', 'Ask by voice'); mic.setAttribute('aria-pressed', 'false');
   mic.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4M8.5 21h7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
   $('#go').before(mic);
   const strip = document.createElement('div'); strip.id = 'voice'; strip.className = 'voice'; strip.hidden = true; strip.setAttribute('aria-live', 'polite');
   strip.innerHTML = `<div class="vrow"><span class="vdot"></span><b class="vstate">Listening</b>
-      <select class="vlang" aria-label="Language to listen for">${VOICE_LANGS.map(([c, n]) => `<option value="${c}">${n} · ${c}</option>`).join('')}</select>
-      <span class="grow"></span><button type="button" class="linkish vstop">stop</button></div>
-    <div class="vtext"><span class="vfin"></span><span class="vint"></span></div>
-    <div class="vnote">Speech-to-text is done by your browser's provider (Google in Chrome, Microsoft in Edge, Apple in Safari); we only receive the text.</div>`;
+      <select class="vlang" aria-label="Language to listen for"></select>
+      <span class="grow"></span><button type="button" class="linkish vdone" hidden>done</button><button type="button" class="linkish vstop">stop</button></div>
+    <div class="vtext"><span class="vmeter" hidden aria-hidden="true"><i></i></span><span class="vtime" hidden></span><span class="vfin"></span><span class="vint"></span></div>
+    <div class="vnote"></div>`;
   $('.ask').after(strip);
-  const sel = strip.querySelector('.vlang'); sel.value = voice.lang;
+  const sel = strip.querySelector('.vlang');
+  const setEngine = e => {
+    voice.engine = e; mic.title = TITLE[e]; strip.querySelector('.vnote').textContent = NOTE[e];
+    sel.innerHTML = langs().map(([c, n]) => `<option value="${c}">${c === 'auto' ? n : `${n} · ${c}`}</option>`).join('');
+    voice.lang = pick(); sel.value = voice.lang;
+  };
+  setEngine(voice.engine);
   const show = (state, msg) => {
     strip.hidden = state === 'idle'; strip.dataset.state = state; mic.classList.toggle('on', state === 'listening');
     mic.setAttribute('aria-pressed', state === 'listening');
-    const sb = strip.querySelector('.vstop'); sb.textContent = state === 'error' ? 'dismiss' : 'stop'; sb.hidden = state === 'asking';
-    strip.querySelector('.vstate').textContent = msg || {listening: 'Listening', asking: 'Asking', error: 'Voice'}[state] || '';
+    const sb = strip.querySelector('.vstop'); sb.textContent = state === 'error' ? 'dismiss' : voice.engine === 'server' ? 'cancel' : 'stop';
+    sb.hidden = state === 'asking' || state === 'transcribing';
+    const rec = state === 'listening' && voice.engine === 'server';
+    strip.querySelector('.vdone').hidden = !rec; strip.querySelector('.vmeter').hidden = !rec; strip.querySelector('.vtime').hidden = !rec;
+    strip.querySelector('.vstate').textContent = msg || {listening: 'Listening', transcribing: 'Transcribing', asking: 'Asking', error: 'Voice'}[state] || '';
   };
   const text = (fin, int) => { strip.querySelector('.vfin').textContent = fin; strip.querySelector('.vint').textContent = int; };
+  const fail = why => { show('error', 'Voice'); text(why, ''); voice.timer = setTimeout(() => { if (!voice.rec) show('idle'); }, 6000); };
   const stop = () => { if (voice.rec) { const r = voice.rec; voice.rec = null; try { r.abort(); } catch {} } };
-  const start = () => {
+
+  // ---- server engine: record, detect the end of speech, upload
+  const MAX_S = 20, SILENCE_S = 1.5, NO_SPEECH_S = 7;
+  const record = async () => {
+    stop(); clearTimeout(voice.timer);
+    const sess = {aborted: false, abort() { this.aborted = true; this.cleanup(); }, cleanup() {}};
+    voice.rec = sess; voice.final = '';
+    text('', 'Allow the microphone, then speak…'); show('listening');
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({audio: {echoCancellation: true, noiseSuppression: true, channelCount: 1}}); }
+    catch (e) {
+      if (voice.rec !== sess) return; voice.rec = null;
+      fail(e && e.name === 'NotAllowedError' ? 'Microphone access is blocked: allow it in the site settings, or type the question.'
+        : e && e.name === 'NotFoundError' ? 'No microphone found. Type the question instead.' : 'Could not start the microphone. Type the question instead.');
+      return;
+    }
+    if (voice.rec !== sess) { stream.getTracks().forEach(t => t.stop()); return; }
+    const mime = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/webm', 'audio/mp4'].find(m => MediaRecorder.isTypeSupported(m)) || '';
+    let mr;
+    try { mr = new MediaRecorder(stream, {...(mime ? {mimeType: mime} : {}), audioBitsPerSecond: 32000}); }
+    catch { stream.getTracks().forEach(t => t.stop()); voice.rec = null; fail('This browser cannot record audio. Type the question instead.'); return; }
+    const chunks = []; mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    const AC = window.AudioContext || window.webkitAudioContext; let ac = null, an = null, buf = null;
+    try { ac = new AC(); an = ac.createAnalyser(); an.fftSize = 1024; ac.createMediaStreamSource(stream).connect(an); buf = new Float32Array(an.fftSize); } catch { ac = null; }
+    if (ac && ac.state !== 'running') ac.resume().catch(() => {});  // until it runs there is no meter: stop on click / at 20 s
+    const meter = strip.querySelector('.vmeter i'), clock = strip.querySelector('.vtime');
+    const t0 = performance.now(); let vad = false, heard = false, lastLoud = t0, floor = 0.004, tick = 0, done = false;
+    sess.cleanup = () => {
+      clearInterval(tick); stream.getTracks().forEach(t => t.stop()); if (ac) ac.close().catch(() => {});
+      if (mr.state !== 'inactive') try { mr.stop(); } catch {}
+    };
+    const finish = () => { if (done || voice.rec !== sess) return; done = true; clearInterval(tick); try { mr.stop(); } catch { sess.cleanup(); } };
+    sess.finish = finish;
+    mr.onstop = async () => {
+      sess.cleanup();
+      if (sess.aborted || voice.rec !== sess) return;
+      const secs = (performance.now() - t0) / 1000;
+      if (vad && !heard) { voice.rec = null; fail('Nothing heard. Press the mic and speak, or type the question.'); return; }
+      const blob = new Blob(chunks, {type: mr.mimeType || mime || 'audio/webm'});
+      show('transcribing'); text('', 'Turning speech into text…');
+      const lang = voice.lang === 'auto' ? '' : voice.lang;
+      let r, j = {};
+      try {
+        r = await fetch(`/api/transcribe?lang=${encodeURIComponent(lang)}&secs=${secs.toFixed(1)}`,
+                        {method: 'POST', body: blob, headers: {'Content-Type': blob.type.split(';')[0] || 'application/octet-stream'}});
+        j = await r.json().catch(() => ({}));
+      } catch { r = null; }
+      if (voice.rec !== sess) return;
+      voice.rec = null;
+      if (!r || !r.ok) {
+        if (r && (r.status === 503 || (r.status === 429 && /budget/.test(j.detail || ''))) && SR) setEngine('browser');  // fall back next time
+        fail((j && j.detail) || 'Speech-to-text is unreachable. Type the question instead.'); return;
+      }
+      const q = (j.text || '').trim();
+      if (!q) { fail('Nothing heard. Press the mic and speak, or type the question.'); return; }
+      voice.final = q; submit(sess);
+    };
+    tick = setInterval(() => {
+      const now = performance.now(), el = (now - t0) / 1000;
+      clock.textContent = `0:${String(Math.floor(el)).padStart(2, '0')}`;
+      if (an && ac.state === 'running') {
+        vad = true; an.getFloatTimeDomainData(buf);
+        let s = 0; for (let i = 0; i < buf.length; i++) s += buf[i] * buf[i];
+        const rms = Math.sqrt(s / buf.length);
+        if (!heard) floor = Math.min(0.05, floor * 0.95 + rms * 0.05);  // ambient level before speech starts
+        const loud = rms > Math.max(0.015, floor * 3);
+        if (loud) { lastLoud = now; if (!heard && el > 0.15) { heard = true; text('', 'Listening… stops when you pause'); } }
+        meter.style.width = `${Math.min(100, Math.round(rms * 400))}%`;
+        if (heard && (now - lastLoud) / 1000 > SILENCE_S) finish();
+        if (!heard && el > NO_SPEECH_S) finish();  // onstop then says "Nothing heard" without uploading
+      }
+      if (el >= MAX_S) finish();
+    }, 50);
+    mr.start();
+    text('', 'Speak your question…');
+  };
+
+  // ---- browser engine: Web Speech API
+  const listen = () => {
     stop(); clearTimeout(voice.timer);
     const rec = new SR(); voice.rec = rec; voice.final = '';
     rec.lang = voice.lang; rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
@@ -1297,12 +1403,13 @@ const voice = {rec: null, lang: null, final: '', timer: 0};
         : e.error === 'language-not-supported' ? 'This browser cannot listen for that language. Pick another one, or type.'
         : e.error === 'aborted' ? '' : 'Voice input stopped. Type the question instead.';
       if (!why) { show('idle'); return; }
-      show('error', 'Voice'); text(why, ''); voice.timer = setTimeout(() => { if (!voice.rec) show('idle'); }, 5000);
+      fail(why);
     };
     rec.onend = () => { if (voice.rec !== rec) return; voice.rec = null; if (voice.final) submit(rec); else show('idle'); };
     text('', 'Speak your question…'); show('listening');
     try { rec.start(); } catch { voice.rec = null; show('idle'); }
   };
+  const start = () => (voice.engine === 'server' ? record() : listen());
   const submit = rec => {
     if (rec.submitted) return; rec.submitted = true;
     if (voice.rec === rec) { voice.rec = null; try { rec.stop(); } catch {} }
@@ -1311,10 +1418,16 @@ const voice = {rec: null, lang: null, final: '', timer: 0};
     voice.timer = setTimeout(() => show('idle'), 1200);
     ask();
   };
-  mic.onclick = () => { if (voice.rec) { stop(); show('idle'); } else start(); };
+  // a click on the mic while recording means "done, send it"; the strip's cancel/stop discards
+  mic.onclick = () => {
+    if (!voice.rec) start();
+    else if (voice.rec.finish) voice.rec.finish();
+    else { stop(); show('idle'); }
+  };
+  strip.querySelector('.vdone').onclick = () => { if (voice.rec && voice.rec.finish) voice.rec.finish(); };
   strip.querySelector('.vstop').onclick = () => { stop(); show('idle'); };
-  sel.onchange = () => { voice.lang = sel.value; localStorage.setItem('bp_voice_lang', voice.lang); if (voice.rec) start(); };
-  window.bpVoice = {start, stop, get lang() { return voice.lang; }};
+  sel.onchange = () => { voice.lang = sel.value; localStorage.setItem('bp_voice_lang', voice.lang); if (voice.rec && !voice.rec.finish) start(); };
+  window.bpVoice = {start, stop, get lang() { return voice.lang; }, get engine() { return voice.engine; }};
 })();
 
 // ------------------------------------------------------------ demo tour

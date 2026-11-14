@@ -1512,6 +1512,146 @@ def stats():
     return out
 
 
+# ---------------------------------------------------------------- ask by voice: ElevenLabs speech-to-text (Scribe)
+# The browser records the question (MediaRecorder: webm/opus, ogg/opus or Safari's mp4/aac) and posts the raw audio
+# here; we forward it to ElevenLabs and return only the text. The audio is never stored. Without a key the endpoint
+# answers 503 and the page falls back to the browser's own speech recognition (or hides the mic).
+# ELEVENLABS_API_KEY      from the environment, else data/secrets/elevenlabs.env
+# BP_STT_DAILY_USD_CAP    daily budget for transcription (default $2); spend is logged per call to BP_STT_LEDGER
+# BP_STT_USD_PER_HOUR     price per audio hour (ElevenLabs lists Scribe at $0.22-0.40/h by plan; 0.40 = worst case)
+STT_URL = "https://api.elevenlabs.io/v1/speech-to-text"
+STT_MODEL = os.environ.get("BP_STT_MODEL", "scribe_v2")
+STT_USD_PER_S = float(os.environ.get("BP_STT_USD_PER_HOUR", 0.40) or 0.40) / 3600
+STT_DAILY_CAP = float(os.environ.get("BP_STT_DAILY_USD_CAP", 2) or 0)
+STT_LEDGER = Path(os.environ.get("BP_STT_LEDGER", "cache/stt_spend.jsonl"))
+STT_MAX_BYTES, STT_MAX_S, STT_TIMEOUT_S = 2 * 1024 * 1024, 60, 20
+_stt_lock = threading.Lock()
+
+
+def _stt_key() -> str:
+    if os.environ.get("ELEVENLABS_API_KEY"):
+        return os.environ["ELEVENLABS_API_KEY"].strip()
+    for f in (Path("data/secrets/elevenlabs.env"), APP.parent / "data/secrets/elevenlabs.env"):
+        try:
+            for line in f.read_text().splitlines():
+                k, _, v = line.partition("=")
+                if k.strip() == "ELEVENLABS_API_KEY" and v.strip():
+                    return v.strip().strip("'\"")
+        except OSError:
+            continue
+    return ""
+
+
+def _stt_spent_today() -> float:
+    day, tot = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"), 0.0
+    try:
+        lines = STT_LEDGER.read_text().splitlines()
+    except OSError:
+        return 0.0
+    for line in lines:
+        try:
+            r = json.loads(line)
+            tot += float(r.get("cost_usd") or 0) if r.get("day") == day else 0.0
+        except (ValueError, AttributeError):
+            continue
+    return tot
+
+
+def _stt_audio_kind(body: bytes) -> str | None:
+    """Sniff the container from its magic bytes (never trust the Content-Type alone)."""
+    if body[:4] == b"\x1a\x45\xdf\xa3":
+        return "webm"
+    if body[:4] == b"OggS":
+        return "ogg"
+    if body[4:8] == b"ftyp":
+        return "mp4"
+    return None
+
+
+def _stt_call(audio: bytes, kind: str, lang: str | None, key: str) -> dict:
+    """POST the audio to ElevenLabs as multipart/form-data (stdlib only: the demo image has no HTTP client)."""
+    import urllib.error
+    import urllib.request
+    import uuid
+
+    b = uuid.uuid4().hex
+    fields = {"model_id": STT_MODEL, "tag_audio_events": "false", "timestamps_granularity": "none"}
+    if lang:
+        fields["language_code"] = lang
+    parts = [f'--{b}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode() for k, v in fields.items()]
+    mime = {"webm": "audio/webm", "ogg": "audio/ogg", "mp4": "audio/mp4"}[kind]
+    parts.append(f'--{b}\r\nContent-Disposition: form-data; name="file"; filename="question.{kind}"\r\n'
+                 f'Content-Type: {mime}\r\n\r\n'.encode() + audio + b"\r\n")
+    parts.append(f"--{b}--\r\n".encode())
+    req = urllib.request.Request(STT_URL, data=b"".join(parts), method="POST", headers={
+        "xi-api-key": key, "Content-Type": f"multipart/form-data; boundary={b}", "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=STT_TIMEOUT_S) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        detail = e.read()[:300].decode("utf-8", "replace")
+        print(f"[stt] ElevenLabs HTTP {e.code}: {detail}", flush=True)
+        if e.code == 429:
+            raise HTTPException(429, "the speech-to-text service is busy; please try again in a moment or type")
+        raise HTTPException(502, "speech-to-text failed; please type the question instead")
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        print(f"[stt] ElevenLabs unreachable: {type(e).__name__}", flush=True)
+        raise HTTPException(504, "speech-to-text timed out; please try again or type the question")
+
+
+@app.get("/api/transcribe")
+def transcribe_info():
+    """Whether server-side speech-to-text is on (the page then records audio instead of using the browser's)."""
+    if not _stt_key():
+        return {"available": False}
+    return {"available": True, "provider": "ElevenLabs", "max_s": STT_MAX_S,
+            "over_cap": bool(STT_DAILY_CAP) and _stt_spent_today() >= STT_DAILY_CAP}
+
+
+@app.post("/api/transcribe")
+async def transcribe(request: Request, lang: str = "", secs: float = 0.0):
+    """Raw-body audio upload: POST /api/transcribe?lang=fi&secs=3.2 with the recording as body -> {text, language}.
+    `lang` is a hint (ISO-639-1, or a BCP-47 tag like fi-FI); empty = detect. `secs` is the recorded length."""
+    from starlette.concurrency import run_in_threadpool
+
+    key = _stt_key()
+    if not key:
+        raise HTTPException(503, "voice transcription is not configured on this server")
+    _rate_limit(request)
+    if secs > STT_MAX_S:
+        raise HTTPException(413, f"recording too long (max {STT_MAX_S} s)")
+    if int(request.headers.get("content-length") or 0) > STT_MAX_BYTES:
+        raise HTTPException(413, "recording too large (max 2 MB)")
+    body = await request.body()
+    if len(body) > STT_MAX_BYTES:
+        raise HTTPException(413, "recording too large (max 2 MB)")
+    if len(body) < 200:
+        raise HTTPException(400, "empty recording")
+    kind = _stt_audio_kind(body)
+    if kind is None:
+        raise HTTPException(415, "unsupported audio: send webm/opus, ogg/opus or mp4 from MediaRecorder")
+    code = lang.strip().split("-")[0].lower()
+    code = code if re.fullmatch(r"[a-z]{2,3}", code) else None
+    est = max(secs, 1.0) * STT_USD_PER_S
+    if STT_DAILY_CAP and _stt_spent_today() + est > STT_DAILY_CAP:  # at most a few cents can slip past in parallel
+        raise HTTPException(429, "voice input has used up today's budget on this public demo; "
+                                     "please type the question (it works just as well)")
+    t0 = time.time()
+    r = await run_in_threadpool(_stt_call, body, kind, code, key)
+    dur = float(r.get("audio_duration_secs") or 0) or max(secs, 1.0)
+    cost = round(dur * STT_USD_PER_S, 8)
+    rec = {"day": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"), "ts": round(time.time(), 1),
+           "model": STT_MODEL, "audio_s": round(dur, 2), "bytes": len(body), "kind": kind, "lang_hint": code,
+           "language": r.get("language_code"), "latency_s": round(time.time() - t0, 2), "cost_usd": cost}
+    with _stt_lock:
+        STT_LEDGER.parent.mkdir(parents=True, exist_ok=True)
+        with STT_LEDGER.open("a") as f:
+            f.write(json.dumps(rec) + "\n")
+    text = re.sub(r"\s*\((?:[^()]{1,40})\)\s*", " ", r.get("text") or "").strip()  # drop any "(laughter)" tags
+    return {"text": text, "language": r.get("language_code"), "language_probability": r.get("language_probability"),
+            "audio_s": round(dur, 2)}
+
+
 # ---------------------------------------------------------------- pages
 
 @app.get("/")
