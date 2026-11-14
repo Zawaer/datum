@@ -25,9 +25,13 @@ const RM = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduc
 const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;  // cubic in-out
 
 // the context model, its outlines and the evidence: one material each, retuned when x-ray is switched
-const ctxMat = new THREE.MeshLambertMaterial({ color: 0xd9dee5, side: THREE.DoubleSide, polygonOffset: true,
-  polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
-const ctxLine = new THREE.LineBasicMaterial({ color: 0x5b6470, transparent: true, opacity: 0.3, depthWrite: false });
+// solid: flat-shaded (each face orientation in its own tone) and tinted per element type (vertex colours): white walls,
+// light-blue glass in the windows, beige door leaves, light-grey slabs; thin dark outlines on every crease
+const ctxMat = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, flatShading: true, side: THREE.DoubleSide,
+  polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+const ctxLine = new THREE.LineBasicMaterial({ color: 0x2f3640, transparent: true, opacity: 0.42, depthWrite: false });
+const TYPE_TINT = [[/^IfcWindow/, 0x9fd0ee], [/^IfcDoor/, 0xe3cfae], [/^Ifc(Slab|Covering)/, 0xe9ecef], [/^IfcRoof/, 0xdfe3e8],
+  [/^Ifc(Wall|Column|Beam|CurtainWall|Railing)/, 0xffffff], [/^Ifc(Stair|Ramp)/, 0xf1f2f4], [/./, 0xf4f5f7]];
 const hlLine = new THREE.LineBasicMaterial({ color: 0x003a5c, transparent: true, opacity: 0.85 });
 const pulseMat = new THREE.MeshBasicMaterial({ color: 0x56b4e9, transparent: true, opacity: 0, side: THREE.DoubleSide,
   depthTest: false, depthWrite: false });
@@ -65,6 +69,7 @@ function b64(s, Type) {
 }
 
 // ------------------------------------------------------------ in-viewer controls and storey labels (DOM owned here)
+let ctlEl = null, needle = null, lastAz = null;
 let bar, btnExplode, btnXray, labLayer, labels = [], floorEl = null, pinLayer = null, legEl = null;
 let focusSi = null, homeSi = null;  // the storey on show (null = whole building), and the one the evidence is on
 const CSS = `
@@ -100,13 +105,24 @@ const CSS = `
 .v3pins { position: absolute; inset: 0; pointer-events: none; z-index: 3; overflow: hidden; }
 .v3pin { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; will-change: transform;
   pointer-events: auto; cursor: pointer; }
-.v3pin span { display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: var(--ev, #0072b2);
-  color: #fff; font: 600 11px/1 var(--font, system-ui); border: 1.5px solid #fff; box-shadow: 0 1px 2px rgba(22,25,29,.25); font-feature-settings: "tnum"; }
-.v3pin i { display: block; width: 1.5px; height: 16px; background: #3c4450; }
-.v3pin.off span { background: #fff; color: #6b7584; border-color: #7a8594; text-decoration: line-through; box-shadow: none; } .v3pin.off i { background: #9aa2ad; }
+.v3pin span { position: relative; display: grid; place-items: center; min-width: 26px; height: 26px; padding: 0 6px; border-radius: 13px;
+  background: var(--ev, #0072b2); color: #fff; font: 600 12px/1 var(--font, system-ui); border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(22,25,29,.35); font-feature-settings: "tnum"; margin-bottom: 7px; }
+.v3pin span::after { content: ''; position: absolute; left: 50%; bottom: -6px; width: 8px; height: 8px; margin-left: -5px; background: inherit;
+  border: inherit; border-width: 0 2px 2px 0; transform: rotate(45deg); border-radius: 0 0 2px 0; }
+.v3pin i { display: none; }
+.v3pin.off span { background: #fff; color: #6b7584; border-color: #9aa2ad; text-decoration: line-through; box-shadow: 0 1px 2px rgba(22,25,29,.15); }
+.v3ctl { position: absolute; right: 12px; top: 64px; z-index: 5; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.v3ctl[hidden] { display: none; }
+.v3ctl > * { background: var(--panel, #fff); border: 1px solid var(--line2, #c9ced5); border-radius: 8px; box-shadow: 0 1px 3px rgba(22,25,29,.12); }
+.v3ctl button { display: grid; place-items: center; width: 34px; height: 34px; border: 0; background: transparent; color: var(--text, #16191d);
+  cursor: pointer; padding: 0; font: 500 18px/1 var(--font, system-ui); }
+.v3ctl button:hover { color: var(--ev-ink, #005f94); background: var(--panel2, #f6f7f9); }
+.v3ctl .zm { display: flex; flex-direction: column; overflow: hidden; } .v3ctl .zm button + button { border-top: 1px solid var(--line, #e4e7eb); }
+.v3ctl .cmp { border-radius: 50%; overflow: hidden; } .v3ctl .cmp button { width: 38px; height: 38px; } .v3ctl .cmp svg { width: 26px; height: 26px; }
 .v3pin.hot span { background: var(--hl, #f0e442); color: var(--ink, #16191d); border-color: var(--ink, #16191d); } .v3pin.hot { z-index: 2; }
 .v3leg { position: absolute; left: 12px; bottom: 30px; z-index: 4; background: var(--panel, #fff); border: 1px solid var(--line2, #c3c8cf);
-  border-radius: var(--r1, 4px); padding: 5px 9px; font: 11px var(--font, system-ui); color: var(--mut, #5b6470); display: flex; gap: 12px;
+  border-radius: 8px; padding: 5px 9px; font: 11px var(--font, system-ui); color: var(--mut, #5b6470); display: flex; gap: 12px;
   align-items: center; pointer-events: none; max-width: calc(100% - 24px); box-shadow: 0 1px 3px rgba(22,25,29,.08); }
 .v3leg[hidden] { display: none; }
 .v3leg i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
@@ -155,6 +171,16 @@ function buildUI() {
   // the bar sits on the canvas: keep its clicks away from orbit / pick, and from the 2D pan handler around it
   for (const ev of ['pointerdown', 'pointerup', 'wheel']) bar.addEventListener(ev, e => e.stopPropagation());
   // which part of the building is on show: the storey the question is about, or the whole building (a deliberate step)
+  // compass (north up on a click) and zoom, top right under the Plan | 3D toggle
+  ctlEl = document.createElement('div'); ctlEl.className = 'v3ctl'; ctlEl.hidden = true;
+  ctlEl.innerHTML = '<div class="cmp"><button type="button" class="north" title="North up" aria-label="Turn the view north up">' +
+    '<svg viewBox="0 0 26 26" aria-hidden="true"><g class="ndl"><path d="M13 3.5 16 13h-6z" fill="#0072b2"/><path d="M13 22.5 10 13h6z" fill="#c9ced5"/></g></svg></button></div>' +
+    '<div class="zm"><button type="button" class="zin" title="Zoom in" aria-label="Zoom in">+</button><button type="button" class="zout" title="Zoom out" aria-label="Zoom out">−</button></div>';
+  host.appendChild(ctlEl); needle = ctlEl.querySelector('.ndl');
+  for (const ev of ['pointerdown', 'pointerup', 'wheel']) ctlEl.addEventListener(ev, e => e.stopPropagation());
+  ctlEl.querySelector('.north').onclick = () => orbitTo(o => { let a = -Math.atan2(o.x, o.z); while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return [1, a]; });
+  ctlEl.querySelector('.zin').onclick = () => orbitTo(() => [0.72, 0]);
+  ctlEl.querySelector('.zout').onclick = () => orbitTo(() => [1 / 0.72, 0]);
   floorEl = document.createElement('div'); floorEl.className = 'v3floor'; floorEl.hidden = true;
   floorEl.innerHTML = '<span></span><button type="button"></button>';
   host.appendChild(floorEl);
@@ -168,7 +194,7 @@ function buildUI() {
 }
 function syncUI() {
   if (!bar) return;
-  bar.hidden = !model;
+  bar.hidden = !model; if (ctlEl) ctlEl.hidden = !model;
   // one floor on show: explode and x-ray belong to the whole building, offered once it is on show
   const floor = focusSi != null && !(explodeTo > 0);
   btnExplode.hidden = storeys.length < 2 || floor;
@@ -199,8 +225,8 @@ export function init(el, callbacks = {}) {
   camera = new THREE.PerspectiveCamera(45, 1, 0.1, 5000);
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x8899aa, 2.2));
-  const d = new THREE.DirectionalLight(0xffffff, 1.6); d.position.set(50, 120, 80); scene.add(d);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xa7b0bc, 2.1));
+  const d = new THREE.DirectionalLight(0xffffff, 1.5); d.position.set(-70, 110, 50); scene.add(d);
   buildUI();
   new ResizeObserver(resize).observe(el);
   resize();
@@ -247,11 +273,31 @@ export function requestRender() {
     inFrame = true; const moving = controls.update(); inFrame = false;
     if (tweens.size || (moving && (held || now - released < DAMP_MS))) requestRender();  // still easing out
     renderer.render(scene, camera);
-    placeLabels(); placePins();
+    placeLabels(); placePins(); placeCompass();
     window.__v3renders++;
   });
 }
 function tween(f) { tweens.add(f); requestRender(); return f; }
+// the compass needle points to model north (-z) on screen; orbitTo eases the camera around the target: fn(offset) ->
+// [distance factor, azimuth change]
+function placeCompass() {
+  if (!needle) return;
+  const o = camera.position.clone().sub(controls.target), az = Math.atan2(o.x, o.z);
+  if (lastAz !== null && Math.abs(az - lastAz) < 1e-4) return;
+  lastAz = az; needle.setAttribute('transform', `rotate(${(az * 180 / Math.PI).toFixed(2)} 13 13)`);
+}
+function orbitTo(fn) {
+  if (!model) return;
+  const t = controls.target.clone(), o0 = camera.position.clone().sub(t), [f, da] = fn(o0), s = performance.now(), ms = RM.matches ? 1 : 380;
+  const d0 = o0.length(), d1 = Math.min(controls.maxDistance, Math.max(controls.minDistance, d0 * f)), up = new THREE.Vector3(0, 1, 0);
+  tweens.delete(camTween);
+  camTween = tween(now => {
+    const k = ease(Math.min(1, (now - s) / ms));
+    camera.position.copy(t).add(o0.clone().applyAxisAngle(up, da * k).setLength(d0 + (d1 - d0) * k));
+    camera.lookAt(t);
+    return k < 1;
+  });
+}
 
 function resize() {
   if (!host) return;
@@ -368,6 +414,14 @@ export async function load(path, onStatus) {
   byGuid = new Map(elements.map(e => [e.guid, e]));
   prepareStoreys();
   model = subMesh(elements.filter(e => !CONTEXT_SKIP.has(e.type)), ctxMat);
+  { // one tint per element type (vertices are shared within an element only)
+    const col = new Float32Array(positions.count * 3).fill(1), c = new THREE.Color();
+    for (const e of elements) {
+      c.set((TYPE_TINT.find(([re]) => re.test(e.type)) || [0, 0xffffff])[1]);
+      for (let t = e.start, end = e.start + e.count; t < end; t++) { const v = allIdx[t] * 3; col[v] = c.r; col[v + 1] = c.g; col[v + 2] = c.b; }
+    }
+    model.geometry.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  }
   scene.add(model);
   try { buildEdges(); } catch (e) { edgeIdx = null; }
   ctxEdges = subEdges([elements.filter(e => !CONTEXT_SKIP.has(e.type))], ctxLine);
@@ -480,9 +534,12 @@ export function clear() {
 // ------------------------------------------------------------ storeys: clipping and the exploded view
 // storey index -> clip just under the next storey's floor; null = no clipping. While exploded nothing is clipped:
 // every floor is on show, lifted clear of the one under it.
+const CUT_H = 1.6;
 function setClip(si) {
-  if (si == null || si < 0 || si >= storeys.length - 1) clipWanted = 1e9;
-  else clipWanted = storeys[si + 1].z - 0.25;
+  // one storey: cut a dollhouse 1.6 m above its floor (under the next floor's slab, whichever is lower), so the rooms
+  // are open from above as on the 2D plan
+  if (si == null || si < 0 || si >= storeys.length) clipWanted = 1e9;
+  else clipWanted = Math.min(si < storeys.length - 1 ? storeys[si + 1].z - 0.25 : 1e9, storeys[si].z + CUT_H);
   applyClip();
 }
 function applyClip() { clip.constant = explodeTo > 0 || explodeT > 0 ? 1e9 : clipWanted; }
@@ -496,7 +553,7 @@ export function focusStorey(si, reframe = true, home) {
   const was = clipWanted;
   focusSi = valid ? si : null;
   setClip(valid ? si : null);
-  syncUI();
+  applyLook();
   if (!model) return;
   const ev = hl || offMesh;
   if (reframe && !valid && was < 1e8 && clipWanted >= 1e8 && !(explodeTo > 0) && !RM.matches) {
@@ -659,16 +716,18 @@ function placeLabels() {
 }
 
 // ------------------------------------------------------------ x-ray: everything but the evidence as faint glass
-let xrayUser = null;  // null = automatic: on while an answer has evidence to show (even all of it dropped), off for the bare model
-function xrayOn() { return xrayUser != null ? xrayUser : !!(hl || offMesh); }
+// null = automatic: on while an answer has evidence to show (even all of it dropped) on the whole building, off for the
+// bare model and for one storey on its own (cut open, its evidence is in plain sight among solid walls)
+let xrayUser = null;
+function xrayOn() { return xrayUser != null ? xrayUser : !!(hl || offMesh) && focusSi == null; }
 export function setXray(on) { xrayUser = on == null ? null : !!on; applyLook(); syncUI(); requestRender(); }
 export function isXray() { return xrayOn(); }
 function applyLook() {
   const x = xrayOn();
   // solid: a light-grey model with fine dark outlines; x-ray: barely-there glass, the outlines carry the shape
   ctxMat.transparent = x; ctxMat.opacity = x ? 0.08 : 1; ctxMat.depthWrite = !x;
-  ctxMat.color.set(x ? 0xc4ccd6 : 0xd9dee5);
-  ctxLine.opacity = x ? 0.2 : 0.32;
+  ctxMat.color.set(x ? 0xc4ccd6 : 0xffffff);
+  ctxLine.opacity = x ? 0.2 : 0.42;
   ctxMat.needsUpdate = true;
   if (hlMat && !hlMat.userData.volumes) { hlMat.emissive.set(x ? 0x004670 : 0x002a44); }
   syncUI();
