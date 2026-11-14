@@ -263,6 +263,7 @@ h3 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing
 .ev .n { min-width: 26px; color: var(--ev-ink); font-weight: 600; }
 .ev div.off .n { color: var(--faint); }
 .ev div.added .n { color: var(--ok-ink); }
+.ev div:has(.rd) .n { color: var(--chk-ink); }  /* model-read rows: numbered in the same orange as their dashed marks */
 .ev .tg { width: 16px; height: 16px; padding: 0; border: 1px solid var(--faint); border-radius: 3px; background: var(--panel); color: #fff; font-size: 11px; line-height: 1; cursor: pointer; }
 .ev div:not(.off) .tg { background: var(--ink); border-color: var(--ink); }
 .ev .rd { margin-left: 6px; font-size: 11px; color: var(--chk-ink); border: 1px dashed var(--chk); border-radius: 3px; padding: 0 3px; }
