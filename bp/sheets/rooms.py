@@ -649,9 +649,21 @@ def _label(rooms, lab, f, W, H, words, image=None, src_ppm=100.0, vector=False):
         cy = (bb[1] + bb[3]) / 2 * H * f
         return int(lab[min(sh - 1, max(0, int(cy))), min(sw - 1, max(0, int(cx)))])
 
+    def near_room(bb):
+        """a word whose centre is on a wall / door swing: the room most of its box overlaps, within 0.3 m"""
+        x0, y0 = int(bb[0] * W * f), int(bb[1] * H * f)
+        x1, y1 = int(bb[2] * W * f) + 1, int(bb[3] * H * f) + 1
+        pad = int(0.3 * WORK_PPM)
+        blk = lab[max(0, y0 - pad):min(sh, y1 + pad), max(0, x0 - pad):min(sw, x1 + pad)]
+        ids, cnt = np.unique(blk[blk > 0], return_counts=True)
+        ok = [(c, i) for i, c in zip(ids.tolist(), cnt.tolist()) if i in by_i]
+        return max(ok)[1] if ok else None
+
     per: dict[int, list] = {}
     for w in words:
         i = room_of(w["bbox"])
+        if i not in by_i and _LABEL_OK.search(str(w.get("text", ""))):
+            i = near_room(w["bbox"])
         if i in by_i:
             per.setdefault(i, []).append(w)
     _join_labels(by_i, per, vector)
@@ -919,6 +931,8 @@ def intent(q: str) -> str | None:
         return "baseboard"
     if re.search(r"\barea|m2|m²|square met|sq\.? ?m|footprint|how big|size of", ql):
         return "area"
+    if re.search(r"how many|number of|\bcount\b", ql) and not re.search(r"\b(doors?|windows?|doorways?)\b", ql):
+        return "count"
     return None
 
 
@@ -966,7 +980,8 @@ def relabel(seg, image, rooms, budget_s: float = 30.0) -> int:
 
 def _norm(s):
     s = re.sub(r"\(.*?\)", " ", s.lower())
-    return [re.sub(r"(?<=[a-z]{3})s$", "", w) for w in re.findall(r"[a-z0-9]+", s)]
+    return [w[:-1] if w.endswith("s") and w[:-1] in SYN else re.sub(r"(?<=[a-z]{3})s$", "", w)  # "WCs" -> "wc"
+            for w in re.findall(r"[a-z0-9]+", s)]
 
 
 SYN = {"wc": "toilet", "lavatory": "toilet", "restroom": "toilet", "bathroom": "toilet", "classe": "classroom",
@@ -981,7 +996,10 @@ STOP = {"the", "of", "what", "is", "area", "areas", "floor", "room", "in", "on",
         "length", "lengths", "find", "calculate", "compute", "approximately", "size", "space", "spaces", "main",
         "metres", "meters", "base", "boards", "skirtings", "inside", "within", "by", "to", "be", "should",
         "rooms", "every", "whole", "building", "overall", "footprint", "much", "big", "large", "required", "needed",
-        "does", "doe", "need", "needs", "have", "has", "get", "install", "lay", "fit"}
+        "does", "doe", "need", "needs", "have", "has", "get", "install", "lay", "fit",
+        # finishes asked for a room type ("m2 of tiling for all WCs"): the trade, not a room name
+        "tiling", "tile", "tiles", "tiled", "flooring", "carpet", "carpeting", "paint", "painting", "plaster", "screed",
+        "vinyl", "covering", "finish", "finishes", "wall", "walls", "ceiling", "ceilings"}
 
 
 def _close(a, b):
@@ -1102,6 +1120,7 @@ def identify_room(seg, image, name: str, model: str = IDENT_MODEL):
         comp = sorted((r for r in rooms if compact(r)), key=lambda r: -r["area_m2"])
         if not comp or comp[0] is not room or (len(comp) > 1 and comp[1]["area_m2"] > 0.75 * room["area_m2"]):
             return None, "the pick is not clearly the largest hall-like room", cost
+        room["identified_verified"] = "the largest compact room on the plan"
     return room, str(js.get("why") or ""), cost
 
 
@@ -1238,6 +1257,8 @@ def answer(path, question, meta):
     # rooms merge or split (the hall read 13 / 47 / 288 m² for 245), and names are unreadable. Whole-building
     # totals and the footprint hold up; named rooms and wet-room exclusions are left to other paths.
     coarse = seg.get("px_per_m", 100) < COARSE_PPM or wpx < 3 or seg.get("scan", False)
+    if it == "count" and not coarse:
+        return None  # a crisp sheet's room names are counted by the arch module from the page text
     if seg.get("scan"):
         low_res = (low_res + "; " if low_res else "") + "scanned sheet"
     if coarse:
@@ -1267,6 +1288,16 @@ def answer(path, question, meta):
         # unreadable, a "Dining Room" via the hall synonym) is not trusted; the room list is offered instead
         lw = lambda r: {SYN.get(w, w) for w in _norm(r["label"])}  # noqa: E731
         sel = [r for r in sel if all(any(_close(w, x) for x in lw(r)) for w in set(qw))]
+    raw = re.findall(r"[a-z0-9]+", re.sub(r"\(.*?\)", " ", ql))
+    plural = {SYN.get(n, n) for t, n in zip(raw, _norm(question)) if t.endswith("s") and n != t}
+    if sel and qw and not seg.get("_crop_read") and not seg.get("_relabel_all") and \
+            (plural & set(qw) or re.search(r"\b(all|every|each)\b", ql)):
+        # a room type asked for in the plural ("all WCs"): rooms whose small name the page OCR missed would be left
+        # out of the sum, so the unlabelled ones are read off their own crops first (budgeted)
+        seg["_relabel_all"] = True
+        cand = [r for r in rooms if not r["label"] and r["area_m2"] >= 1.0]
+        if cand and relabel(seg, meta["image"], cand, budget_s=25.0):
+            sel, qw = match_rooms(rooms, question)
     if qw and not sel and not seg.get("_crop_read"):
         # the question names a room we have no label for: read the unlabelled / larger rooms' own crops (budgeted)
         cand = [r for r in rooms if r["area_m2"] >= 1.5]
@@ -1278,13 +1309,32 @@ def answer(path, question, meta):
             except Exception:  # noqa: BLE001
                 pass
             sel, qw = match_rooms(rooms, question)
-    if not sel and qw and coarse and seg.get("_crop_read") and not re.search(ALL_RX, ql):
+    if not sel and qw and coarse and seg.get("_crop_read") and it != "count" and not re.search(ALL_RX, ql):
         # names unreadable even on the per-room crops (a ~2000 px screenshot): a confident pick by layout / furniture
         sel = _identified(meta, seg, room_phrase(question))
         if sel:
-            cf *= 0.8
+            cf *= 0.9 if sel[0].get("identified_verified") else 0.8  # a hall pick is checked against the shapes
             low_res = (low_res + "; " if low_res else "") + \
                 f"the room was identified by its layout and furnishing, not its (unreadable) name: {sel[0]['identified_why']}"
+    if it == "count":
+        # rooms of a type counted by their names: only on coarse sheets (scans, small rasters) where the names were read
+        # off per-room crops; a crisp sheet's own labels are counted by the arch module from the page text
+        if not (coarse and seg.get("_crop_read") and sel and qw):
+            return None
+        lw = lambda r: {SYN.get(w, w) for w in _norm(r["label"])}  # noqa: E731
+        sel = [r for r in sel if r.get("label_source") == "vision" and
+               all(any(_close(w, x) for x in lw(r)) for w in set(qw))]
+        if not sel:
+            return None
+        names = sorted({r["label"] for r in sel})
+        ev = [_ev_poly(r, W, H, f"{r['label']} {i}", 1) for i, r in enumerate(sel, 1)]
+        for e in ev:
+            e.pop("unit", None)
+        return {"answer": len(sel), "confidence": round(0.75 * cf, 2), "method": "sheets-rooms-count",
+                "cost_usd": seg.get("cost_usd", 0.0), "evidence": ev, "low_res": low_res,
+                "explanation": f"{len(sel)} rooms named {' / '.join(names)}: each enclosed room's name was read off its "
+                               f"own cut-out crop by a vision model (the page text is too coarse here); every counted "
+                               f"room is outlined and numbered."}
     named = bool(sel)
     if any(r.get("label_source") == "vision" for r in sel):
         # names read by a VLM off an unreadable raster may be wrong (one crop per room is the surer read)

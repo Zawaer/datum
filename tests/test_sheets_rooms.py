@@ -194,3 +194,10 @@ def test_pen_marks_removed_walls_kept():
     g = R.gray_unmarked(__import__("PIL.Image", fromlist=["Image"]).fromarray(rgb))
     assert g[103:111].max() < 110  # the wall under the strokes is still ink (its core: the rims blur)
     assert g[150:190, 150:250].min() > 150  # no stroke left between the wall and the fill
+
+
+def test_room_words_plural_and_trades():
+    assert R.query_words("How many m2 of tiling for all WCs?") == ["toilet"]
+    assert R.intent("How many secondary classrooms are on this level?") == "count"
+    assert R.intent("How many doors open into the hall?") is None
+    assert R.intent("How many m2 of tiling for all WCs?") == "area"
