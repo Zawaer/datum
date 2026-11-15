@@ -11,7 +11,7 @@ SETUP=0; WARM=0
 for a in "$@"; do case $a in --setup) SETUP=1;; --warm) WARM=1;; esac; done
 KEY=${BP_SSH_KEY:-data/secrets/verda/id_verda}
 PREFIX=$(tr -d '\n' < "${BP_PREFIX_FILE:-data/secrets/demo_path.txt}")
-SITE=${BP_SITE:-${IP//./-}.sslip.io}
+SITE=${BP_SITE:-datum.toivo.dev, ${IP//./-}.sslip.io}
 SSHO=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=data/secrets/verda/known_hosts)
 R="root@$IP"
 ssh_() { ssh "${SSHO[@]}" "$R" "$@"; }
