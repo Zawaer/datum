@@ -14,6 +14,8 @@ same inputs our solvers read), gets **69.8 %** [60.9–78.4] at **$25.76 per 1,0
 about 1/1,900 of the cost. The evaluation was **cross-audited by a second AI agent (Codex, OpenAI)**,
 and every finding was re-checked: no leakage between dev and test, no test data in
 training, tuning or calibration, no gold lookups at inference, and the headline recount reproduces.
+**When it answers only at confidence ≥ 0.5, it answers 88.3 % of those questions and is right 95.8 % of the time**;
+otherwise it says "not sure" instead of guessing.
 
 A router sends every question to the cheapest method that can answer it **exactly**: CAD geometry for
 vector plans, IfcOpenShell for BIM models, a small symbol detector for raster scans. Every answer comes with
