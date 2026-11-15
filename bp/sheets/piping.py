@@ -1417,8 +1417,10 @@ def _count(q: str, sheet: dict, insts: list[dict], base: dict, cost: list) -> di
                 os.environ.get("BP_PIPING_GAP_SCAN", "1") != "1":
             continue
         have_t = {t["tag"] for t in sel if t["family"] == f}
+        # (a number read where another label already is, PS-2 on PS-12, is that label misread: not added)
         add = [t for t in _family_scan(sheet, [f], cost, max_tiles=48)
-               if t["num"] is not None and t["num"] in gaps and t["tag"] not in have_t]
+               if t["num"] is not None and t["num"] in gaps and t["tag"] not in have_t
+               and not any(_near(t["bbox"], o["bbox"], 2.0) or _overlap(t["bbox"], o["bbox"]) > 0.2 for o in insts)]
         seen = set()
         add = [t for t in add if not (t["tag"] in seen or seen.add(t["tag"]))]
         for t in add:
