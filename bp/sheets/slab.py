@@ -2201,6 +2201,9 @@ def answer(path, question, meta) -> dict | None:
                     + "; shading detection is approximate", ev, A, "pads", "m²")
 
     # ---- reinforcement / thickness / elevation (text)
+    if re.search(r"thick", ql) and re.search(r"vapou?r|barrier|insulation|membrane|\bwall|gravel|\bsand|base course|"
+                                            r"topping|screed|footing|grout|plate", ql):
+        return None  # the thickness of something else than the slab: not in the slab notes
     if re.search(r"\bbars?\b|reinforc|rebar|mesh|thick|elevation|top of slab|\bt\.?o\.?s\b|\bel\b", ql) \
             and not re.search(r"\barea\b|how much|m2|m²|square|" + _VOLUME, ql):
         sel, desc = _match_zones(q, A)
