@@ -3,7 +3,7 @@
 Every number below comes from a run log (`runs/*.jsonl`, rebuilt into `docs/RESULTS.md` by
 `BP_OURS_RUN=router_full_test_v8 bash analysis/run_all.sh`), from `docs/COSTS.md`, or from the verification
 reports (`runs/stoa_examples_v10_forms.summary.md` and `runs/judge_overnight.summary.md` for the construction sheets, `runs/crosscheck_test.summary.md`, `runs/crosscheck_vlm_test_v7.summary.md`, `runs/cubicasa_test_vlmarb.summary.md`, `docs/EVIDENCE_QUALITY.md`, `docs/ROBUSTNESS.md`, `docs/PROVENANCE.md`).
-TODO markers remain only for the demo / video links.
+
 
 ## Project name (≤ 30 chars)
 
@@ -19,7 +19,7 @@ _(187 characters)_
 
 ## Short version (~600 chars, for quick paste)
 
-Datum answers questions about construction drawings and BIM models, typed or spoken, and shows the proof on the drawing: counted doors numbered, rooms outlined with their m², table cells and pipe runs marked, and a short replay of how the answer was worked out. Uploaded floor, slab and piping sheets go to specialists that read the sheet's own text and lines: 41/41 right on Stoa's example sheets as vector PDFs, 39/41 from a scan. On 25,420 held-out test questions: 90.7 % at $0.013 per 1,000, vs 69.8 % for Claude Sonnet 5.5 with the same files at $25.76. 493 automated tests.
+Datum answers questions about construction drawings and BIM models, typed or spoken, and shows the proof on the drawing: counted doors numbered, rooms outlined with their m², table cells and pipe runs marked, and a short replay of how the answer was worked out. Uploaded floor, slab and piping sheets go to specialists that read the sheet's own text and lines: 41/41 right on Stoa's example sheets as vector PDFs, 39/41 from a scan. On 25,420 held-out test questions: 90.7 % at $0.013 per 1,000, vs 69.8 % for Claude Sonnet 5.5 with the same files at $25.76. 586 automated tests.
 
 _(579 characters)_
 
@@ -32,7 +32,7 @@ Quantity takeoff is still done by hand, because a general AI that gets a room ar
 **Results**
 - **90.7 %** right on 25,420 held-out questions (drawings it never saw), vs 69.8 % for Claude Sonnet 5.5 given the same files.
 - **$0.013 per 1,000 questions**, vs $25.76: most answers are read exactly from the drawing with no AI call.
-- **Stoa's complex example sheets:** 41 of 41 from the PDF, 39 from a scan, 38 from a small 2,000 px JPG. Closet doors not counted, per Stoa's rule.
+- **Stoa's complex example sheets** (public, we developed on them): 41 of 41 from the PDF, 39 from a scan, 38 from a small 2,000 px JPG. Closet doors not counted, per Stoa's rule.
 
 **For real projects:** upload a whole drawing set or several floors and ask about the whole building; ambiguous questions get one-tap follow-ups; any plan tilts into 3D with the answer painted on it.
 
@@ -78,7 +78,7 @@ For final judging, Stoa uploads unseen complex sheets. Each upload is classified
 - **Slab plans:** area by type (thickness + bars), reinforcement, trenches, sumps, joint panels.
 - **Piping plans:** tag counts, pipe sizes, notes, referenced sheets, run lengths.
 
-On Stoa's four example sheets (41 questions): vector PDF 41/41, full-res PNG 41, 2,500 px PNG 39, scanned PDF 39, a rough hand-marked scan 39, 2,000 px JPG 38 (237 of 246). Door counts follow Stoa's rule: closet doors are not counted. Before the specialists, the generic reader got 22 of the original 34 on the PDFs. On sibling sheets we never tuned on: 9/11. On 41 harder questions worded like a site engineer would ask them: 208 of 246 across six forms, 139 of 164 on the four scan forms (89 earlier the same day). Weak: piping label counts on scans off by one or two, room baseboards on coarse scans that come out low (window gaps are treated as doorways), and an occasional slab-area miss when a rough scan merges two rooms.
+On Stoa's four example sheets (41 questions; we developed on these, so they are not held out): vector PDF 41/41, full-res PNG 41, 2,500 px PNG 39, scanned PDF 39, a rough hand-marked scan 39, 2,000 px JPG 38 (237 of 246). Door counts follow Stoa's rule: closet doors are not counted. Before the specialists, the generic reader got 22 of the original 34 on the PDFs. On sibling sheets we never tuned on: 9/11. On 41 harder questions worded like a site engineer would ask them: 208 of 246 across six forms, 139 of 164 on the four scan forms (89 earlier the same day). Weak: piping label counts on scans off by one or two, room baseboards on coarse scans that come out low (window gaps are treated as doorways), and an occasional slab-area miss when a rough scan merges two rooms.
 
 ### 3. Visualising reasoning
 
@@ -114,9 +114,9 @@ Python, FastAPI, IfcOpenShell, ezdxf, PyMuPDF (vector text and linework of PDF s
 
 ## Links
 
-- Demo: TODO stable public URL
+- Demo: the hosted demo link given in the form
 - Source: https://github.com/Zawaer/datum
-- Video: TODO upload of `runs/video/` render (script: `docs/video.md`)
+- Video: VIDEO_LINK (script: `docs/video.md`)
 - Deck: `docs/deck/deck.pdf`
 
 ## Credits (shown on every drawing in the app, deck and video)

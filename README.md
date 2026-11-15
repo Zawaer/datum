@@ -29,13 +29,13 @@ a small frontier LLM, only for free text. Share of the 25,420 test questions per
 detector 64.9 %, Haiku 0.4 % (the 110 free-text questions).
 
 Uploaded construction sheets (floor plans, slab plans, piping plans, as vector PDFs, images or scans) go to
-sheet specialists that read the sheet's own text and lines: 41 of 41 right on Stoa's example sheets as vector
+sheet specialists that read the sheet's own text and lines: 41 of 41 right on Stoa's example sheets (public sheets we developed on) as vector
 PDFs and full-resolution images, 39 from scans and 2,500 px images, 38 from small 2,000 px screenshots ([complex construction sheets](#complex-construction-sheets)).
 
 ![Counting doors on a Swiss apartment plan: the plan tilted up into a cut-away 3D model with the 20 counted doors painted on the floor and a numbered pin on each, next to the answer 20, "Verified by geometry", and a second, independent method that agrees](docs/deck/img/feat-3d.jpg)
 <sub>Drawing: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0 (rendered by the Junction dataset authors).</sub>
 
-- **Demo:** TODO public URL &nbsp;·&nbsp; **Video (2 min):** TODO link &nbsp;·&nbsp; **Deck:** [docs/deck/deck.pdf](docs/deck/deck.pdf)
+- **Demo:** link in the Junction submission (rate-limited hosted demo) &nbsp;·&nbsp; **Video (2 min):** VIDEO_LINK &nbsp;·&nbsp; **Deck:** [docs/deck/deck.pdf](docs/deck/deck.pdf)
 - **Full results** (every table, figure and CI): [docs/RESULTS.md](docs/RESULTS.md) &nbsp;·&nbsp; **Costs:** [docs/COSTS.md](docs/COSTS.md)
 
 ## What you can do in the demo
@@ -125,7 +125,7 @@ tolerance: counts exact, areas / lengths / volumes within 2 %. An abstention cou
 
 | system | accuracy [95 % CI] | API $ / 1,000 questions | s / question |
 |---|---:|---:|---:|
-| **Datum** (all 25,420 questions) | **90.0 %** [89.7–90.4] | **$0.013** | **0.04** |
+| **Datum** (all 25,420 questions) | **90.7 %** [90.4–91.1] | **$0.013** | **0.06** |
 | Claude Sonnet 5.5 + sibling CAD / IFC files¹ (fair comparison) | 69.8 % [60.9–78.4] | $25.76 | 15.7 |
 | Claude Sonnet 5.5, drawing only¹ | 63.2 % [54.4–71.8] | $13.06 | 12.9 |
 | Claude Haiku 5.5, drawing only¹ | 60.6 % [51.5–69.3] | $1.21 | 28.6 |
