@@ -1,6 +1,8 @@
 # Datum: blueprints that talk
 
-<!-- CI badge (enable once the repo is public): [![CI](https://github.com/Zawaer/datum/actions/workflows/ci.yml/badge.svg)](https://github.com/Zawaer/datum/actions/workflows/ci.yml) -->
+**▶ [Try the live demo](https://datum.toivo.dev)** (no login) · **[Watch the 2-min video](https://youtu.be/0lAc7Zl9Shg)** · **[Pitch deck (PDF)](docs/deck/deck.pdf)**
+
+[![CI](https://github.com/Zawaer/datum/actions/workflows/ci.yml/badge.svg)](https://github.com/Zawaer/datum/actions/workflows/ci.yml)
 
 **Ask a construction drawing or a BIM model a question (tested in English, Finnish, German, French, Italian and
 Dutch) and get the answer with its proof drawn on the drawing.** Our Junction 2026 entry for Stoa's *Make Blueprints Talk* challenge.
