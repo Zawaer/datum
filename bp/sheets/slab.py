@@ -1650,6 +1650,28 @@ def analyse(meta) -> dict:
 
     if any(t["thickness_mm"] for t in types):  # bar callouts without a thickness are details, not slab types
         types = [t for t in types if t["thickness_mm"]]
+    if src == "tesseract" and os.environ.get("BP_SLAB_VISION_NOTES", "1") == "1":
+        # a slab note the OCR could not read at all (a rough scan: the D22 genset note): one look by the vision model
+        # at the sheet lists the slab notes (~$0.001, kept with the upload); a type the OCR lacks is added at the
+        # place the model gives
+        try:
+            vis2 = _vision_text(meta)
+            cost += vis2.get("cost_usd", 0.0)
+        except Exception as e:  # noqa: BLE001
+            log.warning("slab: vision note read failed: %s", e)
+            vis2 = {}
+        for nn in vis2.get("slab_notes") or []:
+            ty = _parse_type(str(nn.get("text") or ""))
+            try:
+                x, y = float(nn["x"]), float(nn["y"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not ty or not ty.get("thickness_mm") or not ty.get("bars") or not (0 <= x <= 1 and 0 <= y <= 1):
+                continue
+            if any(t["thickness_mm"] == ty["thickness_mm"] and set(t["bars"]) == set(ty["bars"]) for t in types):
+                continue
+            ty.update({"text": str(nn["text"]), "bbox": [x - 0.03, y - 0.015, x + 0.03, y + 0.015], "vision": True})
+            types.append(ty)
 
     # scale
     # the zones are traced on the levelled grey: words, notes and dimension strings used with them are put in that
