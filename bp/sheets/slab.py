@@ -703,7 +703,7 @@ def _min_side(m):
     return min(x1 - x0, y1 - y0)
 
 
-def _zones(g, k=None, joint_pts=None):
+def _zones(g, k=None, joint_pts=None, close=0):
     """Slab zones: list of {"mask"}. Enclosed white areas (hatch strokes ignored); thin strips (wall bands between
     their outlines) dropped; areas separated only by a thin line (control joint, dimension line) merged."""
     import cv2
@@ -712,6 +712,8 @@ def _zones(g, k=None, joint_pts=None):
     H, W = g.shape
     S = max(H, W)
     dark = (g < 200).astype(np.uint8)
+    if close:
+        dark = cv2.morphologyEx(dark, cv2.MORPH_CLOSE, np.ones((close, close), np.uint8))
     d = cv2.dilate(dark, np.ones((3, 3), np.uint8))
     n, lab, st, _ = cv2.connectedComponentsWithStats((1 - d).astype(np.uint8), connectivity=4)
     lab0 = lab.copy()
@@ -840,6 +842,38 @@ def _zones(g, k=None, joint_pts=None):
         res.append({"mask": f, "walled": dict((id(mm), wl) for mm, wl in cands).get(id(m), 1.0)})
     zones = res
     return zones, outside
+
+
+def _gap_closed_zones(zones, g, k, joint_pts, note_pts=()):
+    """A room whose wall a symbol breaks (a section marker's halo across the wall line) runs into the paper outside
+    and is lost as a zone, or only its other panels are (S-100A small screenshot: the 6" room's third panel). The
+    sheet is traced again with gaps up to ~0.45 % of its size closed; a zone of that pass replaces a zone of the
+    first that it contains when it is >25 % larger, and one overlapping none is added when a slab note no zone holds
+    lies in it. Zones are never merged across a wall by this: closing gaps only adds barriers."""
+    import numpy as np
+
+    S = max(g.shape)
+    ck = max(5, round(S * 0.0045)) | 1
+    try:
+        z2, _ = _zones(g, k, joint_pts, close=ck)
+    except Exception as e:  # noqa: BLE001
+        log.warning("slab: gap-closed pass failed: %s", e)
+        return zones
+    out = list(zones)
+    for b in z2:
+        mb = b["mask"] > 0
+        ab = int(mb.sum())
+        if not ab:
+            continue
+        inside = [i for i, a in enumerate(out) if (a["mask"] > 0).sum() and
+                  np.logical_and(a["mask"] > 0, mb).sum() >= 0.9 * (a["mask"] > 0).sum()]
+        overl = [i for i, a in enumerate(out) if np.logical_and(a["mask"] > 0, mb).sum() > 0.05 * ab]
+        if not overl and note_pts and any(0 <= int(y) < mb.shape[0] and 0 <= int(x) < mb.shape[1] and mb[int(y), int(x)]
+                                          and not any(a["mask"][int(y), int(x)] for a in out) for x, y in note_pts):
+            out.append(b)  # a room only this pass closes, holding a slab note no zone has
+        elif len(inside) == 1 and set(overl) == set(inside) and ab > 1.25 * int((out[inside[0]]["mask"] > 0).sum()):
+            out[inside[0]] = b
+    return out
 
 
 def _ring_walled(g, m) -> float:
@@ -1659,6 +1693,8 @@ def analyse(meta) -> dict:
     joint_pts = [((w["bbox"][0] + w["bbox"][2]) / 2 * W, (w["bbox"][1] + w["bbox"][3]) / 2 * H) for w in hor_g + ver_g
                  if re.fullmatch(r"[CE]\.?J\.?", w["text"].upper())]
     zones, _outside = _zones(g_seg, k, joint_pts)
+    if os.environ.get("BP_SLAB_GAPCLOSE", "1") == "1":
+        zones = _gap_closed_zones(zones, g_seg, k, joint_pts, note_pts=[tcenter(t) for t in types])
     S = max(H, W)
     good = []
     for z in zones:
