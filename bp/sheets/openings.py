@@ -1185,7 +1185,7 @@ def closet_doors(meta, doors, px_per_m=None) -> dict:
     bands = []
     small_ids = {}
     if seg and seg.get("_lab"):
-        lab, f = seg["_lab"]["lab"], seg["_lab"]["f"]
+        lab, f = rooms_mod.lab_of(seg), seg["_lab"]["f"]
         wppm = ppm * f / 2  # stats on every 2nd work pixel
         sub = lab[::2, ::2]
         n = int(sub.max()) + 1

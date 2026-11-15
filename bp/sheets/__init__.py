@@ -439,16 +439,32 @@ def _nbytes(x, depth=0) -> int:
 
 def _trim_meta_mem():
     """Drop the least recently built / used sheets' metas (and what modules cached on them) over META_MEM_BYTES.
-    A question already running keeps its own reference; the next one rebuilds the meta from sheet_meta_p<n>.json."""
+    Heavy metas go first (dropping a 50 kB one frees nothing), and none whose upload warm-up is still running (its
+    readings would land on a dropped dict). A question already running keeps its own reference; the next one rebuilds
+    the meta from sheet_meta_p<n>.json, and OCR words / room segmentations reload from their files beside the upload."""
     with _meta_lock:
         keys = list(_meta_mem)
         sizes = {k: _nbytes(_meta_mem[k]) for k in keys}
         total = sum(sizes.values())
-        for k in keys[:-1]:  # oldest first; the newest stays
+        if total <= META_MEM_BYTES:
+            return
+        with _warm_lock:
+            busy = {k for k in keys[:-1] if (lambda f: f is not None and not f.done())(
+                _warm_jobs.get(_warm_key(_meta_mem[k])))}
+        order = [k for k in keys[:-1] if k not in busy]  # oldest first; the newest stays
+        order = [k for k in order if sizes[k] >= HEAVY_META] + [k for k in order if sizes[k] < HEAVY_META]
+        for k in order:
             if total <= META_MEM_BYTES:
                 break
             total -= sizes[k]
-            _meta_mem.pop(k, None)
+            m = _meta_mem.pop(k, None)
+            if m is not None:
+                big = sorted(((_nbytes(v) >> 20, kk) for kk, v in list(m.items()) if kk.startswith("_")), reverse=True)
+                log.info("meta cache: dropped %s (%d MB: %s); %d sheets, %d MB held", os.path.basename(str(k[0])),
+                         sizes[k] >> 20, ", ".join(f"{kk} {mb}" for mb, kk in big[:4]), len(_meta_mem), total >> 20)
+
+
+HEAVY_META = 16 << 20
 
 
 def _copies(meta):
@@ -496,8 +512,49 @@ def ocr_words(meta, region=None, scale: float = 1.0, psm: int = 11, min_conf: fl
             lock = meta.setdefault("_ocr_locks", {}).setdefault(ck, threading.Lock())
         with lock:  # one OCR per sheet and signature, however many questions (or the upload warm-up) ask at once
             if ck not in cache:
-                cache[ck] = _ocr_run(meta, region, scale, psm)
+                cache[ck] = _ocr_disk(meta, ck, lambda: _ocr_run(meta, region, scale, psm))
     return [w for w in cache[ck] if w["conf"] >= min_conf]
+
+
+def disk_cache_ok(img: str) -> bool:
+    """Whether derived readings (OCR words, room segmentation) may be kept as files beside this image: only in an
+    upload's own folder (where build_meta keeps sheet_meta_p<n>.json), never beside a source drawing or a fixture."""
+    import glob
+
+    d = os.path.dirname(os.path.abspath(img)) if img else ""
+    return bool(d) and os.environ.get("BP_SHEET_DISK_CACHE", "1") == "1" and \
+        bool(glob.glob(os.path.join(glob.escape(d), "sheet_meta_p*.json")))
+
+
+def _ocr_disk(meta, ck, run):
+    """An OCR result kept beside the upload's image (keyed by the image's size / mtime and the call signature): a
+    sheet dropped from the in-memory cache in a burst of uploads, or read again after a restart, reloads its words
+    instead of running tesseract again (~5-15 s for a scan on the 4-core VM)."""
+    import hashlib
+
+    img = str(meta.get("image") or "")
+    fn = None
+    if not disk_cache_ok(img):
+        return run()
+    try:
+        st = os.stat(img)
+        fn = f"{img}.ocr_{hashlib.sha1(f'{st.st_size}|{st.st_mtime}|{ck}'.encode()).hexdigest()[:12]}.json"
+        with open(fn) as fh:
+            words = json.load(fh)
+        if isinstance(words, list):
+            return words
+    except (OSError, ValueError):
+        pass
+    words = run()
+    if fn and words:
+        try:
+            tmp = f"{fn}.{os.getpid()}.{threading.get_ident()}.tmp"
+            with open(tmp, "w") as fh:
+                json.dump(words, fh)
+            os.replace(tmp, fn)
+        except OSError:
+            pass
+    return words
 
 
 # tesseract processes across every OCR in flight: one per core (four sheets OCRing at once ran 16 on the 4-core VM)

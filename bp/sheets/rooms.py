@@ -26,6 +26,8 @@ the area around the word SCALE OCR'd again, upscaled.
 """
 from __future__ import annotations
 
+import contextlib
+import os
 import re
 import tempfile
 import threading
@@ -620,7 +622,7 @@ def segment(image, px_per_m=None, words=None, meta=None, with_labels=True) -> di
     inside = np.isin(lab[::3, ::3], [r["_i"] for r in rooms])
     fill_gray = float(np.median(small[::3, ::3][inside])) if inside.any() else 255.0
     paper_gray = float(np.percentile(small[::3, ::3], 90))  # grey scan paper: rooms are as grey as the paper
-    seg_extra = {"lab": lab, "f": f, "W": W, "H": H, "src_ppm": px_per_m,
+    seg_extra = {"lab": pack_lab(lab), "f": f, "W": W, "H": H, "src_ppm": px_per_m,
                  "vector": bool(words is None and meta and meta.get("words"))}
     if with_labels:
         _label(rooms, lab, f, W, H, _words(image, words, meta), image, src_ppm=px_per_m,
@@ -641,6 +643,41 @@ def segment(image, px_per_m=None, words=None, meta=None, with_labels=True) -> di
             "side_panels": [{"bbox": [p["box"][0] / f, p["box"][1] / f, (p["box"][0] + p["box"][2]) / f,
                                       (p["box"][1] + p["box"][3]) / f], "length_m": p["length_m"]} for p in side_panels],
             "footprint_polys": [[[round(p[0][0] / f, 1), round(p[0][1] / f, 1)] for p in c] for c in big]}
+
+
+class PackedLab:
+    """A room label map as kept on a cached segmentation: zlib-compressed uint16 (int32 past 65535 labels). A 25 MP
+    work image's map is 100 MB as int32 and ~1-3 MB packed, so the sheet cache (bp/sheets/__init__.py, 1.2 GB) keeps
+    every upload's segmentation instead of dropping early ones in a burst of uploads. lab_of() unpacks it on use."""
+
+    __slots__ = ("shape", "dtype", "data", "nbytes")
+
+    def __init__(self, lab: np.ndarray):
+        import zlib
+
+        dt = np.uint16 if lab.size == 0 or int(lab.max()) < 65536 else np.int32
+        a = np.ascontiguousarray(lab, dtype=dt)
+        self.shape, self.dtype = a.shape, a.dtype
+        self.data = zlib.compress(a.tobytes(), 1)
+        self.nbytes = len(self.data)
+
+    def unpack(self) -> np.ndarray:
+        import zlib
+
+        a = np.frombuffer(zlib.decompress(self.data), dtype=self.dtype).reshape(self.shape)
+        return a
+
+
+def pack_lab(lab: np.ndarray) -> PackedLab:
+    return PackedLab(lab)
+
+
+def lab_of(x) -> np.ndarray:
+    """The label map of a segmentation (seg or seg["_lab"]): unpacked when kept packed. Read-only."""
+    if "_lab" in x:
+        x = x["_lab"]
+    v = x["lab"]
+    return v.unpack() if isinstance(v, PackedLab) else v
 
 
 _LABEL_OK = re.compile(r"[A-Za-z]{2,}|\b[A-Z]?\d{2,4}[A-Z]?\b")
@@ -870,7 +907,7 @@ def crop_labels(seg, image, rooms, min_m2: float = 2.0, model: str = "haiku", ov
             got = None
     cost = 0.0
     if got is None:
-        lab, f = x["lab"], x["f"]
+        lab, f = lab_of(x), x["f"]
         sh, sw = lab.shape
         Image.MAX_IMAGE_PIXELS = None
         im = Image.open(image).convert("L")
@@ -944,12 +981,141 @@ def intent(q: str) -> str | None:
     return None
 
 
+def _seg_file(meta) -> str | None:
+    """Where a sheet's segmentation is kept beside its upload: keyed by the image (size, mtime) and this module's
+    source, so a code change recomputes it rather than reading an old one."""
+    import hashlib
+    import os
+
+    img = str(meta.get("image") or "")
+    if not img or not os.path.exists(img) or not sheets.disk_cache_ok(img):
+        return None
+    st = os.stat(img)
+    return f"{img}.rooms_seg_{hashlib.sha1(f'{st.st_size}|{st.st_mtime}|{_SRC_KEY}'.encode()).hexdigest()[:12]}.pkl"
+
+
+def _src_key() -> str:
+    import hashlib
+
+    try:
+        return hashlib.sha1(open(__file__, "rb").read()).hexdigest()[:12]
+    except OSError:
+        return "0"
+
+
+_SRC_KEY = _src_key()
+
+
+def persist(meta, seg):
+    """Write the segmentation (with the per-room names read so far) beside the upload: when the sheet cache drops
+    this sheet in a burst of uploads, or the server restarts, the next question reloads it in a fraction of a second
+    instead of segmenting (~6-10 s) and reading the room crops (~12 s) again. Best effort."""
+    import os
+    import pickle
+
+    fn = _seg_file(meta)
+    if not fn:
+        return
+    try:
+        with _lock:
+            snap = {k: v for k, v in seg.items() if not k.endswith("_lock")}
+            blob = pickle.dumps(snap, protocol=pickle.HIGHEST_PROTOCOL)
+        tmp = f"{fn}.{os.getpid()}.{threading.get_ident()}.tmp"
+        with open(tmp, "wb") as fh:
+            fh.write(blob)
+        os.replace(tmp, fn)
+    except Exception:  # noqa: BLE001  (a room mutated meanwhile, a full disk): the cache stays in memory only
+        import logging
+
+        logging.getLogger(__name__).info("room segmentation not persisted", exc_info=True)
+
+
+def _load(meta):
+    import os
+    import pickle
+
+    fn = _seg_file(meta)
+    if not fn or not os.path.exists(fn):
+        return None
+    try:
+        with open(fn, "rb") as fh:
+            seg = pickle.load(fh)
+        return seg if isinstance(seg, dict) and "rooms" in seg else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+_seg_locks: dict = {}
+SEG_BUDGET = int(float(os.environ.get("BP_ROOMS_SEG_MB", "2500")) * (1 << 20))  # segmentations' arrays at once
+_seg_cond = threading.Condition()
+_seg_used = 0
+
+
+@contextlib.contextmanager
+def _seg_budget(nbytes: int):
+    """Segmentations of different sheets run side by side within SEG_BUDGET bytes of work arrays (WARM_BPP per work
+    pixel); a bigger one waits until it can run alone. Only the segmentations of the same sheet share one lock."""
+    global _seg_used
+    with _seg_cond:
+        while _seg_used and _seg_used + nbytes > SEG_BUDGET:
+            _seg_cond.wait(5.0)
+        _seg_used += nbytes
+    try:
+        yield
+    finally:
+        with _seg_cond:
+            _seg_used -= nbytes
+            _seg_cond.notify_all()
+
+
 def _cached(meta) -> dict:
+    """The sheet's segmentation, computed once per sheet (or reloaded from beside the upload). The lock is per sheet:
+    one huge segmentation (a 70 MP colour diagram ran 512 s under a burst of uploads) must not hold up every other
+    sheet's room question behind a module-wide lock, as it did (all of them timed out)."""
+    if "_rooms_seg" in meta:
+        return meta["_rooms_seg"]
     with _lock:
+        lk = _seg_locks.setdefault(str(meta.get("image") or id(meta)), threading.RLock())
+        while len(_seg_locks) > 512:
+            _seg_locks.pop(next(iter(_seg_locks)))
+    with lk:
         if "_rooms_seg" not in meta:
-            seg = segment(meta["image"], meta=meta)
+            import logging
+            import os
+            import time
+
+            t0 = time.monotonic()
+            seg = _load(meta)
+            if seg is not None:
+                meta["_rooms_seg"] = seg
+                logging.getLogger(__name__).info("rooms segmentation %s: reloaded in %.2f s",
+                                                 os.path.basename(str(meta.get("path"))), time.monotonic() - t0)
+                return seg
+            sc = scale_info(meta["image"], None, meta)
+            if sc is None:
+                seg = segment(meta["image"], meta=meta)
+            else:
+                W, H = meta.get("w") or 0, meta.get("h") or 0
+                if not (W and H):
+                    H, W = _gray(meta["image"]).shape
+                work = W * H * (WORK_PPM / sc["px_per_m"]) ** 2
+                if work > MAX_WORK_PX:
+                    # a scale read far too fine (a rough scan's bar labels misread: 6 px/m for ~20) blows the work
+                    # image up to hundreds of MP: 490 s of segmentation for no usable room. Rooms stay unanswered
+                    logging.getLogger(__name__).warning(
+                        "rooms segmentation %s skipped: %.0f MP work image at %.1f px/m",
+                        os.path.basename(str(meta.get("path"))), work / 1e6, sc["px_per_m"])
+                    seg = {"rooms": [], "scale": sc, "px_per_m": sc["px_per_m"], "doors": [], "footprint_m2": None,
+                           "skipped": f"work image {work / 1e6:.0f} MP"}
+                else:
+                    with _seg_budget(int(WARM_BPP * work)):
+                        seg = segment(meta["image"], sc["px_per_m"], meta=meta)
+                    seg["scale"] = sc
             seg["cost_usd"] = 0.0
             meta["_rooms_seg"] = seg
+            logging.getLogger(__name__).info("rooms segmentation %s: %.1f s", os.path.basename(str(meta.get("path"))),
+                                             time.monotonic() - t0)
+            persist(meta, seg)
         return meta["_rooms_seg"]
 
 
@@ -961,7 +1127,7 @@ def relabel(seg, image, rooms, budget_s: float = 30.0) -> int:
     x = seg.get("_lab") or {}
     if not x or x.get("vector") or isinstance(image, np.ndarray):
         return 0
-    lab, f, W, H = x["lab"], x["f"], x["W"], x["H"]
+    lab, f, W, H = lab_of(x), x["f"], x["W"], x["H"]
     sh, sw = lab.shape
     cscale = min(6.0, max(2.0, 240.0 / x["src_ppm"]))
     t0, n = time.time(), 0
@@ -1073,7 +1239,7 @@ def identify_room(seg, image, name: str, model: str = IDENT_MODEL):
     rooms = [r for r in seg["rooms"] if r["area_m2"] >= 4][:60]
     if not x or isinstance(image, np.ndarray) or len(rooms) < 3:
         return None, "", 0.0
-    lab, f = x["lab"], x["f"]
+    lab, f = lab_of(x), x["f"]
     key = hashlib.sha1((name.lower() + model + json.dumps([[round(v) for v in r["bbox"]] for r in rooms]))
                        .encode()).hexdigest()[:12]
     cache = f"{image}.rooms_ident_{key}.json"
@@ -1116,20 +1282,399 @@ def identify_room(seg, image, name: str, model: str = IDENT_MODEL):
         except OSError:
             pass
     k = js.get("room")
+    if isinstance(k, int) and 1 <= k <= len(rooms):  # a less sure pick is one vote for typed_room
+        seg.setdefault("_ident", {})[name.lower()] = (rooms[k - 1]["id"], str(js.get("confidence", "")).lower())
     if not (isinstance(k, int) and 1 <= k <= len(rooms)) or str(js.get("confidence", "")).lower() != "high":
         return None, str(js.get("why") or ""), cost
     room = rooms[k - 1]
     if "hall" in {SYN.get(w, w) for w in query_words(name)}:
-        # an assembly hall is the sheet's largest compact room (corridors are long and thin)
-        def compact(r):
-            bw, bh = r["bbox"][2] - r["bbox"][0], r["bbox"][3] - r["bbox"][1]
-            return max(bw, bh) <= 2.5 * max(1e-6, min(bw, bh)) and \
-                r["area_m2"] * seg["px_per_m"] ** 2 >= 0.6 * bw * bh
-        comp = sorted((r for r in rooms if compact(r)), key=lambda r: -r["area_m2"])
-        if not comp or comp[0] is not room or (len(comp) > 1 and comp[1]["area_m2"] > 0.75 * room["area_m2"]):
+        if not _largest_compact(seg, rooms, room):
             return None, "the pick is not clearly the largest hall-like room", cost
         room["identified_verified"] = "the largest compact room on the plan"
     return room, str(js.get("why") or ""), cost
+
+
+def _largest_compact(seg, rooms, room) -> bool:
+    """An assembly hall is the sheet's largest compact room (corridors are long and thin), clearly."""
+    def compact(r):
+        bw, bh = r["bbox"][2] - r["bbox"][0], r["bbox"][3] - r["bbox"][1]
+        return max(bw, bh) <= 2.5 * max(1e-6, min(bw, bh)) and r["area_m2"] * seg["px_per_m"] ** 2 >= 0.6 * bw * bh
+    comp = sorted((r for r in rooms if compact(r)), key=lambda r: -r["area_m2"])
+    return bool(comp) and comp[0] is room and not (len(comp) > 1 and comp[1]["area_m2"] > 0.75 * room["area_m2"])
+
+
+# ------------------------------------------------------------------- rooms by their use (names unreadable)
+SURVEY_PROMPT = """This is a floor plan with its rooms numbered in red (1..{n}). The printed room names are too small to
+read. For every numbered room say what kind of room it is, judging from the furniture and fittings drawn in it, its size
+and shape, and where it sits in the layout (rooms of one kind repeat with the same size and furniture).
+JSON only: {{"1": {{"type": "<short room type, e.g. classroom, group room, library, kitchen, office, WC, store, corridor>",
+"confidence": "high"|"medium"|"low"}}, ...}}"""
+TYPE_PROMPT = """Each image is one room cut out of an architectural floor plan (everything outside the room is blanked).
+The printed names are too small to read; judge each room's USE from the furniture and fittings drawn in it (tables,
+chairs, shelving, beds, WCs, basins, worktops, sinks, stairs), its size and shape. Sizes: {sizes}.
+For each room k give {{"type": short room type (e.g. "classroom", "library", "kitchen", "group room", "office",
+"meeting room", "WC", "store", "corridor", "stair", "hall", "changing room"), "confidence": "high"|"medium"|"low"}}.
+"high" only if the drawn furniture leaves no real doubt. JSON only: {{"1": {{...}}, "2": {{...}}, ...}}"""
+TYPE_MODEL = "sonnet"
+TYPE_MIN_M2 = 4.0
+COUNT_MIN_M2 = 15.0  # smaller rooms (6 m² group rooms) merge with a neighbour through a blurred doorway: not counted
+_CONF = {"high": 2, "medium": 1, "low": 0}
+
+
+def _type_head(text: str) -> str:
+    stop = STOP | {x for w in STOP for x in _norm(w)}
+    ws = [w for w in _norm(text) if w not in stop and len(w) > 1 and w.isalpha()]
+    if not ws:
+        return ""
+    return ws[-1] if ws[-1] == "dining" else SYN.get(ws[-1], ws[-1])  # a servery / dining room is not "the hall"
+
+
+def type_match(name: str, typ) -> int:
+    """How surely a read room type is the named room: 2 (its only type), 1 (one of 'a / b'), 0 (not it). The name's
+    head noun decides ("Secondary Classroom" is a classroom; "Multi-Purpose Hall" a hall), within one OCR-like slip."""
+    head = _type_head(name)
+    if not head or not isinstance(typ, str):
+        return 0
+    alts = [a for a in re.split(r"/|,|\bor\b", re.sub(r"\(.*?\)", " ", typ)) if a.strip()]
+    hits = [a for a in alts if _close(head, _type_head(a))]
+    return 0 if not hits else 2 if len(alts) == 1 else 1
+
+
+def _conf(v) -> int:
+    return _CONF.get(str((v or {}).get("confidence", "")).lower(), 0)
+
+
+def _json_cache(path, compute):
+    import json
+    import os
+
+    if os.path.exists(path):
+        try:
+            return json.load(open(path)), 0.0
+        except (OSError, ValueError):
+            pass
+    js, cost = compute()
+    if js:
+        try:
+            json.dump(js, open(path, "w"))
+        except OSError:
+            pass
+    return js, cost
+
+
+def _numbered_plan(seg, image, rooms, max_px=2400):
+    """The plan cropped to the rooms' extent, upscaled (<= 4x, long side <= max_px), each room numbered 1..n in red at
+    its most interior point."""
+    import cv2
+    from PIL import Image, ImageDraw
+
+    x = seg["_lab"]
+    lab, f = lab_of(x), x["f"]
+    Image.MAX_IMAGE_PIXELS = None
+    im = Image.open(image).convert("RGB")
+    W, H = im.size
+    x0, y0 = max(0, min(r["bbox"][0] for r in rooms) - 20), max(0, min(r["bbox"][1] for r in rooms) - 20)
+    x1, y1 = min(W, max(r["bbox"][2] for r in rooms) + 20), min(H, max(r["bbox"][3] for r in rooms) + 20)
+    c = im.crop((int(x0), int(y0), int(x1), int(y1)))
+    s = min(4.0, max_px / max(c.size))
+    c = c.resize((max(1, int(c.width * s)), max(1, int(c.height * s))), Image.LANCZOS)
+    d = ImageDraw.Draw(c)
+    sh, sw = lab.shape
+    for i, r in enumerate(rooms, 1):
+        bx0, by0, bx1, by1 = (int(v * f) for v in r["bbox"])
+        m = (lab[max(0, by0):min(sh, by1 + 1), max(0, bx0):min(sw, bx1 + 1)] == r["id"]).astype(np.uint8)
+        if m.any():
+            dt = cv2.distanceTransform(np.pad(m, 1), cv2.DIST_L2, 3)[1:-1, 1:-1]
+            py, px = np.unravel_index(int(np.argmax(dt)), dt.shape)
+            cx, cy = (max(0, bx0) + px) / f, (max(0, by0) + py) / f
+        else:
+            cx, cy = (r["bbox"][0] + r["bbox"][2]) / 2, (r["bbox"][1] + r["bbox"][3]) / 2
+        tx, ty = (cx - x0) * s, (cy - y0) * s
+        d.rectangle([tx - 13, ty - 12, tx + 13, ty + 12], fill=(255, 255, 255))
+        d.text((tx - 11, ty - 11), str(i), fill=(230, 0, 0), font_size=20)
+    return c
+
+
+def room_survey(meta, seg, model: str = TYPE_MODEL) -> dict:
+    """{room id: {"type", "confidence"}} for the plan's rooms (>= TYPE_MIN_M2), read by a VLM off the whole numbered
+    plan: furniture, size and the layout (repeated rooms of one kind). For a coarse raster whose printed names are
+    unreadable. Cached on the segmentation and beside the image."""
+    if "_survey" in seg:
+        return seg["_survey"]
+    with _lock:
+        lk = seg.setdefault("_survey_lock", threading.Lock())
+    with lk:  # questions asked at once (and the warm-up) share the one reading
+        if "_survey" not in seg:
+            _survey(meta, seg, model)
+    return seg.get("_survey", {})
+
+
+def _survey(meta, seg, model):
+    import hashlib
+    import json
+
+    from bp.generic import llm
+
+    rooms = [r for r in seg["rooms"] if r["area_m2"] >= TYPE_MIN_M2][:60]
+    image = meta.get("image")
+    if len(rooms) < 3 or not seg.get("_lab") or not image:
+        seg["_survey"] = {}
+        return
+    key = hashlib.sha1((model + json.dumps([[round(v) for v in r["bbox"]] for r in rooms])).encode()).hexdigest()[:12]
+
+    def compute():
+        res = llm.ask(SURVEY_PROMPT.format(n=len(rooms)), [_numbered_plan(seg, image, rooms)], model=model,
+                      tag="rooms-survey")
+        js = llm.parse_json(res.get("text", "")) or {}
+        return (js if isinstance(js, dict) else {}), res.get("cost_usd", 0.0)
+
+    js, cost = _json_cache(f"{image}.rooms_survey_{key}.json", compute)
+    seg["cost_usd"] = seg.get("cost_usd", 0.0) + cost
+    seg["_survey"] = {r["id"]: js.get(str(i)) for i, r in enumerate(rooms, 1) if isinstance(js.get(str(i)), dict)}
+
+
+def _mask_crop(im, m, box, f, up=4.0):
+    """The room cut out of the full-resolution page `im` (grey PIL): work-px mask `m` covering work box `box`
+    (x0, y0, x1, y1), padded by the wall, the rest blanked; upscaled <= up (long side <= CROP_MAX_PX)."""
+    import cv2
+    from PIL import Image
+
+    pad = max(2, int(0.35 * WORK_PPM))
+    m = cv2.dilate(m.astype(np.uint8), np.ones((2 * pad + 1, 2 * pad + 1), np.uint8))
+    W, H = im.size
+    ix0, iy0 = int(box[0] / f), int(box[1] / f)
+    ix1, iy1 = min(W, max(ix0 + 1, int(box[2] / f))), min(H, max(iy0 + 1, int(box[3] / f)))
+    c = np.asarray(im.crop((ix0, iy0, ix1, iy1))).copy()
+    mm = cv2.resize(m, (c.shape[1], c.shape[0]), interpolation=cv2.INTER_NEAREST)
+    c[mm == 0] = 255
+    ci = Image.fromarray(c)
+    s = min(up, CROP_MAX_PX / max(c.shape))
+    if s != 1:
+        ci = ci.resize((max(1, int(ci.width * s)), max(1, int(ci.height * s))), Image.LANCZOS)
+    return ci
+
+
+def _room_mask(lab, r, f, pad):
+    sh, sw = lab.shape
+    bx0, by0, bx1, by1 = (int(v * f) for v in r["bbox"])
+    box = (max(0, bx0 - pad), max(0, by0 - pad), min(sw, bx1 + pad), min(sh, by1 + pad))
+    return lab[box[1]:box[3], box[0]:box[2]] == r["id"], box
+
+
+def room_types(meta, seg, rooms, model: str = TYPE_MODEL) -> dict:
+    """{key: {"type", "confidence"}} for the given rooms (dicts with "bbox", "area_m2" and either "id" (a segmented
+    room) or "_key"/"_mask"/"_box" (a part of one, work px)), each read by a VLM off its own cut-out crop, upscaled up
+    to 4x with its furniture kept. key = room id, or the part's "_key". Cached beside the image."""
+    import concurrent.futures as cf
+    import hashlib
+    import json
+
+    from PIL import Image
+
+    from bp.generic import llm
+
+    image = meta.get("image")
+    if not rooms or not seg.get("_lab") or not image:
+        return {}
+    x = seg["_lab"]
+    keyf = lambda r: str(r.get("_key") or r["id"])  # noqa: E731
+    key = hashlib.sha1((model + json.dumps([[keyf(r)] + [round(v) for v in r["bbox"]] for r in rooms]))
+                       .encode()).hexdigest()[:12]
+    ppm = seg.get("px_per_m") or x["src_ppm"]
+
+    def compute():
+        lab, f = lab_of(x), x["f"]
+        Image.MAX_IMAGE_PIXELS = None
+        im = Image.open(image).convert("L")
+        pad = max(2, int(0.35 * WORK_PPM))
+        crops = []
+        for r in rooms:
+            if "_mask" in r:
+                m, box = r["_mask"], r["_box"]
+            else:
+                m, box = _room_mask(lab, r, f, pad)
+            crops.append(_mask_crop(im, m, box, f))
+        batches = [list(range(i, min(len(rooms), i + 10))) for i in range(0, len(rooms), 10)]
+
+        def run(ids):
+            sz = "; ".join(f"room {n}: {rooms[i]['area_m2']:.0f} m², "
+                           f"{(rooms[i]['bbox'][2] - rooms[i]['bbox'][0]) / ppm:.1f} x "
+                           f"{(rooms[i]['bbox'][3] - rooms[i]['bbox'][1]) / ppm:.1f} m" for n, i in enumerate(ids, 1))
+            res = llm.ask(TYPE_PROMPT.format(sizes=sz), [crops[i] for i in ids], model=model, tag="rooms-types")
+            js = llm.parse_json(res.get("text", "")) or {}
+            js = js if isinstance(js, dict) else {}
+            return res.get("cost_usd", 0.0), {keyf(rooms[i]): js.get(str(n)) for n, i in enumerate(ids, 1)
+                                               if isinstance(js.get(str(n)), dict)}
+
+        out, cost = {}, 0.0
+        with cf.ThreadPoolExecutor(min(4, len(batches))) as ex:
+            for c_, o in ex.map(run, batches):
+                cost += c_
+                out.update(o)
+        return out, cost
+
+    js, cost = _json_cache(f"{image}.rooms_types_{key}.json", compute)
+    seg["cost_usd"] = seg.get("cost_usd", 0.0) + cost
+    return js
+
+
+def _parts(seg, r, lab=None):
+    """A room split at its narrowest necks (a doorway whose leaf blurred away on a coarse raster joins two rooms): the
+    smallest opening radius 0.5-1.2 m that leaves >= 2 parts of >= 5 m² each; [] when no such neck. Each part:
+    {"_mask" (work px, over "_box"), "_box", "bbox" (image px), "area_m2", "perimeter_m", "cut_m" (neck length),
+    "polygon", "doors" (the room's doorways touching it)}."""
+    import cv2
+
+    x = seg["_lab"]
+    lab = lab_of(x) if lab is None else lab
+    f = x["f"]
+    m, box = _room_mask(lab, r, f, 2)
+    m = m.astype(np.uint8)
+    if m.sum() < 10 * WORK_PPM ** 2:
+        return []
+    for rad in (0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2):
+        k = int(round(rad * WORK_PPM))
+        op = cv2.morphologyEx(m, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * k + 1, 2 * k + 1)))
+        n, cl, st, _ = cv2.connectedComponentsWithStats(op, connectivity=4)
+        big = [i for i in range(1, n) if st[i, cv2.CC_STAT_AREA] >= 5 * WORK_PPM ** 2]
+        if len(big) >= 2:
+            break
+    else:
+        return []
+    # every pixel of the room goes to its nearest kept part
+    seeds = np.isin(cl, big)
+    _, lbl = cv2.distanceTransformWithLabels((~seeds).astype(np.uint8), cv2.DIST_L2, 5,
+                                             labelType=cv2.DIST_LABEL_PIXEL)
+    ys, xs = np.nonzero(seeds)
+    comp = np.zeros(int(lbl.max()) + 1, np.int32)
+    comp[lbl[ys, xs]] = cl[ys, xs]
+    asg = comp[lbl] * m
+    out = []
+    for n_, i in enumerate(big):
+        pm = (asg == i).astype(np.uint8)
+        cs, _ = cv2.findContours(pm, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        c = max(cs, key=cv2.contourArea)
+        poly = cv2.approxPolyDP(c, 0.03 * WORK_PPM, True)[:, 0, :].astype(float)
+        # the neck: this part's pixels that touch the other parts of the room
+        other = ((asg > 0) & (asg != i)).astype(np.uint8)
+        seam = cv2.dilate(other, np.ones((3, 3), np.uint8)) & pm
+        sy, sx = np.nonzero(seam)
+        cut_m = len(sx) / WORK_PPM / 2 if len(sx) else 0.0  # a 2-px-wide seam
+        px0, py0, pw, ph = cv2.boundingRect(pm)
+        bx = [(box[0] + px0) / f, (box[1] + py0) / f, (box[0] + px0 + pw) / f, (box[1] + py0 + ph) / f]
+        pdil = cv2.dilate(pm, np.ones((7, 7), np.uint8))
+        doors = []
+        for d in r.get("doors", []):
+            dx0, dy0, dx1, dy1 = (int(v * f) - o for v, o in zip(d["bbox"], (box[0], box[1], box[0], box[1])))
+            sub = pdil[max(0, dy0):max(0, dy1 + 1), max(0, dx0):max(0, dx1 + 1)]
+            if sub.size and sub.any():
+                doors.append(d)
+        if len(sx):  # the opening into the joined room: no baseboard across it either
+            doors.append({"width_m": round(cut_m, 2), "opening": "into the joined room",
+                          "bbox": [(box[0] + sx.min()) / f, (box[1] + sy.min()) / f, (box[0] + sx.max() + 1) / f,
+                                   (box[1] + sy.max() + 1) / f]})
+        out.append({"_key": f"{r['id']}.{n_}", "_mask": pm, "_box": box, "bbox": bx, "area_m2": round(pm.sum() / WORK_PPM ** 2, 2),
+                    "perimeter_m": round((cv2.arcLength(poly.astype(np.float32).reshape(-1, 1, 2), True) + 4)
+                                         / WORK_PPM, 2),
+                    "cut_m": round(cut_m, 2),
+                    "polygon": [[round((box[0] + p[0]) / f, 1), round((box[1] + p[1]) / f, 1)] for p in poly],
+                    "doors": doors})
+    return out
+
+
+def typed_room(meta, seg, name: str):
+    """(room, why) for a named room on a coarse raster whose printed names are unreadable even on per-room crops, or
+    (None, why): the whole-plan type survey must name exactly one room as `name` (at least "medium"), and that room's
+    own crop must agree (a "high" survey pick only needs no contradicting crop). A pick that is two rooms joined
+    through a blurred doorway is split at the neck, and the part whose crop reads as `name` is taken."""
+    survey = room_survey(meta, seg)
+    if not survey:
+        return None, "no room survey"
+    byid = {r["id"]: r for r in seg["rooms"]}
+    cands = [(i, v) for i, v in survey.items() if i in byid and type_match(name, v.get("type")) and _conf(v) >= 1]
+    pick, pconf = (seg.get("_ident") or {}).get(name.lower(), (None, ""))
+    if pick in byid and _CONF.get(pconf, 0) >= 1:
+        # the whole-plan pick for this name (identify_room, not sure enough alone) settles or stands in for the survey
+        if len(cands) > 1 and pick in {i for i, _ in cands}:
+            cands = [(i, v) for i, v in cands if i == pick]
+        elif not cands:
+            seen = survey.get(pick) or {}
+            # a low survey read of the same room as `name` is a second vote; the room's own crop still has to agree
+            cands = [(pick, {"type": name, "confidence": "medium",
+                             "by": "identify+survey" if type_match(name, seen.get("type")) else "identify"})]
+    if len(cands) != 1:
+        return None, f"{len(cands)} rooms read as {name}"
+    rid, sv = cands[0]
+    room = byid[rid]
+    sure = type_match(name, sv.get("type")) == 2 and _conf(sv) == 2
+    ct = room_types(meta, seg, [room]).get(str(rid)) or {}
+    agree = type_match(name, ct.get("type")) and _conf(ct) >= 1
+    why = f"the plan's layout and furniture read as '{sv.get('type')}' ({sv.get('confidence')}), its own crop as " \
+          f"'{ct.get('type')}' ({ct.get('confidence')})"
+    if agree or (sure and _conf(ct) == 0):
+        if agree and sure:
+            room["identified_verified"] = "the plan survey (high) and the room's own crop agree"
+        elif sure and _type_head(name) == "hall" and \
+                _largest_compact(seg, [r for r in seg["rooms"] if r["area_m2"] >= TYPE_MIN_M2][:60], room):
+            room["identified_verified"] = "the largest compact room on the plan"
+        return room, why
+    # two rooms merged through a doorway whose leaf blurred away: the part that reads as the room asked for
+    parts = _parts(seg, room)
+    if not parts:
+        return None, why
+    pt = room_types(meta, seg, parts)
+    hits = [p for p in parts if type_match(name, (pt.get(p["_key"]) or {}).get("type")) and _conf(pt.get(p["_key"])) >= 1]
+    how = ""
+    if not hits:
+        # by elimination: the other parts read surely as some other room (the neighbour the doorway joined), the one
+        # left is the room the plan survey saw there
+        other = [p for p in parts if _conf(pt.get(p["_key"])) >= 1 and not type_match(name, (pt.get(p["_key"]) or {})
+                                                                                     .get("type"))]
+        rest = [p for p in parts if not any(p is o for o in other)]
+        if other and len(rest) == 1 and sv.get("by") != "identify":  # the survey itself saw the room there
+            hits = rest
+            how = "; the other part reads as " + ", ".join(f"'{(pt.get(o['_key']) or {}).get('type')}'" for o in other)
+    if len(hits) != 1:
+        return None, why
+    p = hits[0]
+    pv = pt.get(p["_key"]) or {}
+    part = {k: v for k, v in p.items() if not k.startswith("_")}
+    dw = sum(d["width_m"] for d in p["doors"])
+    # doors_all: the doorways are this part's own (incl. the opening into the joined room), not re-checked for symbols
+    part.update({"id": room["id"], "label": "", "part_of": room["id"], "doors": p["doors"], "doors_all": p["doors"],
+                 "baseboard_m": round(max(0.0, p["perimeter_m"] - dw), 2)})
+    return part, why + f"; that space is two rooms joined through an opening: the {p['area_m2']:.1f} m² part reads " \
+                       f"as '{pv.get('type')}' ({pv.get('confidence')}){how}"
+
+
+def count_phrase(question: str) -> str:
+    """The rooms a count question asks for ("How many secondary classrooms are on this level?" -> "secondary
+    classrooms"); the question itself when it has no "how many / number of" phrase."""
+    m = re.search(r"(?:how many|number of|count(?: the)?)\s+([a-z][\w\-' ]*?)(?=\s+(?:are|is|do|does|can|on|in|at|"
+                  r"there|exist|have|has|shown|drawn|per|of)\b|\s*[?.]|$)", question, re.I)
+    return m.group(1) if m else question
+
+
+def typed_count(meta, seg, name: str):
+    """(rooms, why) of the type `name` on a coarse raster with unreadable names, or (None, why): the whole-plan survey's
+    rooms of that type (each at least "medium"), all >= COUNT_MIN_M2, and at least 3 in 4 of their own crops agree."""
+    survey = room_survey(meta, seg)
+    if not survey:
+        return None, "no room survey"
+    byid = {r["id"]: r for r in seg["rooms"]}
+    hits = [(byid[i], v) for i, v in survey.items() if i in byid and type_match(name, v.get("type"))]
+    if not hits or any(_conf(v) < 1 for _, v in hits):
+        return None, "unsure survey"
+    sel = [r for r, _ in hits]
+    if any(r["area_m2"] < COUNT_MIN_M2 for r in sel):
+        return None, "rooms too small to count at this resolution"
+    ct = room_types(meta, seg, sel)
+    agree = sum(1 for r in sel if type_match(name, (ct.get(str(r["id"])) or {}).get("type")))
+    if agree < 0.75 * len(sel):
+        return None, f"only {agree} of {len(sel)} crops agree"
+    types = sorted({str(v.get("type")) for _, v in hits})
+    return sel, f"read as {' / '.join(types)} from the plan's layout and furniture; {agree} of {len(sel)} confirmed " \
+                f"on the room's own crop"
 
 
 def coarse_seg(seg) -> bool:
@@ -1150,11 +1695,50 @@ def ensure_crop_labels(meta, seg):
                 import logging
 
                 logging.getLogger(__name__).exception("room crop labels failed")
+            if seg.get("px_per_m", 100) < VERY_COARSE_PPM and not (seg.get("_lab") or {}).get("vector"):
+                _check_crop_names(meta, seg)
             seg["_crop_read"] = True
+            persist(meta, seg)
+
+
+VERY_COARSE_PPM = 19.0  # below this (a ~2000 px screenshot of an A2 sheet at 1:200: names ~5 px tall) the crop name
+#                         read invents names ("Science Laboratory" on the hall, "Kitchen" on a store, 3 of 3 reruns)
+
+
+def _check_crop_names(meta, seg):
+    """On a very coarse raster, a name read off a room's crop is kept only when the plan's room-type survey reads the
+    room as the same kind (at least "medium"); the others are set aside (r["label_unsure"]) so the room is found by
+    its use instead (typed_room / typed_count)."""
+    try:
+        survey = room_survey(meta, seg)
+    except Exception:  # noqa: BLE001
+        survey = {}
+    doubt = []
+    for r in seg["rooms"]:
+        if r.get("label_source") != "vision":
+            continue
+        sv = survey.get(r["id"]) or {}
+        if type_match(r["label"], sv.get("type")) and _conf(sv) >= 1:
+            r["label_checked"] = "survey"
+        else:
+            doubt.append(r)
+    # a second chance: the room's own crop read for its use (furniture, independent of the name read) agrees
+    try:
+        ct = room_types(meta, seg, [r for r in doubt if r["area_m2"] >= TYPE_MIN_M2][:40]) if doubt else {}
+    except Exception:  # noqa: BLE001
+        ct = {}
+    for r in doubt:
+        v = ct.get(str(r["id"])) or {}
+        if type_match(r["label"], v.get("type")) and _conf(v) >= 1:
+            r["label_checked"] = "crop"
+        else:
+            r["label_unsure"], r["label"] = r["label"], ""
+            r.pop("label_source", None)
 
 
 WARM_WORK_PX = 40e6  # segmentation work image above which the upload warm-up leaves rooms alone (A-2 colour plan:
 #                      70 MP, 40 s, 1.9 GB for a shaded diagram whose areas come from the colour zones anyway)
+MAX_WORK_PX = 90e6     # never segmented (the A-2 colour diagram's 70 MP at its true scale still is)
 WARM_BPP = 32          # bytes held per work pixel by a segmentation (measured ~30: 760 MB for a 25 MP work image)
 
 
@@ -1185,6 +1769,12 @@ def warm(meta):
     if seg.get("fill_gray", 255) < min(235.0, seg.get("paper_gray", 255.0) - 20):
         return  # a colour-coded space diagram: answered by the colour-zone path, no room names needed
     ensure_crop_labels(meta, seg)
+    big = [r for r in rooms if r["area_m2"] >= TYPE_MIN_M2]
+    if sum(1 for r in big if r.get("label_source") == "vision") < 0.6 * len(big):
+        # names unreadable even on the crops (a ~2000 px screenshot): the rooms' use is what named-room and count
+        # questions will go by, so the plan survey is read now (one call) rather than inside the first question
+        room_survey(meta, seg)
+        persist(meta, seg)
 
 
 def named_rooms(meta, name: str):
@@ -1205,6 +1795,7 @@ def named_rooms(meta, name: str):
         cand = [r for r in rooms if r["area_m2"] >= 1.5]
         if relabel(seg, meta["image"], cand, budget_s=30.0):
             sel, qw = match_rooms(rooms, name)
+        persist(meta, seg)
     if not sel and coarse:
         sel = _identified(meta, seg, name)
     return sel, seg
@@ -1254,7 +1845,17 @@ def _identified(meta, seg, name):
         return []
     seg["cost_usd"] = seg.get("cost_usd", 0.0) + cost
     if room is None:
-        return []
+        # not sure from the whole plan alone: the plan's room-type survey and the room's own crop must agree
+        try:
+            room, why2 = typed_room(meta, seg, name)
+        except Exception:  # noqa: BLE001
+            import logging
+
+            logging.getLogger(__name__).exception("typed room read failed")
+            room, why2 = None, ""
+        if room is None:
+            return []
+        why = why2
     room.setdefault("label", "")
     room["identified_as"] = name
     room["identified_why"] = why
@@ -1321,16 +1922,23 @@ def answer(path, question, meta):
             # read off its own cut-out crop by a VLM (one batch for the sheet, cached); faint glazing / hatch lines
             # close rooms as on a crisp sheet, so the outline holds within a few % (hall 246 / 241 m² for 245)
             ensure_crop_labels(meta, seg)  # questions asked at once (and the upload warm-up) share the one reading
-            if not any(r.get("label_source") == "vision" for r in rooms):
-                return None
+            if not any(r.get("label_source") == "vision" for r in rooms) and not seg.get("_survey"):
+                return None  # no name read at all (and no room-type survey to go by instead)
             cf = cf / 0.6 * 0.8
             low_res = (low_res + "; " if low_res else "") + "room names read from per-room crops by a vision model"
     sel, qw = match_rooms(rooms, question)
+    ident = False
     if sel and seg.get("_crop_read") and len(qw) >= 2:
         # names read off coarse crops: a half match ("Hall" for "Multi-Purpose Hall" when the hall's own name was
         # unreadable, a "Dining Room" via the hall synonym) is not trusted; the room list is offered instead
         lw = lambda r: {SYN.get(w, w) for w in _norm(r["label"])}  # noqa: E731
         sel = [r for r in sel if all(any(_close(w, x) for x in lw(r)) for w in set(qw))]
+    if sel and seg.get("_survey") and seg.get("px_per_m", 100) < VERY_COARSE_PPM:
+        # names on a very coarse raster are only trusted where the room's use agrees with what was asked ("Kitchen
+        # Workroom" read on a staff workroom is not the kitchen)
+        phrase = count_phrase(question) if it == "count" else room_phrase(question)
+        sel = [r for r in sel if type_match(phrase, (seg["_survey"].get(r["id"]) or {}).get("type"))
+               or r.get("label_checked") == "crop"]
     raw = re.findall(r"[a-z0-9]+", re.sub(r"\(.*?\)", " ", ql))
     plural = {SYN.get(n, n) for t, n in zip(raw, _norm(question)) if t.endswith("s") and n != t}
     if sel and qw and not seg.get("_crop_read") and not seg.get("_relabel_all") and \
@@ -1341,20 +1949,36 @@ def answer(path, question, meta):
         cand = [r for r in rooms if not r["label"] and r["area_m2"] >= 1.0]
         if cand and relabel(seg, meta["image"], cand, budget_s=25.0):
             sel, qw = match_rooms(rooms, question)
+        persist(meta, seg)
     if qw and not sel and not seg.get("_crop_read"):
         # the question names a room we have no label for: read the unlabelled / larger rooms' own crops (budgeted)
         cand = [r for r in rooms if r["area_m2"] >= 1.5]
         if relabel(seg, meta["image"], cand, budget_s=30.0):
             sel, qw = match_rooms(rooms, question)
+        persist(meta, seg)
         if not sel and sum(1 for r in cand if not r["label"]) > 0.4 * max(1, len(cand)):
             try:
                 seg["cost_usd"] = seg.get("cost_usd", 0.0) + vision_labels(meta["image"], rooms)
             except Exception:  # noqa: BLE001
                 pass
             sel, qw = match_rooms(rooms, question)
+            persist(meta, seg)
+    if it != "count" and coarse and seg.get("_crop_read") and qw and plural & set(qw) and \
+            not re.search(r"exclud|except|without", ql):
+        # a room type in the plural ("baseboard for the classrooms"): rooms of that type whose name stayed unreadable
+        # on the crops are found by their use; taken when they include every room found by name
+        try:
+            tsel, why = typed_count(meta, seg, room_phrase(question))
+        except Exception:  # noqa: BLE001
+            tsel = None
+        if tsel and len(tsel) > len(sel) and {r["id"] for r in sel} <= {r["id"] for r in tsel}:
+            low_res = (low_res + "; " if low_res else "") + \
+                f"{len(tsel) - len(sel)} of the {len(tsel)} rooms have no readable name: they were {why}"
+            sel = tsel
     if not sel and qw and coarse and seg.get("_crop_read") and it != "count" and not re.search(ALL_RX, ql):
         # names unreadable even on the per-room crops (a ~2000 px screenshot): a confident pick by layout / furniture
         sel = _identified(meta, seg, room_phrase(question))
+        ident = bool(sel)
         if sel:
             cf *= 0.9 if sel[0].get("identified_verified") else 0.8  # a hall pick is checked against the shapes
             low_res = (low_res + "; " if low_res else "") + \
@@ -1362,11 +1986,37 @@ def answer(path, question, meta):
     if it == "count":
         # rooms of a type counted by their names: only on coarse sheets (scans, small rasters) where the names were read
         # off per-room crops; a crisp sheet's own labels are counted by the arch module from the page text
-        if not (coarse and seg.get("_crop_read") and sel and qw):
+        if not (coarse and seg.get("_crop_read") and qw):
             return None
         big = [r for r in rooms if r["area_m2"] >= 4]
         if sum(1 for r in big if r.get("label_source") == "vision") < 0.6 * len(big):
-            return None  # most names unreadable even on the crops (a ~2000 px screenshot): a count would be short
+            # most names unreadable even on the crops (a ~2000 px screenshot): a count by name would be short; rooms
+            # are counted by their use instead, when the plan survey and the rooms' own crops agree
+            try:
+                tsel, why = typed_count(meta, seg, count_phrase(question))
+            except Exception:  # noqa: BLE001
+                import logging
+
+                logging.getLogger(__name__).exception("typed room count failed")
+                tsel = None
+            if not tsel:
+                return None
+            # rooms whose name was read and confirmed by their own crop's use, though the survey saw them otherwise
+            more = [r for r in sel if r.get("label_source") == "vision" and r["id"] not in {t["id"] for t in tsel}]
+            if more:
+                tsel = tsel + more
+                why += f"; {len(more)} more by their name, confirmed on their own crop"
+            ev = [_ev_poly(r, W, H, f"{count_phrase(question)} {i}", 1) for i, r in enumerate(tsel, 1)]
+            for e in ev:
+                e.pop("unit", None)
+            return {"answer": len(tsel), "confidence": round(0.6 * cf, 2), "method": "sheets-rooms-count-typed",
+                    "cost_usd": seg.get("cost_usd", 0.0), "evidence": ev,
+                    "low_res": (low_res + "; " if low_res else "") + "room names unreadable: rooms counted by use",
+                    "explanation": f"{len(tsel)} rooms: the printed names are unreadable at this resolution, so each "
+                                   f"room's use was {why}; every counted room is outlined and numbered. A qualifier "
+                                   f"in the question that only the printed name carries cannot be checked."}
+        if not sel:
+            return None
         lw = lambda r: {SYN.get(w, w) for w in _norm(r["label"])}  # noqa: E731
         sel = [r for r in sel if r.get("label_source") == "vision" and
                all(any(_close(w, x) for x in lw(r)) for w in set(qw))]
@@ -1378,16 +2028,28 @@ def answer(path, question, meta):
         if not sel:
             return None
         names = sorted({r["label"] for r in sel})
-        ev = [_ev_poly(r, W, H, f"{r['label']} {i}", 1) for i, r in enumerate(sel, 1)]
+        extra = ""
+        try:
+            # some names stay unreadable even on the crops (5 of 8 classrooms on a 2000 px render): when the rooms'
+            # use (plan survey + own crops) finds the same type in more rooms, all the named ones among them, count those
+            tsel, why = typed_count(meta, seg, count_phrase(question))
+        except Exception:  # noqa: BLE001
+            tsel = None
+        if tsel and len(tsel) > len(sel) and {r["id"] for r in sel} <= {r["id"] for r in tsel}:
+            extra = f" {len(sel)} of them carry a readable name ({' / '.join(names)}); the other {len(tsel) - len(sel)} " \
+                    f"were {why}"
+            sel = tsel
+        ev = [_ev_poly(r, W, H, f"{r['label'] or count_phrase(question)} {i}", 1) for i, r in enumerate(sel, 1)]
         for e in ev:
             e.pop("unit", None)
         return {"answer": len(sel), "confidence": round(0.75 * cf, 2), "method": "sheets-rooms-count",
                 "cost_usd": seg.get("cost_usd", 0.0), "evidence": ev, "low_res": low_res,
-                "explanation": f"{len(sel)} rooms named {' / '.join(names)}: each enclosed room's name was read off its "
-                               f"own cut-out crop by a vision model (the page text is too coarse here); every counted "
-                               f"room is outlined and numbered."}
+                "explanation": (f"{len(sel)} rooms of the type asked:{extra}" if extra else
+                                f"{len(sel)} rooms named {' / '.join(names)}: each enclosed room's name was read off its "
+                                f"own cut-out crop by a vision model (the page text is too coarse here)") +
+                               "; every counted room is outlined and numbered."}
     named = bool(sel)
-    if any(r.get("label_source") == "vision" for r in sel):
+    if not ident and any(r.get("label_source") == "vision" for r in sel):  # (an identified room is not taken by name)
         # names read by a VLM off an unreadable raster may be wrong (one crop per room is the surer read)
         cf *= 0.85 if seg.get("_crop_read") else 0.6
     base = {"unit": "m²" if it == "area" else "m", "cost_usd": seg.get("cost_usd", 0.0), "scale": sc.get("how", "")}
