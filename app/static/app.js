@@ -932,6 +932,7 @@ function renderAnswer(shownSoFar) {
     ${sheetChipHTML(res)}
     ${partsHTML(res) ? partsHTML(res) : listAnswer(res) ? listHTML(listAnswer(res)) : shortText(res) ? `<div class="big short">${shortText(res)}</div>` : typeof res.answer === 'string' ? `<div class="textans">${esc(res.answer.trim().split('\n').map(l => l.replace(/^\s{1,4}(?=\S)/, '')).join('\n'))}</div>`
       : `<div class="big ${abst ? 'abstain' : ''} ${counting ? 'counting' : ''}">${abst ? 'Not sure, so no guess' : num ? `<span class="bn">${fmtS(val, t)}</span>` : ''}${abst || !uOf() ? '' : ` <small>${esc(uOf())}</small>`}${!abst && num && res.answer_m2 != null && uOf() !== 'm²' ? ` <small class="approx" title="converted: 1 SF = 0.09290304 m²">(≈ ${esc(thou(res.answer_m2))} m²)</small>` : ''}</div>`}
+    <div class="est" id="est" hidden></div>
     ${sheetNotesHTML(res)}
     ${corrected ? correctedTrustHTML(res, h) : trustHTML(res, h) + secondHTML(res) + gpuWarmHTML(res)}
     <div class="corr" id="corr"></div>`;
@@ -1064,8 +1065,9 @@ function currentCorrection() {
   return +items.filter(e => e.on).reduce((s, e) => s + contrib(e), 0).toFixed(3);
 }
 function exportTakeoff() {
-  const cols = ['drawing', 'question', 'answer', 'unit', 'corrected', 'method', 'confidence', 'track_record', 'rule', 'cost_usd', 'signed_by', 'signed_at', 'asked_at', 'credit'];
-  const head = ['drawing', 'question', 'answer', 'unit', 'corrected value', 'method', 'confidence %', 'track record % (held-out test)', 'counting rule', 'cost USD', 'checked by', 'checked at', 'asked at', 'drawing credit'];
+  const cols = ['drawing', 'question', 'answer', 'unit', 'corrected', 'unit_price', 'estimate_total', 'method', 'confidence', 'track_record', 'rule', 'cost_usd', 'signed_by', 'signed_at', 'asked_at', 'credit'];
+  const cy = (PRICES && PRICES.currency) || '€';
+  const head = ['drawing', 'question', 'answer', 'unit', 'corrected value', `unit price ${cy} (example, edit to your own)`, `estimate total ${cy}`, 'method', 'confidence %', 'track record % (held-out test)', 'counting rule', 'cost USD', 'checked by', 'checked at', 'asked at', 'drawing credit'];
   const show = (r, c) => {  // an upload is named by its file name, not its server folder; confidence as % like the track record
     if (c === 'drawing' && String(r.drawing || '').startsWith('uploads/')) return String(r.drawing).split('/').pop();
     if (c === 'confidence' && typeof r.confidence === 'number') return +(100 * r.confidence).toFixed(1);
@@ -1692,6 +1694,7 @@ if (window.ResizeObserver) new ResizeObserver(dockInset).observe($('#side'));
 QA.addEventListener('change', () => { placePicker(); sheetFull(false); pickTip(null); dockInset(); if (mode === '2d') { if (res && items.length) zoomToEvidence(null, 3, true); else fit(); } if (res) draw(false); });
 
 function recompute() {
+  updateEstimate();
   if (!res || typeof res.answer !== 'number') return;
   const changed = items.some(edited);
   const v = items.filter(e => e.on).reduce((s, e) => s + contrib(e), 0);
@@ -1703,6 +1706,61 @@ function recompute() {
   wireAnswerActions(el);
   queueFeedback(changed, v);
   const row = takeoffRow(res); if (row) { const c = changed ? +v.toFixed(3) : ''; if (row.corrected !== c) { row.corrected = c; saveTakeoff(); } }
+}
+
+// ------------------------------------------------------------ estimate: quantity × unit price = total, under the big number
+// the prices are rough example values (static/unit_prices.json), not market data: the user edits them inline, and an
+// edited price is remembered per item type. The quantity is the headline's: the checked-items sum after a correction.
+let PRICES = null;
+fetch('/static/unit_prices.json').then(r => r.ok ? r.json() : null).then(j => { PRICES = j; updateEstimate(); }).catch(() => {});
+const EST_TYPES = new Set(['count', 'area', 'length', 'volume']);
+const PRICE_KEY = 'bp_price:';
+function estOf(r) {  // the price entry for a quantity answer, else null (abstentions, text, yes/no, two-part answers)
+  if (!PRICES || !r || typeof r.answer !== 'number' || !EST_TYPES.has(r.type) || partsHTML(r)) return null;
+  if (/-na$|-none$/.test(String(r.method || '')) || r.method === 'rate-limit') return null;
+  const q = `${r.question || ''} ${r.normalized_question || ''}`;
+  const it = (PRICES.items || []).find(e => e.type === r.type && (!e.match || new RegExp(e.match, 'i').test(q)));
+  if (!it) return null;
+  const u = r.type === 'count' ? '' : uOf();
+  // the table is per metric unit; a SF / ft / mm answer gets the price converted to its own unit
+  const f = /^(sf|sq\.? ?ft|ft²)$/i.test(u) ? 0.09290304 : /^(ft|lf)$/i.test(u) ? 0.3048 : /^mm$/i.test(u) ? 0.001 : 1;
+  const def = +(it.price * f).toFixed(f === 1 ? 2 : 4);
+  const sk = PRICE_KEY + it.key + (u ? ':' + u : '');
+  const saved = localStorage.getItem(sk);
+  const price = saved != null && saved !== '' && isFinite(+saved) ? +saved : def;
+  return {it, u, def, sk, price, edited: saved != null && +saved !== def, cur: PRICES.currency || '€'};
+}
+const estQty = () => items.some(edited) ? items.filter(e => e.on).reduce((s, e) => s + contrib(e), 0) : res.answer;
+const eur = (v, c) => c + (Math.abs(v) >= 100 ? Math.round(v).toLocaleString('en-US') : (+v).toFixed(2));
+function updateEstimate() {
+  const el = $('#est'); if (!el) return;
+  const e = res && res.answer != null ? estOf(res) : null;
+  if (!e) { el.hidden = true; el.innerHTML = ''; el.dataset.k = ''; return; }
+  const q = estQty(), total = q * e.price, k = `${res._seq}|${e.sk}`;
+  const row = takeoffRow(res);
+  if (row && (row.unit_price !== e.price || row.estimate_total !== +total.toFixed(2))) { row.unit_price = e.price; row.estimate_total = +total.toFixed(2); row.currency = e.cur; saveTakeoff(); }
+  if (el.dataset.k === k && el.querySelector('input')) {  // only the numbers move: never rebuild the field being typed in
+    el.querySelector('.estq').textContent = fmtS(q, res.type) + (e.u ? ' ' + e.u : '');
+    el.querySelector('.esttot').textContent = eur(total, e.cur);
+    el.querySelector('.estp').classList.toggle('edited', e.edited);
+    return;
+  }
+  el.dataset.k = k; el.hidden = false;
+  const per = e.u || e.it.label;
+  el.innerHTML = `<span class="estlab">Estimate</span> <span class="estq">${esc(fmtS(q, res.type) + (e.u ? ' ' + e.u : ''))}</span> × <label class="estp${e.edited ? ' edited' : ''}" title="Unit price: an example, edit it to your own">${esc(e.cur)}<input type="number" min="0" step="any" inputmode="decimal" value="${e.price}" aria-label="Unit price in ${esc(e.cur)} per ${esc(per)}"></label><span class="estper">/${esc(per)}</span> <span class="nw">= <b class="esttot">${eur(total, e.cur)}</b></span><span class="estnote"> · example prices, edit to your own</span>`;
+  const inp = el.querySelector('input');
+  const fit = () => { inp.style.width = Math.max(2, String(inp.value).length) + 0.5 + 'ch'; };
+  fit();
+  inp.onclick = ev => ev.stopPropagation();
+  inp.onkeydown = ev => { ev.stopPropagation(); if (ev.key === 'Enter' || ev.key === 'Escape') inp.blur(); };
+  inp.oninput = () => {
+    fit();
+    const v = inp.value.trim();
+    if (v === '' || !isFinite(+v) || +v < 0) return;
+    if (+v === e.def) localStorage.removeItem(e.sk); else localStorage.setItem(e.sk, String(+v));
+    updateEstimate();
+  };
+  inp.onblur = () => { if (inp.value.trim() === '' || !isFinite(+inp.value) || +inp.value < 0) { el.dataset.k = ''; updateEstimate(); } };
 }
 
 // ------------------------------------------------------------ corrections become training data

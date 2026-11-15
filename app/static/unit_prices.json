@@ -1,0 +1,30 @@
+{
+  "_note": "Rough indicative example values for the demo, in EUR, supply and install. Not market data: edit them to your own prices. Each entry applies to answers of its type whose question matches its pattern (first match wins); prices are per metric unit and are converted for SF / ft answers.",
+  "currency": "€",
+  "items": [
+    {"key": "door", "type": "count", "match": "\\b(doors?|türen|innentüren)\\b|türen", "label": "door", "per": "each", "price": 450},
+    {"key": "window", "type": "count", "match": "\\b(windows?|fenster)\\b", "label": "window", "per": "each", "price": 600},
+    {"key": "toilet", "type": "count", "match": "\\b(toilets?|wcs?|water closets?)\\b", "label": "toilet", "per": "each", "price": 350},
+    {"key": "sink", "type": "count", "match": "\\b(sinks?|wash ?basins?|lavator(y|ies)|lavabos?)\\b|washbasin", "label": "sink", "per": "each", "price": 250},
+    {"key": "shower", "type": "count", "match": "\\b(showers?|bath ?tubs?|baths?|badewannen?|duschen?)\\b|bathtub", "label": "shower / bath", "per": "each", "price": 800},
+    {"key": "stair", "type": "count", "match": "\\bstair", "label": "stair", "per": "each", "price": 4000},
+    {"key": "column", "type": "count", "match": "\\bcolumns?\\b", "label": "column", "per": "each", "price": 900},
+    {"key": "fixture", "type": "count", "match": "\\b(fixtures?|outlets?|sprinklers?|lights?|fp-?\\d)", "label": "fixture", "per": "each", "price": 120},
+    {"key": "room", "type": "count", "match": "\\b(rooms?|bedrooms?|kitchens?|bathrooms?|räume|zimmer)\\b", "label": "room fit-out", "per": "each", "price": 2500},
+    {"key": "apartment", "type": "count", "match": "\\b(apartments?|dwellings?|residential units?|wohnungen)\\b", "label": "apartment fit-out", "per": "each", "price": 30000},
+    {"key": "item", "type": "count", "match": "", "label": "item", "per": "each", "price": 100},
+    {"key": "baseboard_m", "type": "length", "match": "\\b(baseboards?|skirting)", "label": "baseboard", "per": "m", "price": 12},
+    {"key": "pipe_m_large", "type": "length", "match": "\\bpipe.*\\b([5-9]\\d|\\d{3}) ?mm|\\bpipe.*\\b([2-9]|1[0-2])(\\.\\d+)? ?(\"|in|inch)", "label": "pipe, large bore", "per": "m", "price": 85},
+    {"key": "pipe_m", "type": "length", "match": "\\bpip(e|ing)", "label": "pipe, small bore", "per": "m", "price": 35},
+    {"key": "wall_m", "type": "length", "match": "\\bwalls?\\b", "label": "wall", "per": "m", "price": 180},
+    {"key": "length_m", "type": "length", "match": "", "label": "length", "per": "m", "price": 20},
+    {"key": "floor_m2", "type": "area", "match": "\\b(floor|flooring|room|rooms|net|gross|living|apartment|unit)\\b|fläche", "label": "floor finish", "per": "m²", "price": 45},
+    {"key": "wall_m2", "type": "area", "match": "\\bwalls?\\b", "label": "wall finish", "per": "m²", "price": 30},
+    {"key": "slab_m2", "type": "area", "match": "\\bslabs?\\b", "label": "slab", "per": "m²", "price": 60},
+    {"key": "area_m2", "type": "area", "match": "", "label": "area", "per": "m²", "price": 45},
+    {"key": "slab_m3_precast", "type": "volume", "match": "\\b(precast|hollow ?core)\\b", "label": "precast slab", "per": "m³", "price": 320},
+    {"key": "slab_m3", "type": "volume", "match": "\\bslabs?\\b", "label": "concrete slab", "per": "m³", "price": 220},
+    {"key": "wall_m3", "type": "volume", "match": "\\bwalls?\\b", "label": "concrete wall", "per": "m³", "price": 260},
+    {"key": "concrete_m3", "type": "volume", "match": "", "label": "concrete", "per": "m³", "price": 200}
+  ]
+}
