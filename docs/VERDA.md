@@ -1,8 +1,8 @@
 # Verda tech track: Datum (blueprints that talk)
 
 Texts for the Verda Compute Track entry (Junction 2026, Stoa challenge "Make Blueprints Talk"); the same texts are in
-[SIDE-CHALLENGES.md](SIDE-CHALLENGES.md). Every number is in the facts table below with its source. Placeholders:
-`<DEMO_URL>`, `<REPO_URL>`.
+[SIDE-CHALLENGES.md](SIDE-CHALLENGES.md). Every number is in the facts table below with its source. Demo:
+https://datum.toivo.dev · Code: https://github.com/Zawaer/datum.
 
 ## 1. Track summary (submission form, ≤ 300 words)
 
@@ -30,7 +30,7 @@ Verda so far: $115.01 of our $217.12 build cost.
 second opinion adds $0.16 per 1,000 on one H100 (16,496 questions in 31 minutes). Next step: serve the model from Verda's autoscaling
 serverless containers (scale to zero, scale with load) and run re-checks of a whole drawing set, every revision, as batch jobs.
 
-Demo: `<DEMO_URL>` · Code: `<REPO_URL>`
+Demo: https://datum.toivo.dev · Code: https://github.com/Zawaer/datum
 
 ## 2. Discord post (≤ 120 words)
 
@@ -40,7 +40,7 @@ dev. It ships as a second opinion to our detector: when both agree, answers are 
 swept a bigger detector plus VLM arbitration: the arbiter won, Finnish plans 85.1 % → 86.1 % ($30.80). An RTX
 PRO 6000 served the model live on users' uploads on Saturday. The demo runs on a CPU VM for $0.048/h. Whole
 system: 90.7 % on 25,420 test questions at $0.013 per 1,000.
-Demo: `<DEMO_URL>` · Code: `<REPO_URL>`
+Demo: https://datum.toivo.dev · Code: https://github.com/Zawaer/datum
 
 ## 3. Facts and sources
 

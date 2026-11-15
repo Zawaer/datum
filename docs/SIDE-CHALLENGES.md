@@ -2,8 +2,7 @@
 
 Ready-to-paste texts for the tech challenges we entered (locked list in [TRACKS.md](TRACKS.md)). Main challenge:
 Stoa, "Make Blueprints Talk". Numbers come from `README.md`, `docs/COSTS.md` and `analysis/infra.json`; sources are
-in the facts table of [VERDA.md](VERDA.md). Placeholders to fill in at submission: `<DEMO_URL>`, `<REPO_URL>`,
-`<CRACI_BUILD_URL>`.
+in the facts table of [VERDA.md](VERDA.md). Demo: https://datum.toivo.dev · Code: https://github.com/Zawaer/datum.
 
 ---
 
@@ -37,7 +36,7 @@ Verda so far: $115.01 of our $217.12 build cost.
 second opinion adds $0.16 per 1,000 on one H100 (16,496 questions in 31 minutes). Next step: serve the model from Verda's autoscaling
 serverless containers (scale to zero, scale with load) and run re-checks of a whole drawing set, every revision, as batch jobs.
 
-Demo: `<DEMO_URL>` · Code: `<REPO_URL>`
+Demo: https://datum.toivo.dev · Code: https://github.com/Zawaer/datum
 
 ### Discord post (≤ 120 words)
 
@@ -47,7 +46,7 @@ dev. It ships as a second opinion to our detector: when both agree, answers are 
 swept a bigger detector plus VLM arbitration: the arbiter won, Finnish plans 85.1 % → 86.1 % ($30.80). An RTX
 PRO 6000 served the model live on users' uploads on Saturday. The demo runs on a CPU VM for $0.048/h. Whole
 system: 90.7 % on 25,420 test questions at $0.013 per 1,000.
-Demo: `<DEMO_URL>` · Code: `<REPO_URL>`
+Demo: https://datum.toivo.dev · Code: https://github.com/Zawaer/datum
 
 ---
 
@@ -72,7 +71,7 @@ text-to-speech.
 
 Our demo video is narrated with an ElevenLabs voice.
 
-Demo: `<DEMO_URL>` · Code: `<REPO_URL>` (`app/speak.py`, `/api/transcribe`, `/api/speak` in `app/server.py`)
+Demo: https://datum.toivo.dev · Code: https://github.com/Zawaer/datum (`app/speak.py`, `/api/transcribe`, `/api/speak` in `app/server.py`)
 
 ---
 
@@ -81,14 +80,14 @@ Demo: `<DEMO_URL>` · Code: `<REPO_URL>` (`app/speak.py`, `/api/transcribe`, `/a
 ### Text (≤ 200 words)
 
 Our CI (`.github/workflows/ci.yml`) runs on CRACI runners (`runs-on: craci`) on every push:
-byte-compile, ruff (pyflakes errors) and 291 pytest tests that need no dataset, weights or API keys. Each
+byte-compile, ruff (pyflakes errors) and the pytest suite (586 tests locally; CI runs the ones that need no dataset, weights or API keys). Each
 build leaves a CycloneDX SBOM of everything the job installed.
 
 Why that matters to us: our public demo accepts untrusted uploads (PDF, DXF, IFC and images) and parses them
 with PyMuPDF (MuPDF), IfcOpenShell, ezdxf, Pillow and OpenCV, most of them native code. A malformed file is the likeliest
 way in, so the SBOM CRACI records per build is exactly the list we need to watch for parser CVEs.
 
-Today we fixed 10 security findings: unsafe serving of uploaded files (SVG/HTML), decompression
+Our own security review (not CRACI) fixed 10 findings: unsafe serving of uploaded files (SVG/HTML), decompression
 bombs (GIF/TIFF frames, pixel and size budgets), local file reads through DXF image references, endpoints
 reachable for arbitrary drawings, resource exhaustion (concurrency limits), rate-limit bypass through spoofed
 proxy headers, a race in the LLM spend cap, exposed API docs, raw exception text in responses, and missing
@@ -97,7 +96,7 @@ browser security headers (CSP, framing, permissions). Several are now regression
 Next step: fail the build when the SBOM contains a parser dependency with a known vulnerability, so we
 never ship a version that a drawing can attack.
 
-Build: `<CRACI_BUILD_URL>` · Code: `<REPO_URL>`
+Build: https://github.com/Zawaer/datum/actions (CI on CRACI runners) · Code: https://github.com/Zawaer/datum
 
 ---
 
