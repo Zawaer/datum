@@ -196,15 +196,16 @@
   every question in every language. 90.7 % [90.4-91.1]; a "not sure" counts as wrong. When it answers (confidence
   >= 0.5): 95.8 %, declining 11.7 %. Fair baseline: Claude Sonnet 5.5 given the drawing AND its CAD / IFC files:
   69.8 % [60.9-78.4]. Frontier rows are a 400-question stratified sample re-weighted to the test mix.
-  Also: Haiku 5.5 60.6 %, Nemotron 3.5 Super VL 49.0 %. Per-source table in the slide 12 notes. -->
+  Also: Haiku 5.5 60.6 %, Nemotron 3.5 Super VL 49.0 %. Per-source table in the slide 13 notes. -->
 <section class="slide">
   <h2>90.7 % right on 25,420 questions it had never seen.</h2>
-  <div class="hbar">
+  <div class="hbar" style="margin-top:112px">
     <div class="lab o">Datum</div><div class="track o"><i style="width:calc(90.7 / 100 * 960px)"></i><em>90.7 %</em></div>
     <div class="lab">Claude Sonnet 5.5,<br>given the CAD / IFC files</div><div class="track"><i style="width:calc(69.8 / 100 * 960px)"></i><em>69.8 %</em></div>
     <div class="lab">Gemini 3.1 Pro,<br>drawing only</div><div class="track"><i style="width:calc(64.2 / 100 * 960px)"></i><em>64.2 %</em></div>
     <div class="lab">Claude Sonnet 5.5,<br>drawing only</div><div class="track"><i style="width:calc(63.2 / 100 * 960px)"></i><em>63.2 %</em></div>
   </div>
+  <p style="margin-top:56px">When it answers at ≥ 50 % confidence: right 95.8 % of the time (99.7 % when ≥ 99 % sure).</p>
   <div class="foot"><span></span><span>6</span></div>
 </section>
 
@@ -277,20 +278,36 @@
   <div class="foot"><span>Drawing: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0</span><span>10</span></div>
 </section>
 
-<!-- 11 · TEAM + TRY IT
+<!-- 11 · WHY IT PAYS
+  Notes: Today an estimator counts doors, windows and areas by hand from every sheet. Datum marks every item it
+  counted on the drawing, so a person only checks the marks. It runs inside Stoa as an API, costs about $0.02 per
+  1,000 questions to serve ($0.013 API fees + ~$0.009 local compute), can be self-hosted for confidential projects,
+  and attaches an editable cost estimate per item. -->
+<section class="slide">
+  <h2>Counting becomes checking.</h2>
+  <div class="chain" style="top:400px; grid-template-columns:repeat(3, 1fr); column-gap:120px">
+    <div><b>An estimator counts by hand</b><span>Every door, window and room</span></div>
+    <div class="o"><b>Datum marks every item</b><span>On the drawing, with how it was counted</span></div>
+    <div><b>A person checks in seconds</b><span>Untick a wrong mark, the total follows</span></div>
+  </div>
+  <p style="position:absolute; left:128px; top:640px; font-size:24px">Inside Stoa as an API · ~$0.02 per 1,000 questions to serve · self-hosted for confidential projects · cost estimate per item, editable prices</p>
+  <div class="foot"><span></span><span>11</span></div>
+</section>
+
+<!-- 12 · TEAM + TRY IT
   Notes: Toivo and Rene, built at Junction 2026 in Espoo, 13-15 Nov, with Claude Code. Open the demo, press
   "Take the 60-second tour", then ask your own question. Path to product for Stoa: now, drop in a drawing and ask;
   next, whole drawing sets and revisions (flag what changed); then, checked quantities into estimates, procurement
   and progress tracking. MIT-licensed, reproducible with the dataset and one command, no API keys for numbers. -->
 <section class="slide">
   <h2>Open Datum and ask your own question.</h2>
-  <p>Toivo and Rene · <span style="color:var(--ink)">github.com/Zawaer/datum</span> · MIT</p>
+  <p><span style="color:var(--accent, #0072b2)">datum.toivo.dev</span> · <span style="color:var(--ink)">github.com/Zawaer/datum</span> · video: youtu.be/0lAc7Zl9Shg</p>
   <div class="frame" style="position:absolute; left:128px; top:328px; width:1232px; height:680px"><img src="img/landing.jpg" alt="The demo's landing page: the drawing, a one-line pitch, the 60-second tour and the ask box" style="width:1711px; height:auto; max-width:none; margin:-137px 0 0 -430px"></div>
   <div class="frame" style="position:absolute; right:128px; top:328px; width:314px; height:680px; border-radius:24px"><img src="img/phone-answer.jpg" alt="The phone quick-ask view: the plan with numbered pins and the answer 20" style="object-position:50% 0%"></div>
-  <div class="foot"><span>Drawing: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0</span><span>11</span></div>
+  <div class="foot"><span>Drawing: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0</span><span>12</span></div>
 </section>
 
-<!-- 12 · METHOD (appendix)
+<!-- 13 · METHOD (appendix)
   Notes (everything that used to be on this slide; tables: docs/RESULTS.md, analysis/run_all.sh):
   By source, ours / when answered / Sonnet 5.5 + files:
     Swiss plans, counts      5,580 q   99.96 % / 99.96 % / 81.5 %
@@ -329,10 +346,10 @@
     <tr><td>BIM models</td><td>100 %</td></tr>
     <tr><td>Scanned plans</td><td>86.1 %</td></tr>
   </table>
-  <div class="foot"><span></span><span>12</span></div>
+  <div class="foot"><span></span><span>13</span></div>
 </section>
 
-<!-- 13 · UNDER THE HOOD (appendix)
+<!-- 14 · UNDER THE HOOD (appendix)
   Notes: for the judges who asked how it is built. Two language models in the answer path, Claude Haiku 5.5 and our
   fine-tuned Qwen3-VL-8B; everything else is geometry, classical CV, OCR and our own detector. Nothing is averaged or
   voted: rules pick one method per question; a second method only halves the confidence on a conflict, or, on scans,
@@ -356,10 +373,10 @@
     <div><b>Can’t read it?</b><span>Claude Haiku</span></div>
     <div class="o"><b class="ours">The answer, on the drawing</b></div>
   </div>
-  <div class="foot"><span></span><span>13</span></div>
+  <div class="foot"><span></span><span>14</span></div>
 </section>
 
-<!-- 14 · CREDITS (appendix)
+<!-- 15 · CREDITS (appendix)
   Notes: full credits.
   Drawings: Junction 2026 dataset, non-commercial, per-file licences.
   Swiss Dwellings v3.0.0, M. Standfest, M. Franzen, Y. Schröder, L. Gonzalez Medina, Y. Villanueva Hernandez,
@@ -381,8 +398,7 @@
     <tr><td>Molio Demo-hus</td><td style="padding-left:96px; text-align:left">buildingSMART community</td><td style="padding-left:96px">CC BY 4.0</td></tr>
     <tr><td>BIM-Speed Warmond</td><td style="padding-left:96px; text-align:left">Garcia &amp; Hartmann, TU Berlin</td><td style="padding-left:96px">CC BY 4.0</td></tr>
   </table>
-  <p>Toivo and Rene · built with Claude Code · github.com/Zawaer/datum, MIT</p>
-  <div class="foot"><span></span><span>14</span></div>
+  <div class="foot"><span></span><span>15</span></div>
 </section>
 
 <script>
