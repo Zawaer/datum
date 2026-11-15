@@ -28,6 +28,12 @@ Disallow: /
 " 200
 	}
 	redir /{$PREFIX} /{$PREFIX}/ 308
+	# the public short name opens the demo (the root of the IP-based name stays a bare 404)
+	@shortroot {
+		host datum.toivo.dev
+		path /
+	}
+	redir @shortroot /{$PREFIX}/ 302
 	handle_path /{$PREFIX}/* {
 		reverse_proxy {$UPSTREAM:app:8000} {
 			header_down -Server
