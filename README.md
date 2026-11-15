@@ -29,8 +29,8 @@ a small frontier LLM, only for free text. Share of the 25,420 test questions per
 detector 64.9 %, Haiku 0.4 % (the 110 free-text questions).
 
 Uploaded construction sheets (floor plans, slab plans, piping plans, as vector PDFs, images or scans) go to
-sheet specialists that read the sheet's own text and lines: 40 of 41 right on Stoa's example sheets as vector
-PDFs, 37 to 38 from scans and 2,500 px images, fewer from small screenshots ([complex construction sheets](#complex-construction-sheets)).
+sheet specialists that read the sheet's own text and lines: 41 of 41 right on Stoa's example sheets as vector
+PDFs and full-resolution images, 39 from scans and 2,500 px images, 38 from small 2,000 px screenshots ([complex construction sheets](#complex-construction-sheets)).
 
 ![Counting doors on a Swiss apartment plan: the plan tilted up into a cut-away 3D model with the 20 counted doors painted on the floor and a numbered pin on each, next to the answer 20, "Verified by geometry", and a second, independent method that agrees](docs/deck/img/feat-3d.jpg)
 <sub>Drawing: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0 (rendered by the Junction dataset authors).</sub>
@@ -84,37 +84,35 @@ ticks up.
 **Measured on Stoa's example sheets** (41 questions on the four sheets; gold is the printed value, or our own
 measurement where the sheet does not print one, scored with a wider tolerance), uploaded through the real API in
 every form a judge might use ([`analysis/stoa_examples_eval.py`](analysis/stoa_examples_eval.py),
-[`runs/stoa_examples_v9c_forms.summary.md`](runs/stoa_examples_v9c_forms.summary.md); vector PDF and full-resolution
-PNG from the v9 run, the other forms from v9c):
+[`runs/stoa_examples_v10_forms.summary.md`](runs/stoa_examples_v10_forms.summary.md), the overnight v10 run; 237 of 246
+across all six forms):
 
 | upload form | right | dormitory floor plan | school floor plan | slab plan | piping plan |
 |---|---:|---:|---:|---:|---:|
-| vector PDF page | **40/41** | 8/8 | 7/8 | 12/12 | 13/13 |
-| full-resolution PNG | 37/41 | 8/8 | 7/8 | 12/12 | 10/13 |
-| 2,500 px PNG | 38/41 | 8/8 | 7/8 | 12/12 | 11/13 |
-| simulated scan (150 dpi, skewed, noisy, in a PDF) | 37/41 | 7/8 | 7/8 | 12/12 | 11/13 |
-| rough scan (200 dpi on grey paper, rotated, blurred, hand markings) | 33/41 | 7/8 | 6/8 | 9/12 | 11/13 |
-| 2,000 px JPG (screenshot size) | 31/41 | 8/8 | 1/8 | 12/12 | 10/13 |
+| vector PDF page | **41/41** | 8/8 | 8/8 | 12/12 | 13/13 |
+| full-resolution PNG | **41/41** | 8/8 | 8/8 | 12/12 | 13/13 |
+| 2,500 px PNG | 39/41 | 8/8 | 8/8 | 12/12 | 11/13 |
+| simulated scan (150 dpi, skewed, noisy, in a PDF) | 39/41 | 8/8 | 8/8 | 12/12 | 11/13 |
+| rough scan (200 dpi on grey paper, rotated, blurred, hand markings) | 39/41 | 8/8 | 8/8 | 12/12 | 11/13 |
+| 2,000 px JPG (screenshot size) | 38/41 | 8/8 | 7/8 | 12/12 | 11/13 |
 
 The school plan's door gold is 114, not 128: closet doors are excluded, per Stoa's rule (the viewer shows them
 unticked). Before the specialists, the generic reader got 22, 18, 15, 17 and 18 of the original 34 questions on the
 vector PDF, full-resolution PNG, 2,000 px JPG, 2,500 px PNG and scan
-([`runs/stoa_examples_baseline_forms.summary.md`](runs/stoa_examples_baseline_forms.summary.md)); the specialists get
-33, 30, 24, 31 and 30. On 11 questions about sibling sheets from the same public drawing sets, never used while
+([`runs/stoa_examples_baseline_forms.summary.md`](runs/stoa_examples_baseline_forms.summary.md)). On 11 questions about sibling sheets from the same public drawing sets, never used while
 building, the full-resolution v8 run gets 9 (it misses a first-floor common-area total and the radial bar size on a
 tank slab). API cost for all 41 questions: $0.003 on the vector PDFs, $0.09 to $0.20 on the images and scans.
 
-**Where it is weak.** Small JPGs where the room names are unreadable: at 2,000 px the school sheet's room labels are
-a few pixels high, so room-level questions (areas, baseboards) ask which room is meant instead of guessing, and only
-1 of its 8 questions comes out right. Window counts on the school plan are scored wrong on every form: we
-find 67 exterior windows (68 by our own hand count) plus 11 internal glazed panels, while the example gold,
-counted earlier, says about 101; we have not settled which count is right. Door counts on the dormitory module
-sheet are unreliable. Slab areas on unseen sheets: on the held-out imperial slab plan S-100A the areas
-come out 23 to 41 % low, and the answer says it is unsure. On a harder set of 40 questions written the way a
-site engineer would ask them (13 sheets, Finnish / English / German / Swedish, 5 that must be declined), a run
-at midday got 91 of 160 answers right across four upload forms
-([`runs/judge_baseline.summary.md`](runs/judge_baseline.summary.md)); the misses were per-room door counts, room-level areas and
-baseboards on the school plan, slab volumes, and a slab area asked in Finnish. The example sheets are public US government and UK OGL drawings; they are
+**Where it is weak.** Piping label counts on scans: pipe-support and pressure-gauge counts come out one or two off
+on scans and smaller images (42 or 43 supports for 41, 20 or 22 gauges for 21), and the 2,000 px JPG reads 46
+supports. Room baseboards on coarse scans come out low, because gaps for windows in the wall are treated as
+doorways and deducted. And an occasional slab-area miss when a rough scan merges two rooms into one. Slab areas on unseen sheets: on the held-out imperial slab plan S-100A the areas
+come out 23 to 41 % low, and the answer says it is unsure. On a harder set of 41 questions written the way a
+site engineer would ask them (13 sheets, Finnish / English / German / Swedish, 5 that must be declined), the
+overnight run got 208 of 246 answers right across six upload forms, and 139 of 164 on the four scan and image forms,
+up from 89 in the afternoon run `judge_scan_1739`
+([`runs/judge_overnight.summary.md`](runs/judge_overnight.summary.md)); most remaining misses are room-level baseboard
+and tiling totals, and room and slab questions on the rough scan. The example sheets are public US government and UK OGL drawings; they are
 not stored in this repository ([docs/research/EXAMPLE-SOURCES.md](docs/research/EXAMPLE-SOURCES.md)).
 
 ## Results

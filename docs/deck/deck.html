@@ -243,21 +243,23 @@
   a question goes to a specialist that reads the sheet's own text and lines: doors and windows, room areas and
   baseboard metres, schedule tables and colour zones, slab area by type (thickness + bars), pipe tags, sizes and run
   lengths. The answer shows table cells, measured lines and zones, and replays how it was worked out in 2-4 s.
-  41 questions on Stoa's four example sheets, uploaded through the real API: vector PDF 40, full-res PNG 37,
-  2,500 px PNG 38, simulated scan 37, rough hand-marked scan 33, 2,000 px JPG 31 (runs/stoa_examples_v9c_forms).
+  41 questions on Stoa's four example sheets, uploaded through the real API: vector PDF 41, full-res PNG 41,
+  2,500 px PNG 39, simulated scan 39, rough hand-marked scan 39, 2,000 px JPG 38; 237 of 246
+  (runs/stoa_examples_v10_forms). Harder engineer-style set: 139 of 164 on four scan forms, 208 of 246 on six
+  (runs/judge_overnight).
   Door counts follow Stoa's rule (closet doors not counted). Sibling sheets never used in development: 9 of 11.
-  Weak: small JPGs where room names are unreadable (it asks which room instead of guessing); window counts on the
-  school plan; the dorm module's doors. API cost: $0.003 for all 41 on PDFs. -->
+  Weak: piping label counts on scans off by one or two; room baseboards on coarse scans come out low (window gaps
+  are treated as doorways); an occasional slab-area miss when a rough scan merges two rooms. API cost: $0.003 for all 41 on PDFs. -->
 <section class="slide">
-  <h2>Stoa’s example sheets: 40 of 41 from a PDF, 37 from a scan.</h2>
+  <h2>Stoa’s example sheets:<br>41 of 41 from a PDF, 39 from a scan.</h2>
   <p>Floor, slab and piping plans. Right answers by upload form:</p>
   <div class="hbar" style="margin-top:72px; row-gap:28px; grid-template-columns:520px 1fr">
-    <div class="lab o">Vector PDF</div><div class="track o" style="height:64px"><i style="width:calc(40 / 41 * 960px)"></i><em>40 / 41</em></div>
-    <div class="lab">Full-resolution PNG</div><div class="track o" style="height:64px"><i style="width:calc(37 / 41 * 960px)"></i><em>37</em></div>
-    <div class="lab">2,500 px PNG</div><div class="track o" style="height:64px"><i style="width:calc(38 / 41 * 960px)"></i><em>38</em></div>
-    <div class="lab">Scanned PDF</div><div class="track o" style="height:64px"><i style="width:calc(37 / 41 * 960px)"></i><em>37</em></div>
-    <div class="lab">Rough hand-marked scan</div><div class="track o" style="height:64px"><i style="width:calc(33 / 41 * 960px)"></i><em>33</em></div>
-    <div class="lab">2,000 px JPG</div><div class="track o" style="height:64px"><i style="width:calc(31 / 41 * 960px)"></i><em>31</em></div>
+    <div class="lab o">Vector PDF</div><div class="track o" style="height:64px"><i style="width:calc(41 / 41 * 960px)"></i><em>41 / 41</em></div>
+    <div class="lab">Full-resolution PNG</div><div class="track o" style="height:64px"><i style="width:calc(41 / 41 * 960px)"></i><em>41</em></div>
+    <div class="lab">2,500 px PNG</div><div class="track o" style="height:64px"><i style="width:calc(39 / 41 * 960px)"></i><em>39</em></div>
+    <div class="lab">Scanned PDF</div><div class="track o" style="height:64px"><i style="width:calc(39 / 41 * 960px)"></i><em>39</em></div>
+    <div class="lab">Rough hand-marked scan</div><div class="track o" style="height:64px"><i style="width:calc(39 / 41 * 960px)"></i><em>39</em></div>
+    <div class="lab">2,000 px JPG</div><div class="track o" style="height:64px"><i style="width:calc(38 / 41 * 960px)"></i><em>38</em></div>
   </div>
   <div class="foot"><span>Stoa’s four example sheets, 41 questions</span><span>9</span></div>
 </section>
@@ -302,8 +304,9 @@
   Scoring. Counts exact, areas, lengths and volumes within 2 %. "Not sure" counts as wrong. Free text: LLM judge,
   same rubric for every system.
   Sheets. 41 questions on Stoa's four example sheets; gold printed on the sheet or measured by hand (wider tolerance).
-  Sibling sheets never used in development: 9 / 11. Closet doors not counted (Stoa's rule). Weak: small JPGs with
-  unreadable room names (it asks which room), school window counts, dorm-module doors. runs/stoa_examples_v9c_*.
+  Sibling sheets never used in development: 9 / 11. Closet doors not counted (Stoa's rule). Weak: piping label
+  counts on scans (off by one or two), baseboards on coarse scans (low), slab area when a rough scan merges two rooms.
+  runs/stoa_examples_v10_forms, runs/judge_overnight.
   Ours. All 25,420 test questions, 90.7 % [95 % CI 90.4-91.1]; declines 11.7 %. runs/router_full_test_v8.
   Frontier. 400 test questions stratified by source and type (~54 per cell), re-weighted to the test mix;
   stratified-bootstrap CI. Sonnet 5.5 + files 69.8 % [60.9-78.4], drawing only 63.2 %; Gemini 3.1 Pro 64.2 %;

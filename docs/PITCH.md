@@ -104,8 +104,8 @@ one and the total ticks up to 18,472 SF.]*
 > Your final round uses sheets nobody has seen. Floor plans, slab plans, piping plans
 > go to specialists that read the sheet's own text and lines.
 > **Eighteen thousand four hundred and seventy-two square feet**, added up from the cells it outlined.
-> On your four example sheets: **forty of forty-one** from the PDF, thirty-seven from a scan.
-> Where a small screenshot leaves a room name unreadable, it asks which room instead of guessing.
+> On your four example sheets: **forty-one of forty-one** from the PDF, thirty-nine from a scan,
+> thirty-eight from a small screenshot.
 
 (Checked: this question on the dormitory PDF answers 18,472 from the sheet's schedule, `runs/stoa_examples_v9_pdf.summary.md`, dorm5.)
 
@@ -231,18 +231,18 @@ from the PDF alone (it even caught one of our own area errors).
 
 **"Will it work on the unseen sheets in the final round?"**
 That is what the sheet specialists are for, and we measured them the way the final round works: Stoa's four
-example sheets uploaded through the app's API in six forms. 41 questions: 40 right from the vector PDF, 37 from
-the full-resolution PNG, 38 from a 2,500 px PNG, 37 from a simulated scan, 33 from a rough hand-marked scan and 31
-from the 2,000 px screenshots. (Door counts follow your rule: closet doors are not counted.)
+example sheets uploaded through the app's API in six forms. 41 questions: 41 right from the vector PDF, 41 from
+the full-resolution PNG, 39 from a 2,500 px PNG, 39 from a simulated scan, 39 from a rough hand-marked scan and 38
+from the 2,000 px screenshots (`runs/stoa_examples_v10_forms.summary.md`). (Door counts follow your rule: closet doors are not counted.)
 On sibling sheets from the same public sets, never used while building, 9 of 11. Before the specialists, the
 generic reader got 22 of the original 34 on the PDFs.
 
 **"What's weak on sheets?"**
-Three things. Small screenshots where room names are unreadable: on the 2,000 px school plan it asks which room
-you mean instead of guessing, so only 1 of its 8 questions is right. Window counts on the school plan. And door
-counts on the dorm module. On a
-harder set of 40 questions worded like a site engineer would (four languages, 5 that must be declined), a run at
-midday got 91 of 160 across four upload forms; per-room door counts and slab volumes were the misses.
+Three things. Piping label counts on scans can be off by one or two. Room baseboards on coarse scans come out
+low, because window gaps in the wall are treated as doorways. And an occasional slab-area miss when a rough scan
+merges two rooms. On a harder set of 41 questions worded like a site engineer would (four languages, 5 that must
+be declined), the overnight run got 208 of 246 across six upload forms, and 139 of 164 on the four scan forms,
+up from 89 that afternoon (`runs/judge_overnight.summary.md`).
 
 **"How does it do on real-world scans?"**
 The Finnish plans are raster scans: 86.1 % on all 16,496 test questions, 93.5 % when it answers, against 63.6 %

@@ -309,16 +309,17 @@
       <table class="hw-sform">
         <caption class="hw-sr">Right answers out of 41, by the form the sheet was uploaded in</caption>
         <tbody>
-          <tr><th scope="row">Vector PDF</th><td><div class="hw-sbar2"><i style="--w:97.6%"></i></div></td><td class="hw-r">40</td></tr>
-          <tr><th scope="row">Full-resolution PNG</th><td><div class="hw-sbar2"><i style="--w:90.2%"></i></div></td><td class="hw-r">37</td></tr>
-          <tr><th scope="row">2,500&nbsp;px PNG</th><td><div class="hw-sbar2"><i style="--w:92.7%"></i></div></td><td class="hw-r">38</td></tr>
-          <tr><th scope="row">Scanned PDF</th><td><div class="hw-sbar2"><i style="--w:90.2%"></i></div></td><td class="hw-r">37</td></tr>
-          <tr><th scope="row">Rough hand-marked scan</th><td><div class="hw-sbar2"><i style="--w:80.5%"></i></div></td><td class="hw-r">33</td></tr>
-          <tr><th scope="row">2,000&nbsp;px JPG</th><td><div class="hw-sbar2"><i style="--w:75.6%"></i></div></td><td class="hw-r">31</td></tr>
+          <tr><th scope="row">Vector PDF</th><td><div class="hw-sbar2"><i style="--w:100%"></i></div></td><td class="hw-r">41</td></tr>
+          <tr><th scope="row">Full-resolution PNG</th><td><div class="hw-sbar2"><i style="--w:100%"></i></div></td><td class="hw-r">41</td></tr>
+          <tr><th scope="row">2,500&nbsp;px PNG</th><td><div class="hw-sbar2"><i style="--w:95.1%"></i></div></td><td class="hw-r">39</td></tr>
+          <tr><th scope="row">Scanned PDF</th><td><div class="hw-sbar2"><i style="--w:95.1%"></i></div></td><td class="hw-r">39</td></tr>
+          <tr><th scope="row">Rough hand-marked scan</th><td><div class="hw-sbar2"><i style="--w:95.1%"></i></div></td><td class="hw-r">39</td></tr>
+          <tr><th scope="row">2,000&nbsp;px JPG</th><td><div class="hw-sbar2"><i style="--w:92.7%"></i></div></td><td class="hw-r">38</td></tr>
         </tbody>
       </table>
-      <p class="hw-note">Weakest: small JPGs where room names are unreadable (it asks which room instead of guessing), window counts
-        on the school plan, and the dorm module’s doors. Closet doors are not counted, per Stoa’s rule.</p>
+      <p class="hw-note">Weakest: piping label counts on scans, off by one or two; room baseboards on coarse scans, which come out
+        low (window gaps are treated as doorways); and an occasional slab-area miss when a rough scan merges two rooms.
+        Closet doors are not counted, per Stoa’s rule.</p>
     </figure>
   </div>
 </section>
@@ -346,7 +347,7 @@
       <tr id="hood-cad"><th scope="row">IfcOpenShell, ezdxf, PyMuPDF<small>exact geometry and vector text</small></th><td>BIM models, CAD plans, vector PDFs</td><td class="hw-r">0</td><td>100&nbsp;% on 600 IFC questions; 99.95&nbsp;% on 8,214 Swiss plan questions</td></tr>
       <tr id="hood-detector"><th scope="row">YOLO11m detector<small>trained by us on CubiCasa5K, on a local RTX&nbsp;4070</small></th><td>scanned residential plans; doors and windows on small floor-plan images</td><td class="hw-r">0</td><td>85.1&nbsp;% alone on 16,496 scan questions</td></tr>
       <tr id="hood-vlm"><th scope="row">Qwen3-VL-8B + our LoRA<small>fine-tuned on 2× Verda H100s</small></th><td>the same scans: second opinion on every count; takes over only where a dev-fit rule says the detector is unsure and it is sure</td><td class="hw-r">0.00016</td><td>with it: 86.1&nbsp;%; when both agree, 94.9&nbsp;% right</td></tr>
-      <tr id="hood-sheets"><th scope="row">Sheet specialists, Tesseract OCR<small>plain code, OpenCV, local OCR</small></th><td>floor, slab and piping sheets you upload</td><td class="hw-r">0 on PDFs</td><td>40 of 41 on Stoa’s example sheets as PDFs, 37 as a scan</td></tr>
+      <tr id="hood-sheets"><th scope="row">Sheet specialists, Tesseract OCR<small>plain code, OpenCV, local OCR</small></th><td>floor, slab and piping sheets you upload</td><td class="hw-r">0 on PDFs</td><td>41 of 41 on Stoa’s example sheets as PDFs, 39 as a scan</td></tr>
       <tr id="hood-haiku"><th scope="row">Claude Haiku 5.5<small>through the API</small></th><td>free-text questions; checking what an upload is; translating a question; reading text OCR cannot</td><td class="hw-r">~0.003</td><td>38.2&nbsp;% on 110 free-text BIM questions, our weak spot</td></tr>
     </tbody>
   </table>
@@ -379,7 +380,7 @@
   <p>Numbers: README and <code>docs/RESULTS.md</code>; ours from <code>runs/router_full_test_v8</code> (all 25,420 test questions, split by
     whole drawing); frontier models on a 400-question stratified sample re-weighted to the test mix, API list price; curve from
     <code>analysis/out/selective_all_curve.csv</code>; second opinion from <code>runs/crosscheck_test.summary.md</code>, <code>runs/crosscheck_vlm_test_v7.summary.md</code>, <code>runs/cubicasa_test_vlmarb.summary.md</code>;
-    provenance from <code>docs/PROVENANCE.md</code>; under the hood from <code>docs/ARCHITECTURE.md</code>; construction sheets from <code>runs/stoa_examples_v9c_forms.summary.md</code>
+    provenance from <code>docs/PROVENANCE.md</code>; under the hood from <code>docs/ARCHITECTURE.md</code>; construction sheets from <code>runs/stoa_examples_v10_forms.summary.md</code>
     (gold printed on the sheet, or measured by hand with a wider tolerance).</p>
   <p>Drawings: Swiss Dwellings v3.0.0, M. Standfest et al. (Archilyse AG), doi:10.5281/zenodo.7788422, CC BY 4.0. Questions: Junction 2026
     dataset by Stoa (non-commercial, per-file licences); IFC-Bench v2, © 2025 Sylvain Hellin (TUM), CC BY 4.0.</p>
