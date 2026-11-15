@@ -975,8 +975,15 @@ def _join_rows(body: list[dict]) -> list[dict]:
                    and len(_norm_txt(o["text"])) > len(t)):
                 continue
             if keep and _overlap(ln["bbox"], keep[-1]["bbox"]) > 0.6:
-                if len(ln["text"]) > len(keep[-1]["text"]):
-                    keep[-1] = ln
+                # the same piece read twice: the vision reading (tesseract garbles scan text: 'FILTEB', 'NECESS')
+                # unless it is much shorter, else the longer one
+                a, b = keep[-1], ln
+                va, vb = _src_kind(a.get("src", "")) == "vision", _src_kind(b.get("src", "")) == "vision"
+                if vb != va:
+                    v, o = (b, a) if vb else (a, b)
+                    keep[-1] = v if len(v["text"]) >= 0.7 * len(o["text"]) else o
+                elif len(b["text"]) > len(a["text"]):
+                    keep[-1] = b
                 continue
             keep.append(ln)
         out.append({**keep[0], "text": " ".join(x["text"].strip() for x in keep),
