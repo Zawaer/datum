@@ -35,10 +35,32 @@ def post(url, data, ctype, timeout=300):
         return json.load(r)
 
 
-def sheet_file(name: str, lowres: bool = False) -> Path:
-    """The sheet as uploaded: the full-resolution original (<stem>_hires.png) when we have it."""
+def sheet_file(name: str, lowres: bool = False, form: str = "") -> Path:
+    """The sheet as uploaded: one of the input forms of analysis/stoa_forms.py (hires / lowres / png2500 / pdf /
+    scanpdf) for the four example sheets, else the full-resolution original (<stem>_hires.png) when we have it."""
+    sys.path.insert(0, str(ROOT / "analysis"))
+    import stoa_forms
+
+    stem = Path(name).stem
+    if form and stem in stoa_forms.SRC:
+        return stoa_forms.path(stem, form)
     hi = SHEETS_DIR / (Path(name).stem + "_hires.png")
     return hi if hi.exists() and not lowres else SHEETS_DIR / name
+
+
+def sheet_image(f: Path):
+    """PIL image of the uploaded file's first page, for the overlay."""
+    from PIL import Image
+
+    Image.MAX_IMAGE_PIXELS = None
+    if f.suffix.lower() == ".pdf":
+        import pymupdf
+
+        pg = pymupdf.open(f)[0]
+        z = 2400 / max(pg.rect.width, pg.rect.height)
+        pix = pg.get_pixmap(matrix=pymupdf.Matrix(z, z), alpha=False)
+        return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+    return Image.open(f).convert("RGB")
 
 
 def upload(server, f: Path):
@@ -94,7 +116,7 @@ def overlay(sheet: Path, res: dict, out: Path, title: str):
     from PIL import Image, ImageDraw
 
     Image.MAX_IMAGE_PIXELS = None
-    im = Image.open(sheet).convert("RGB")
+    im = sheet_image(sheet)
     im.thumbnail((2400, 2400))
     W, H = im.size
     d = ImageDraw.Draw(im, "RGBA")
@@ -149,6 +171,9 @@ def main():
     ap.add_argument("--rescore", default="")
     ap.add_argument("--no-png", action="store_true")
     ap.add_argument("--lowres", action="store_true", help="upload the ~2000 px screenshots, not the *_hires.png")
+    ap.add_argument("--forms", default="", help="comma list of input forms (hires,lowres,png2500,pdf,scanpdf): the "
+                                                "example sheets are uploaded in each form (held-out sheets: hires only); "
+                                                "one run per form, named <name>_<form>")
     a = ap.parse_args()
     qs = [json.loads(line) for line in QFILE.read_text().splitlines() if line.strip()]
     if a.rescore:
@@ -164,6 +189,30 @@ def main():
         Path(a.rescore).with_suffix(".summary.md").write_text(summary(rows, name))
         print(summary(rows, name))
         return
+    forms = [f for f in a.forms.split(",") if f]
+    if not forms:
+        run(a, qs, "", a.name)
+        return
+    tables = []
+    for form in forms:
+        sub = [q for q in qs if form == "hires" or q.get("split") != "heldout"]
+        tables.append((form, run(a, sub, form, f"{a.name}_{form}")))
+    lines = [f"# Stoa example sheets by input form: {a.name}", "", "| form | correct | answered | by sheet |", "|---|---|---|---|"]
+    for form, rows in tables:
+        ex = [r for r in rows if r.get("split") != "heldout"]
+        by = {}
+        for r in ex:
+            b = by.setdefault(Path(r["sheet"]).name.split("_")[0], [0, 0])
+            b[0] += r["ok"]
+            b[1] += 1
+        lines.append(f"| {form} | {sum(r['ok'] for r in ex)}/{len(ex)} | "
+                     f"{sum(r['res'].get('answer') is not None for r in ex)}/{len(ex)} | "
+                     + ", ".join(f"{k} {v[0]}/{v[1]}" for k, v in by.items()) + " |")
+    (ROOT / f"runs/stoa_examples_{a.name}_forms.summary.md").write_text("\n".join(lines) + "\n")
+    print("\n".join(lines))
+
+
+def run(a, qs, form, name):
     if a.split:
         qs = [q for q in qs if (q.get("split") or "examples") == a.split]
     if a.only:
@@ -172,29 +221,31 @@ def main():
     paths = {}
     for s in sorted({q["sheet"] for q in qs}):
         t0 = time.time()
-        u = upload(a.server, sheet_file(s, a.lowres))
+        u = upload(a.server, sheet_file(s, a.lowres, form))
         paths[s] = u["path"]
-        print(f"uploaded {s} -> {u['path']} ({time.time() - t0:.1f}s) notes={u.get('notes')}", file=sys.stderr)
-    out = ROOT / f"runs/stoa_examples_{a.name}.jsonl"
+        print(f"uploaded {sheet_file(s, a.lowres, form).name} -> {u['path']} ({time.time() - t0:.1f}s) "
+              f"notes={u.get('notes')}", file=sys.stderr)
+    out = ROOT / f"runs/stoa_examples_{name}.jsonl"
     rows = []
 
     def one(q):
         res = ask(a.server, paths[q["sheet"]], q["question"])
-        return {**q, "path": paths[q["sheet"]], "res": res, "ok": score(q, res.get("answer"))}
+        return {**q, "form": form or "default", "path": paths[q["sheet"]], "res": res, "ok": score(q, res.get("answer"))}
 
     with cf.ThreadPoolExecutor(a.jobs) as ex:
         for r in ex.map(one, qs):
             rows.append(r)
             res = r["res"]
-            print(f"[{'OK' if r['ok'] else '--'}] {r['id']}: {r['question']} -> {res.get('answer')!s:.50} "
+            print(f"[{'OK' if r['ok'] else '--'}] {form} {r['id']}: {r['question']} -> {res.get('answer')!s:.50} "
                   f"(gold {r['gold']}, conf {res.get('confidence')}, {res.get('route')}/{res.get('method')}, "
                   f"{res.get('latency_s')}s)", file=sys.stderr, flush=True)
             if not a.no_png:
-                overlay(sheet_file(r["sheet"], a.lowres), res, ROOT / f"runs/stoa_examples_{a.name}/{r['id']}.png",
+                overlay(sheet_file(r["sheet"], a.lowres, form), res, ROOT / f"runs/stoa_examples_{name}/{r['id']}.png",
                         f"{r['id']}: {r['question']}  (gold {r['gold']})")
     out.write_text("".join(json.dumps(r) + "\n" for r in rows))
-    out.with_suffix(".summary.md").write_text(summary(rows, a.name))
-    print(summary(rows, a.name))
+    out.with_suffix(".summary.md").write_text(summary(rows, name))
+    print(summary(rows, name))
+    return rows
 
 
 if __name__ == "__main__":
