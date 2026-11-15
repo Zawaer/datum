@@ -114,7 +114,7 @@ Python, FastAPI, IfcOpenShell, ezdxf, PyMuPDF (vector text and linework of PDF s
 
 ## Links
 
-- Demo: the hosted demo link given in the form
+- Demo: https://datum.toivo.dev
 - Source: https://github.com/Zawaer/datum
 - Video: VIDEO_LINK (script: `docs/video.md`)
 - Deck: `docs/deck/deck.pdf`

@@ -37,7 +37,7 @@ PDFs and full-resolution images, 39 from scans and 2,500 px images, 38 from smal
 ![Counting doors on a Swiss apartment plan: the plan tilted up into a cut-away 3D model with the 20 counted doors painted on the floor and a numbered pin on each, next to the answer 20, "Verified by geometry", and a second, independent method that agrees](docs/deck/img/feat-3d.jpg)
 <sub>Drawing: Swiss Dwellings v3.0.0, Archilyse AG, CC BY 4.0 (rendered by the Junction dataset authors).</sub>
 
-- **Demo:** link in the Junction submission (rate-limited hosted demo) &nbsp;·&nbsp; **Video (2 min):** VIDEO_LINK &nbsp;·&nbsp; **Deck:** [docs/deck/deck.pdf](docs/deck/deck.pdf)
+- **Demo:** [datum.toivo.dev](https://datum.toivo.dev) (rate-limited) &nbsp;·&nbsp; **Video (2 min):** VIDEO_LINK &nbsp;·&nbsp; **Deck:** [docs/deck/deck.pdf](docs/deck/deck.pdf)
 - **Full results** (every table, figure and CI): [docs/RESULTS.md](docs/RESULTS.md) &nbsp;·&nbsp; **Costs:** [docs/COSTS.md](docs/COSTS.md)
 
 ## What you can do in the demo
